@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import QMDKit
+@testable import Memory
 
 struct QMDIndexTests {
     @Test

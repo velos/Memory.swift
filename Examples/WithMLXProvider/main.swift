@@ -1,6 +1,6 @@
 import Foundation
-import QMDKit
-import QMDKitMLX
+import Memory
+import MemoryMLX
 
 @main
 struct MLXProviderExample {

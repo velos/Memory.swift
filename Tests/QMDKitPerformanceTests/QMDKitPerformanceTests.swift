@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import QMDKit
+@testable import Memory
 
 private actor PerfEmbeddingProvider: EmbeddingProvider {
     let identifier = "perf-mock"

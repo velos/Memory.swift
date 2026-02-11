@@ -1,6 +1,6 @@
 import Foundation
 import NaturalLanguage
-import QMDKit
+import Memory
 
 public actor NLContextualEmbeddingProvider: EmbeddingProvider {
     public let identifier: String

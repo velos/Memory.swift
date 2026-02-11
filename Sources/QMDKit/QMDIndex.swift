@@ -1,7 +1,7 @@
 import Accelerate
 import CryptoKit
 import Foundation
-import QMDKitStorage
+import MemoryStorage
 
 public actor QMDIndex {
     private let configuration: QMDConfiguration

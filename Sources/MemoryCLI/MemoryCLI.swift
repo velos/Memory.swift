@@ -1,7 +1,7 @@
 import ArgumentParser
 import Foundation
-import QMDKit
-import QMDKitNaturalLanguage
+import Memory
+import MemoryNaturalLanguage
 
 struct StoredCollection: Codable, Hashable {
     var name: String
@@ -22,7 +22,7 @@ struct CLIPaths {
 
     static func `default`() throws -> CLIPaths {
         let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".qmd-swift", isDirectory: true)
+            .appendingPathComponent(".memory", isDirectory: true)
         return CLIPaths(
             rootDirectory: root,
             stateFileURL: root.appendingPathComponent("state.json"),
@@ -111,10 +111,10 @@ struct CLIContext {
 }
 
 @main
-struct QMDSwiftCLI: AsyncParsableCommand {
+struct MemoryCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "qmd.swift",
-        abstract: "qmd-inspired CLI for testing QMDKit.",
+        commandName: "memory",
+        abstract: "Memory CLI for testing Memory.",
         subcommands: [
             CollectionCommand.self,
             ContextCommand.self,
@@ -143,7 +143,7 @@ struct CollectionAddCommand: AsyncParsableCommand {
     @Argument(help: "Path to collection root.")
     var path: String
 
-    @Option(name: .long, help: "Collection name (used as qmd://<name>).")
+    @Option(name: .long, help: "Collection name (used as memory://<name>).")
     var name: String
 
     mutating func run() async throws {
@@ -168,7 +168,7 @@ struct CollectionAddCommand: AsyncParsableCommand {
         state.collections.sort { $0.name < $1.name }
 
         try context.store.save(state)
-        print("Added collection qmd://\(normalizedName) -> \(absoluteURL.path)")
+        print("Added collection memory://\(normalizedName) -> \(absoluteURL.path)")
     }
 }
 
@@ -183,7 +183,7 @@ struct CollectionListCommand: AsyncParsableCommand {
         }
 
         for collection in context.state.collections {
-            print("qmd://\(collection.name)\t\(collection.path)")
+            print("memory://\(collection.name)\t\(collection.path)")
         }
     }
 }
@@ -191,7 +191,7 @@ struct CollectionListCommand: AsyncParsableCommand {
 struct CollectionRemoveCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "remove")
 
-    @Argument(help: "Collection name or qmd:// URI.")
+    @Argument(help: "Collection name or memory:// URI.")
     var collection: String
 
     mutating func run() async throws {
@@ -208,7 +208,7 @@ struct CollectionRemoveCommand: AsyncParsableCommand {
         }
 
         try context.store.save(state)
-        print("Removed collection qmd://\(name)")
+        print("Removed collection memory://\(name)")
     }
 }
 
@@ -223,7 +223,7 @@ struct ContextCommand: AsyncParsableCommand {
 struct ContextAddCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "add")
 
-    @Argument(help: "Collection URI in qmd://<name> format.")
+    @Argument(help: "Collection URI in memory://<name> format.")
     var collectionURI: String
 
     @Argument(help: "Context text for the collection.")
@@ -234,17 +234,17 @@ struct ContextAddCommand: AsyncParsableCommand {
         var state = context.state
 
         guard let name = parseCollectionRef(collectionURI) else {
-            throw ValidationError("Collection URI must use qmd://<name> format.")
+            throw ValidationError("Collection URI must use memory://<name> format.")
         }
 
         guard state.collections.contains(where: { $0.name == name }) else {
-            throw ValidationError("Collection qmd://\(name) does not exist.")
+            throw ValidationError("Collection memory://\(name) does not exist.")
         }
 
         state.contexts[name] = description
         try context.store.save(state)
 
-        print("Added context for qmd://\(name)")
+        print("Added context for memory://\(name)")
     }
 }
 
@@ -260,7 +260,7 @@ struct ContextListCommand: AsyncParsableCommand {
 
         for key in context.state.contexts.keys.sorted() {
             let value = context.state.contexts[key] ?? ""
-            print("qmd://\(key)\t\(value)")
+            print("memory://\(key)\t\(value)")
         }
     }
 }
@@ -268,7 +268,7 @@ struct ContextListCommand: AsyncParsableCommand {
 struct ContextRemoveCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "remove")
 
-    @Argument(help: "Collection URI in qmd://<name> format.")
+    @Argument(help: "Collection URI in memory://<name> format.")
     var collectionURI: String
 
     mutating func run() async throws {
@@ -276,15 +276,15 @@ struct ContextRemoveCommand: AsyncParsableCommand {
         var state = context.state
 
         guard let name = parseCollectionRef(collectionURI) else {
-            throw ValidationError("Collection URI must use qmd://<name> format.")
+            throw ValidationError("Collection URI must use memory://<name> format.")
         }
 
         guard state.contexts.removeValue(forKey: name) != nil else {
-            throw ValidationError("No context for qmd://\(name)")
+            throw ValidationError("No context for memory://\(name)")
         }
 
         try context.store.save(state)
-        print("Removed context for qmd://\(name)")
+        print("Removed context for memory://\(name)")
     }
 }
 
@@ -295,7 +295,7 @@ struct EmbedCommand: AsyncParsableCommand {
         let context = try CLIContext.load()
 
         guard !context.state.collections.isEmpty else {
-            throw ValidationError("No collections configured. Run 'qmd.swift collection add <path> --name <name>' first.")
+            throw ValidationError("No collections configured. Run 'memory collection add <path> --name <name>' first.")
         }
 
         let roots = context.state.collections.map { URL(fileURLWithPath: $0.path) }
@@ -482,7 +482,7 @@ private func runSearch(
     let context = try CLIContext.load()
 
     guard !context.state.collections.isEmpty else {
-        throw ValidationError("No collections configured. Run 'qmd.swift collection add' first.")
+        throw ValidationError("No collections configured. Run 'memory collection add' first.")
     }
 
     let scopedCollection: StoredCollection?
@@ -538,9 +538,17 @@ private func runSearch(
 }
 
 private func parseCollectionRef(_ value: String) -> String? {
-    guard value.hasPrefix("qmd://") else { return nil }
-    let raw = value.dropFirst("qmd://".count)
-    return raw.isEmpty ? nil : String(raw)
+    if value.hasPrefix("memory://") {
+        let raw = value.dropFirst("memory://".count)
+        return raw.isEmpty ? nil : String(raw)
+    }
+
+    if value.hasPrefix("qmd://") {
+        let raw = value.dropFirst("qmd://".count)
+        return raw.isEmpty ? nil : String(raw)
+    }
+
+    return nil
 }
 
 private func normalizeCollectionArgument(_ value: String) -> String {

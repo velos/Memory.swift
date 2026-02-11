@@ -1,6 +1,6 @@
 import Foundation
 import MLX
-import QMDKit
+import Memory
 
 public actor MLXEmbeddingProvider: EmbeddingProvider {
     public typealias EmbedBatch = @Sendable ([String]) async throws -> [[Float]]

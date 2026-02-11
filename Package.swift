@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "QMDKit",
+    name: "Memory.swift",
     platforms: [
         .iOS(.v18),
         .macOS(.v15),
     ],
     products: [
-        .library(name: "QMDKit", targets: ["QMDKit"]),
-        .library(name: "QMDKitNaturalLanguage", targets: ["QMDKitNaturalLanguage"]),
-        .library(name: "QMDKitMLX", targets: ["QMDKitMLX"]),
-        .executable(name: "qmd.swift", targets: ["qmd_swift"]),
+        .library(name: "Memory", targets: ["Memory"]),
+        .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
+        .library(name: "MemoryMLX", targets: ["MemoryMLX"]),
+        .executable(name: "memory", targets: ["memory_cli"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -20,48 +20,56 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "QMDKit",
-            dependencies: ["QMDKitStorage"]
+            name: "Memory",
+            dependencies: ["MemoryStorage"],
+            path: "Sources/QMDKit"
         ),
         .target(
-            name: "QMDKitStorage",
+            name: "MemoryStorage",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
-            ]
+            ],
+            path: "Sources/QMDKitStorage"
         ),
         .target(
-            name: "QMDKitNaturalLanguage",
-            dependencies: ["QMDKit"]
+            name: "MemoryNaturalLanguage",
+            dependencies: ["Memory"],
+            path: "Sources/QMDKitNaturalLanguage"
         ),
         .target(
-            name: "QMDKitMLX",
+            name: "MemoryMLX",
             dependencies: [
-                "QMDKit",
+                "Memory",
                 .product(name: "MLX", package: "mlx-swift"),
-            ]
+            ],
+            path: "Sources/QMDKitMLX"
         ),
         .executableTarget(
-            name: "qmd_swift",
+            name: "memory_cli",
             dependencies: [
-                "QMDKit",
-                "QMDKitNaturalLanguage",
+                "Memory",
+                "MemoryNaturalLanguage",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
+            ],
+            path: "Sources/MemoryCLI"
         ),
         .testTarget(
-            name: "QMDKitTests",
-            dependencies: ["QMDKit"]
+            name: "MemoryTests",
+            dependencies: ["Memory"],
+            path: "Tests/QMDKitTests"
         ),
         .testTarget(
-            name: "QMDKitIntegrationTests",
+            name: "MemoryIntegrationTests",
             dependencies: [
-                "QMDKit",
-                "QMDKitNaturalLanguage",
-            ]
+                "Memory",
+                "MemoryNaturalLanguage",
+            ],
+            path: "Tests/QMDKitIntegrationTests"
         ),
         .testTarget(
-            name: "QMDKitPerformanceTests",
-            dependencies: ["QMDKit"]
+            name: "MemoryPerformanceTests",
+            dependencies: ["Memory"],
+            path: "Tests/QMDKitPerformanceTests"
         ),
     ]
 )

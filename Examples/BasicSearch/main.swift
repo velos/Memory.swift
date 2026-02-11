@@ -1,6 +1,6 @@
 import Foundation
-import QMDKit
-import QMDKitNaturalLanguage
+import Memory
+import MemoryNaturalLanguage
 
 @main
 struct BasicSearchExample {
