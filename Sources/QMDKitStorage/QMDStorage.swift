@@ -1,38 +1,25 @@
 import Foundation
 import GRDB
 
-public struct StoredTermFrequency: Sendable {
-    public var term: String
-    public var tf: Int
-
-    public init(term: String, tf: Int) {
-        self.term = term
-        self.tf = tf
-    }
-}
-
 public struct StoredChunkInput: Sendable {
     public var ordinal: Int
     public var content: String
     public var tokenCount: Int
     public var embedding: [Float]
     public var norm: Double
-    public var terms: [StoredTermFrequency]
 
     public init(
         ordinal: Int,
         content: String,
         tokenCount: Int,
         embedding: [Float],
-        norm: Double,
-        terms: [StoredTermFrequency]
+        norm: Double
     ) {
         self.ordinal = ordinal
         self.content = content
         self.tokenCount = tokenCount
         self.embedding = embedding
         self.norm = norm
-        self.terms = terms
     }
 }
 
@@ -133,7 +120,6 @@ public actor QMDStorage {
     public func wipeIndexData() throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM context_chunks")
-            try db.execute(sql: "DELETE FROM terms")
             try db.execute(sql: "DELETE FROM embeddings")
             try db.execute(sql: "DELETE FROM chunks")
             try db.execute(sql: "DELETE FROM documents")
@@ -189,13 +175,6 @@ public actor QMDStorage {
                         chunk.norm,
                     ]
                 )
-
-                for term in chunk.terms where term.tf > 0 {
-                    try db.execute(
-                        sql: "INSERT INTO terms (chunk_id, term, tf) VALUES (?, ?, ?)",
-                        arguments: [chunkID, term.term, term.tf]
-                    )
-                }
             }
         }
     }
@@ -278,80 +257,76 @@ public actor QMDStorage {
         }
     }
 
+    public func fetchChunkMetadata(chunkID: Int64) throws -> StoredChunkMetadata? {
+        try dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT
+                    c.id AS chunk_id,
+                    c.content AS content,
+                    d.path AS document_path,
+                    d.title AS title,
+                    d.modified_at AS modified_at
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.id = ?
+                """,
+                arguments: [chunkID]
+            )
+
+            guard let row else { return nil }
+            return StoredChunkMetadata(
+                chunkID: row["chunk_id"],
+                content: row["content"],
+                documentPath: row["document_path"],
+                title: row["title"],
+                modifiedAt: Date(timeIntervalSince1970: row["modified_at"])
+            )
+        }
+    }
+
+    public func listDocumentPaths() throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(
+                db,
+                sql: "SELECT path FROM documents ORDER BY path ASC"
+            )
+        }
+    }
+
     public func lexicalSearch(
-        queryTerms: [String],
+        query: String,
         limit: Int,
         allowedChunkIDs: Set<Int64>? = nil
     ) throws -> [LexicalHit] {
-        let normalizedTerms = Array(Set(queryTerms)).sorted()
-        guard !normalizedTerms.isEmpty else { return [] }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let pattern = FTS5Pattern(matchingAnyTokenIn: trimmed) else { return [] }
 
         return try dbQueue.read { db in
-            let totalChunks = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM chunks") ?? 0
-            guard totalChunks > 0 else { return [] }
-
-            let avgTokenCount = try Double.fetchOne(db, sql: "SELECT AVG(token_count) FROM chunks") ?? 1
-
-            let dfSQL = """
-            SELECT term, COUNT(DISTINCT chunk_id) AS df
-            FROM terms
-            WHERE term IN (\(Self.placeholders(count: normalizedTerms.count)))
-            GROUP BY term
-            """
-            let dfRows = try Row.fetchAll(db, sql: dfSQL, arguments: StatementArguments(normalizedTerms))
-
-            var documentFrequency: [String: Int] = [:]
-            for row in dfRows {
-                let term: String = row["term"]
-                let df: Int = row["df"]
-                documentFrequency[term] = df
-            }
-
-            var arguments = StatementArguments(normalizedTerms)
-            var postingSQL = """
-            SELECT t.chunk_id AS chunk_id, t.term AS term, t.tf AS tf, c.token_count AS token_count
-            FROM terms t
-            JOIN chunks c ON c.id = t.chunk_id
-            WHERE t.term IN (\(Self.placeholders(count: normalizedTerms.count)))
+            var arguments = StatementArguments([pattern])
+            var sql = """
+            SELECT rowid AS chunk_id, rank AS rank
+            FROM chunks_fts
+            WHERE chunks_fts MATCH ?
             """
 
             if let allowedChunkIDs, !allowedChunkIDs.isEmpty {
                 let orderedAllowed = allowedChunkIDs.sorted()
-                postingSQL += " AND t.chunk_id IN (\(Self.placeholders(count: orderedAllowed.count)))"
+                sql += " AND rowid IN (\(Self.placeholders(count: orderedAllowed.count)))"
                 arguments += StatementArguments(orderedAllowed)
             }
 
-            let postingRows = try Row.fetchAll(db, sql: postingSQL, arguments: arguments)
+            sql += " ORDER BY rank LIMIT ?"
+            arguments += StatementArguments([max(1, limit)])
 
-            let k1 = 1.5
-            let b = 0.75
-            var scores: [Int64: Double] = [:]
-
-            for row in postingRows {
+            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+            return rows.enumerated().map { index, row in
                 let chunkID: Int64 = row["chunk_id"]
-                let term: String = row["term"]
-                let tf: Double = row["tf"]
-                let tokenCount: Double = row["token_count"]
-
-                let df = Double(documentFrequency[term] ?? 0)
-                guard df > 0 else { continue }
-
-                let idf = log((Double(totalChunks) - df + 0.5) / (df + 0.5) + 1.0)
-                let denominator = tf + k1 * (1.0 - b + b * tokenCount / max(1.0, avgTokenCount))
-                let bm25 = idf * ((tf * (k1 + 1.0)) / max(denominator, 0.000_001))
-
-                scores[chunkID, default: 0] += bm25
+                let rank: Double? = row["rank"]
+                let score = -(rank ?? Double(index + 1))
+                return LexicalHit(chunkID: chunkID, score: score)
             }
-
-            return scores
-                .sorted { lhs, rhs in
-                    if lhs.value == rhs.value {
-                        return lhs.key < rhs.key
-                    }
-                    return lhs.value > rhs.value
-                }
-                .prefix(max(1, limit))
-                .map { LexicalHit(chunkID: $0.key, score: $0.value) }
         }
     }
 
@@ -479,16 +454,6 @@ public actor QMDStorage {
                 table.column("norm", .double).notNull()
             }
 
-            try db.create(table: "terms") { table in
-                table.column("chunk_id", .integer).notNull()
-                    .references("chunks", onDelete: .cascade)
-                table.column("term", .text).notNull()
-                table.column("tf", .integer).notNull()
-                table.primaryKey(["chunk_id", "term"], onConflict: .replace)
-            }
-
-            try db.create(index: "terms_term", on: "terms", columns: ["term"])
-
             try db.create(table: "contexts") { table in
                 table.column("id", .text).primaryKey()
                 table.column("name", .text).notNull().unique(onConflict: .abort)
@@ -506,6 +471,13 @@ public actor QMDStorage {
             }
 
             try db.create(index: "context_chunks_context_chunk", on: "context_chunks", columns: ["context_id", "chunk_id"])
+        }
+
+        migrator.registerMigration("v2_chunks_fts5") { db in
+            try db.create(virtualTable: "chunks_fts", using: FTS5()) { table in
+                table.synchronize(withTable: "chunks")
+                table.column("content")
+            }
         }
 
         return migrator

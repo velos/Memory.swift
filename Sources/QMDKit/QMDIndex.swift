@@ -145,9 +145,8 @@ public actor QMDIndex {
         )
         events?(.semanticCandidates(count: semanticHits.count))
 
-        let terms = configuration.tokenizer.tokenize(normalizedText)
         let lexicalHits = try await storage.lexicalSearch(
-            queryTerms: terms,
+            query: normalizedText,
             limit: query.lexicalCandidateLimit,
             allowedChunkIDs: allowedChunkIDs
         )
@@ -229,6 +228,34 @@ public actor QMDIndex {
         }
     }
 
+    public func getChunk(id: Int64) async throws -> SearchResult? {
+        do {
+            guard let row = try await storage.fetchChunkMetadata(chunkID: id) else {
+                return nil
+            }
+
+            return SearchResult(
+                chunkID: row.chunkID,
+                documentPath: row.documentPath,
+                title: row.title,
+                content: row.content,
+                snippet: makeSnippet(content: row.content, queryText: nil),
+                modifiedAt: row.modifiedAt,
+                score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0)
+            )
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
+    public func listIndexedDocumentPaths() async throws -> [String] {
+        do {
+            return try await storage.listDocumentPaths()
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
     private func collectDocumentURLs(from request: IndexingRequest) throws -> [URL] {
         var collected: Set<URL> = []
 
@@ -261,11 +288,12 @@ public actor QMDIndex {
         includeHiddenFiles: Bool,
         followSymlinks: Bool
     ) throws -> [URL] {
-        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey, .isHiddenKey, .isSymbolicLinkKey]
+        let resourceKeys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isHiddenKey, .isSymbolicLinkKey]
+        let options: FileManager.DirectoryEnumerationOptions = includeHiddenFiles ? [] : [.skipsHiddenFiles]
         guard let enumerator = fileManager.enumerator(
             at: root,
             includingPropertiesForKeys: Array(resourceKeys),
-            options: followSymlinks ? [] : [.skipsSubdirectoryDescendants],
+            options: options,
             errorHandler: { _, _ in true }
         ) else {
             return []
@@ -276,6 +304,17 @@ public actor QMDIndex {
             let values = try url.resourceValues(forKeys: resourceKeys)
 
             if !includeHiddenFiles, values.isHidden == true {
+                if values.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+
+            // Keep recursion enabled for normal directories, but skip symlinks unless explicitly requested.
+            if !followSymlinks, values.isSymbolicLink == true {
+                if values.isDirectory == true {
+                    enumerator.skipDescendants()
+                }
                 continue
             }
 
@@ -321,14 +360,12 @@ public actor QMDIndex {
         }
 
         let chunkInputs: [StoredChunkInput] = zip(chunks, embeddings).map { chunk, vector in
-            let terms = makeTermFrequencies(from: chunk.content)
             return StoredChunkInput(
                 ordinal: chunk.ordinal,
                 content: chunk.content,
                 tokenCount: chunk.tokenCount,
                 embedding: vector,
-                norm: l2Norm(vector),
-                terms: terms
+                norm: l2Norm(vector)
             )
         }
 
@@ -368,18 +405,6 @@ public actor QMDIndex {
     private func checksum(_ text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func makeTermFrequencies(from text: String) -> [StoredTermFrequency] {
-        let tokens = configuration.tokenizer.tokenize(text)
-        guard !tokens.isEmpty else { return [] }
-
-        var counts: [String: Int] = [:]
-        for token in tokens {
-            counts[token, default: 0] += 1
-        }
-
-        return counts.map { StoredTermFrequency(term: $0.key, tf: $0.value) }
     }
 
     private func semanticSearch(

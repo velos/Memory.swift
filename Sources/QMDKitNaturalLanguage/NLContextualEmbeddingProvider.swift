@@ -36,9 +36,17 @@ public actor NLContextualEmbeddingProvider: EmbeddingProvider {
             throw QMDError.embedding("Cannot embed empty text")
         }
 
-        let language = fixedLanguage ?? NLLanguageRecognizer.dominantLanguage(for: trimmed) ?? .english
-        guard let embedding = try resolveEmbedding(for: language) else {
-            throw QMDError.embedding("No NLContextualEmbedding available for language \(language.rawValue)")
+        let detectedLanguage = fixedLanguage ?? NLLanguageRecognizer.dominantLanguage(for: trimmed) ?? .english
+        let language = detectedLanguage
+        let embedding: NLContextualEmbedding
+        if let resolved = try resolveEmbedding(for: language) {
+            embedding = resolved
+        } else if let fallback = try resolveEmbedding(for: .english) {
+            embedding = fallback
+        } else {
+            throw QMDError.embedding(
+                "No NLContextualEmbedding available for language \(language.rawValue), and english fallback is unavailable"
+            )
         }
 
         try ensureLoaded(embedding)
