@@ -38,9 +38,14 @@ public extension EmbeddingProvider {
     }
 }
 
+public protocol QueryExpander: Sendable {
+    var identifier: String { get }
+    func expand(query: SearchQuery, limit: Int) async throws -> [String]
+}
+
 public protocol Reranker: Sendable {
     var identifier: String { get }
-    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [SearchResult]
+    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment]
 }
 
 public protocol Tokenizer: Sendable {
@@ -54,6 +59,7 @@ public protocol Chunker: Sendable {
 public struct QMDConfiguration: Sendable {
     public var databaseURL: URL
     public var embeddingProvider: any EmbeddingProvider
+    public var queryExpander: (any QueryExpander)?
     public var reranker: (any Reranker)?
     public var tokenizer: any Tokenizer
     public var chunker: any Chunker
@@ -61,20 +67,24 @@ public struct QMDConfiguration: Sendable {
     public var semanticCandidateLimit: Int
     public var lexicalCandidateLimit: Int
     public var fusionK: Double
+    public var positionAwareBlending: PositionAwareBlending
 
     public init(
         databaseURL: URL,
         embeddingProvider: any EmbeddingProvider,
+        queryExpander: (any QueryExpander)? = nil,
         reranker: (any Reranker)? = nil,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = Self.defaultSupportedExtensions,
         semanticCandidateLimit: Int = 200,
         lexicalCandidateLimit: Int = 200,
-        fusionK: Double = 60
+        fusionK: Double = 60,
+        positionAwareBlending: PositionAwareBlending = .default
     ) {
         self.databaseURL = databaseURL
         self.embeddingProvider = embeddingProvider
+        self.queryExpander = queryExpander
         self.reranker = reranker
         self.tokenizer = tokenizer
         self.chunker = chunker
@@ -82,6 +92,7 @@ public struct QMDConfiguration: Sendable {
         self.semanticCandidateLimit = max(1, semanticCandidateLimit)
         self.lexicalCandidateLimit = max(1, lexicalCandidateLimit)
         self.fusionK = max(1, fusionK)
+        self.positionAwareBlending = positionAwareBlending
     }
 
     public static var defaultSupportedExtensions: Set<String> {

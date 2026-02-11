@@ -105,4 +105,79 @@ struct QMDIndexTests {
         #expect(results.count == 2)
         #expect(results.first?.documentPath.contains("new.md") == true)
     }
+
+    @Test
+    func queryExpansionCanLiftRelevantDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deploy.md"),
+            "deployment rollout checklist and service cutover notes"
+        )
+        try writeFile(
+            docs.appendingPathComponent("other.md"),
+            "gardening tomatoes soil watering routine"
+        )
+
+        let config = QMDConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            queryExpander: StaticQueryExpander(alternates: ["deployment rollout"]),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try QMDIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let query = SearchQuery(
+            text: "release process",
+            limit: 2,
+            rerankLimit: 0,
+            expansionLimit: 2
+        )
+        let results = try await index.search(query)
+
+        #expect(results.isEmpty == false)
+        #expect(results.first?.documentPath.contains("deploy.md") == true)
+    }
+
+    @Test
+    func positionAwareBlendingUsesRerankSignal() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("a.md"), "alpha planning roadmap")
+        try writeFile(docs.appendingPathComponent("b.md"), "alpha planning roadmap")
+
+        let config = QMDConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            reranker: ClosureReranker(scoreForCandidate: { result in
+                result.documentPath.contains("b.md") ? 1.0 : 0.1
+            }),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try QMDIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha planning",
+                limit: 2,
+                rerankLimit: 2,
+                expansionLimit: 0
+            )
+        )
+
+        #expect(results.count == 2)
+        #expect(results.first?.documentPath.contains("b.md") == true)
+        #expect(results.first?.score.rerank ?? 0 > 0.9)
+        #expect(results.first?.score.blended ?? 0 > results.first?.score.fused ?? 0)
+    }
 }

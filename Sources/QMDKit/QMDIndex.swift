@@ -17,6 +17,11 @@ public actor QMDIndex {
         "go", "rs", "py", "rb", "php", "cs", "scala", "sh", "zsh", "bash"
     ]
 
+    private struct WeightedQuery {
+        var text: String
+        var weight: Double
+    }
+
     public init(configuration: QMDConfiguration, fileManager: FileManager = .default) throws {
         guard !configuration.databaseURL.path.isEmpty else {
             throw QMDError.configuration("databaseURL must not be empty")
@@ -130,49 +135,83 @@ public actor QMDIndex {
             allowedChunkIDs = nil
         }
 
-        let queryVector: [Float]
-        do {
-            queryVector = try await configuration.embeddingProvider.embed(text: normalizedText)
-        } catch {
-            throw QMDError.embedding("Failed to embed query: \(error.localizedDescription)")
+        let expandedQueries = try await buildExpandedQueries(query: query, normalizedText: normalizedText)
+        events?(.expandedQueries(count: max(0, expandedQueries.count - 1)))
+
+        var semanticRRF: [Int64: Double] = [:]
+        var lexicalRRF: [Int64: Double] = [:]
+        var semanticCandidateCount = 0
+        var lexicalCandidateCount = 0
+
+        for expandedQuery in expandedQueries {
+            let queryVector: [Float]
+            do {
+                queryVector = try await configuration.embeddingProvider.embed(text: expandedQuery.text)
+            } catch {
+                throw QMDError.embedding("Failed to embed query: \(error.localizedDescription)")
+            }
+
+            events?(.embeddedQuery(dimension: queryVector.count))
+
+            let semanticHits = try await semanticSearch(
+                queryVector: queryVector,
+                limit: query.semanticCandidateLimit,
+                allowedChunkIDs: allowedChunkIDs
+            )
+            semanticCandidateCount += semanticHits.count
+            accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
+
+            let lexicalHits = try await storage.lexicalSearch(
+                query: expandedQuery.text,
+                limit: query.lexicalCandidateLimit,
+                allowedChunkIDs: allowedChunkIDs
+            )
+            lexicalCandidateCount += lexicalHits.count
+            accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
         }
-        events?(.embeddedQuery(dimension: queryVector.count))
 
-        let semanticHits = try await semanticSearch(
-            queryVector: queryVector,
-            limit: query.semanticCandidateLimit,
-            allowedChunkIDs: allowedChunkIDs
-        )
-        events?(.semanticCandidates(count: semanticHits.count))
-
-        let lexicalHits = try await storage.lexicalSearch(
-            query: normalizedText,
-            limit: query.lexicalCandidateLimit,
-            allowedChunkIDs: allowedChunkIDs
-        )
-        events?(.lexicalCandidates(count: lexicalHits.count))
+        events?(.semanticCandidates(count: semanticCandidateCount))
+        events?(.lexicalCandidates(count: lexicalCandidateCount))
 
         var fused = try await fuseCandidates(
-            semanticHits: semanticHits,
-            lexicalHits: lexicalHits,
+            semanticRRF: semanticRRF,
+            lexicalRRF: lexicalRRF,
             query: query,
-            queryText: normalizedText
+            primaryQueryText: normalizedText
         )
         events?(.fusedCandidates(count: fused.count))
 
-        if let reranker = configuration.reranker, !fused.isEmpty {
-            let rerankCount = min(query.rerankLimit, fused.count)
-            let rerankable = Array(fused.prefix(rerankCount))
-            let reranked = try await reranker.rerank(query: query, candidates: rerankable)
-
-            let rerankedIDs = Set(reranked.map(\.chunkID))
-            let remaining = fused.filter { !rerankedIDs.contains($0.chunkID) }
-            fused = reranked + remaining
-
-            events?(.reranked(count: reranked.count))
+        if let reranker = configuration.reranker, !fused.isEmpty, query.rerankLimit > 0 {
+            do {
+                fused = try await applyReranker(
+                    reranker,
+                    query: query,
+                    fusedResults: fused
+                )
+                events?(.reranked(count: min(query.rerankLimit, fused.count)))
+            } catch {
+                // Fall back to fused ordering if reranking fails.
+                fused = fused.map {
+                    var updated = $0
+                    updated.score.blended = updated.score.fused
+                    updated.score.rerank = 0
+                    return updated
+                }
+            }
+        } else {
+            fused = fused.map {
+                var updated = $0
+                updated.score.blended = updated.score.fused
+                updated.score.rerank = 0
+                return updated
+            }
         }
 
-        let final = Array(fused.prefix(query.limit))
+        let final = Array(
+            fused
+                .sorted(by: sortByBlendedScore(_:_:))
+                .prefix(query.limit)
+        )
         events?(.completed(count: final.count))
         return final
     }
@@ -490,25 +529,25 @@ public actor QMDIndex {
         return Double(sqrt(sum))
     }
 
+    private func accumulateRRF(
+        for hits: [LexicalHit],
+        weight: Double,
+        into scores: inout [Int64: Double]
+    ) {
+        guard weight > 0 else { return }
+        for (index, hit) in hits.enumerated() {
+            let rank = Double(index + 1)
+            let base = 1.0 / (configuration.fusionK + rank)
+            scores[hit.chunkID, default: 0] += (weight * base)
+        }
+    }
+
     private func fuseCandidates(
-        semanticHits: [LexicalHit],
-        lexicalHits: [LexicalHit],
+        semanticRRF: [Int64: Double],
+        lexicalRRF: [Int64: Double],
         query: SearchQuery,
-        queryText: String
+        primaryQueryText: String
     ) async throws -> [SearchResult] {
-        var semanticRRF: [Int64: Double] = [:]
-        var lexicalRRF: [Int64: Double] = [:]
-
-        for (index, hit) in semanticHits.enumerated() {
-            let rank = Double(index + 1)
-            semanticRRF[hit.chunkID] = 1.0 / (configuration.fusionK + rank)
-        }
-
-        for (index, hit) in lexicalHits.enumerated() {
-            let rank = Double(index + 1)
-            lexicalRRF[hit.chunkID] = 1.0 / (configuration.fusionK + rank)
-        }
-
         let candidateIDs = Set(semanticRRF.keys).union(lexicalRRF.keys)
         guard !candidateIDs.isEmpty else { return [] }
 
@@ -534,7 +573,7 @@ public actor QMDIndex {
                     documentPath: metadata.documentPath,
                     title: metadata.title,
                     content: metadata.content,
-                    snippet: makeSnippet(content: metadata.content, queryText: queryText),
+                    snippet: makeSnippet(content: metadata.content, queryText: primaryQueryText),
                     modifiedAt: metadata.modifiedAt,
                     score: SearchScoreBreakdown(
                         semantic: semantic,
@@ -553,8 +592,135 @@ public actor QMDIndex {
                 }
                 return lhs.score.fused > rhs.score.fused
             }
-            .prefix(max(query.limit, query.rerankLimit))
+            .prefix(max(query.limit, query.rerankLimit, 100))
             .map { $0 }
+    }
+
+    private func buildExpandedQueries(
+        query: SearchQuery,
+        normalizedText: String
+    ) async throws -> [WeightedQuery] {
+        var expanded: [WeightedQuery] = [
+            WeightedQuery(text: normalizedText, weight: query.originalQueryWeight),
+        ]
+
+        guard query.expansionLimit > 0, let queryExpander = configuration.queryExpander else {
+            return expanded
+        }
+
+        var expansionQuery = query
+        expansionQuery.text = normalizedText
+
+        let alternatives: [String]
+        do {
+            alternatives = try await queryExpander.expand(
+                query: expansionQuery,
+                limit: query.expansionLimit
+            )
+        } catch {
+            // Keep search functional even when expansion generation fails.
+            return expanded
+        }
+
+        var seen: Set<String> = [normalizedComparisonKey(for: normalizedText)]
+        for alternative in alternatives {
+            let trimmed = alternative.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let key = normalizedComparisonKey(for: trimmed)
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+
+            expanded.append(
+                WeightedQuery(
+                    text: trimmed,
+                    weight: query.expansionQueryWeight
+                )
+            )
+
+            if expanded.count >= (query.expansionLimit + 1) {
+                break
+            }
+        }
+
+        return expanded
+    }
+
+    private func applyReranker(
+        _ reranker: any Reranker,
+        query: SearchQuery,
+        fusedResults: [SearchResult]
+    ) async throws -> [SearchResult] {
+        guard !fusedResults.isEmpty else { return [] }
+
+        let rerankCount = min(query.rerankLimit, fusedResults.count)
+        let rerankable = Array(fusedResults.prefix(rerankCount))
+        let remaining = Array(fusedResults.dropFirst(rerankCount))
+
+        let assessments = try await reranker.rerank(query: query, candidates: rerankable)
+        let allowedIDs = Set(rerankable.map(\.chunkID))
+
+        var assessmentByChunkID: [Int64: RerankAssessment] = [:]
+        for assessment in assessments where allowedIDs.contains(assessment.chunkID) {
+            let clamped = min(1, max(0, assessment.relevance))
+            if let existing = assessmentByChunkID[assessment.chunkID], existing.relevance >= clamped {
+                continue
+            }
+            assessmentByChunkID[assessment.chunkID] = RerankAssessment(
+                chunkID: assessment.chunkID,
+                relevance: clamped,
+                rationale: assessment.rationale
+            )
+        }
+
+        var reranked = rerankable.map { candidate -> SearchResult in
+            var updated = candidate
+            updated.score.rerank = assessmentByChunkID[candidate.chunkID]?.relevance ?? 0
+            updated.score.blended = updated.score.fused
+            return updated
+        }
+
+        reranked.sort { lhs, rhs in
+            if lhs.score.rerank == rhs.score.rerank {
+                if lhs.score.fused == rhs.score.fused {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.score.fused > rhs.score.fused
+            }
+            return lhs.score.rerank > rhs.score.rerank
+        }
+
+        for index in reranked.indices {
+            let position = index + 1
+            reranked[index].score.blended = configuration.positionAwareBlending.blend(
+                fused: reranked[index].score.fused,
+                rerank: reranked[index].score.rerank,
+                position: position
+            )
+        }
+
+        let untouched = remaining.map { candidate -> SearchResult in
+            var updated = candidate
+            updated.score.rerank = 0
+            updated.score.blended = updated.score.fused
+            return updated
+        }
+
+        return (reranked + untouched).sorted(by: sortByBlendedScore(_:_:))
+    }
+
+    private func sortByBlendedScore(_ lhs: SearchResult, _ rhs: SearchResult) -> Bool {
+        if lhs.score.blended == rhs.score.blended {
+            if lhs.score.fused == rhs.score.fused {
+                return lhs.chunkID < rhs.chunkID
+            }
+            return lhs.score.fused > rhs.score.fused
+        }
+        return lhs.score.blended > rhs.score.blended
+    }
+
+    private func normalizedComparisonKey(for text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
 
     private func makeSnippet(content: String, queryText: String?) -> String {

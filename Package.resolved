@@ -1,5 +1,5 @@
 {
-  "originHash" : "0caf019e3ca8647d7114a786e56c8c46e76f8e4daae0a4f8a2d29d36ddd28a65",
+  "originHash" : "59679c03bc504d92ae1c91fcefac2f76ddcbb81fd17ef41cac2870a281ce40c7",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -11,30 +11,12 @@
       }
     },
     {
-      "identity" : "mlx-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ml-explore/mlx-swift.git",
-      "state" : {
-        "revision" : "4dccaeda1d83cf8697f235d2786c2d72ad4bb925",
-        "version" : "0.30.3"
-      }
-    },
-    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser.git",
       "state" : {
         "revision" : "c5d11a805e765f52ba34ec7284bd4fcd6ba68615",
         "version" : "1.7.0"
-      }
-    },
-    {
-      "identity" : "swift-numerics",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-numerics",
-      "state" : {
-        "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
-        "version" : "1.1.1"
       }
     }
   ],

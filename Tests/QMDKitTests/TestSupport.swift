@@ -38,6 +38,38 @@ actor ConstantEmbeddingProvider: EmbeddingProvider {
     }
 }
 
+actor StaticQueryExpander: QueryExpander {
+    let identifier = "static-query-expander"
+    let alternates: [String]
+
+    init(alternates: [String]) {
+        self.alternates = alternates
+    }
+
+    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+        Array(alternates.prefix(max(0, limit)))
+    }
+}
+
+actor ClosureReranker: Reranker {
+    let identifier = "closure-reranker"
+    let scoreForCandidate: @Sendable (SearchResult) -> Double
+
+    init(scoreForCandidate: @escaping @Sendable (SearchResult) -> Double) {
+        self.scoreForCandidate = scoreForCandidate
+    }
+
+    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment] {
+        candidates.map { candidate in
+            RerankAssessment(
+                chunkID: candidate.chunkID,
+                relevance: scoreForCandidate(candidate),
+                rationale: nil
+            )
+        }
+    }
+}
+
 func makeTemporaryDirectory(function: String = #function) throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("qmdkit-tests")

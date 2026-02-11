@@ -12,14 +12,14 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - Persistent SQLite index via GRDB
 - Persistent contexts for reusable chunk sets
 - Default embedding backend with `NLContextualEmbedding`
-- Optional MLX target for custom local embedding stacks
+- Optional Apple Intelligence query expansion and reranking on supported OS versions
 
 ## Targets
 
 - `Memory` (core APIs and retrieval engine)
 - `MemoryStorage` (GRDB schema + storage)
 - `MemoryNaturalLanguage` (default embedding provider)
-- `MemoryMLX` (optional MLX embedding provider wrapper)
+- `MemoryAppleIntelligence` (optional Apple Intelligence expansion + reranking providers)
 
 ## Quick Start (Natural Language backend)
 
@@ -34,6 +34,17 @@ let index = try QMDIndex(configuration: config)
 
 try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))
+```
+
+## Optional Apple Intelligence Query Expansion + Reranking
+
+```swift
+import MemoryAppleIntelligence
+
+if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
+    config.queryExpander = AppleIntelligenceQueryExpander()
+    config.reranker = AppleIntelligenceReranker()
+}
 ```
 
 ## Notes

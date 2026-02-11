@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import Memory
+import MemoryAppleIntelligence
 import MemoryNaturalLanguage
 
 struct StoredCollection: Codable, Hashable {
@@ -99,7 +100,12 @@ struct CLIContext {
     }
 
     func makeIndex() throws -> QMDIndex {
-        try QMDIndex(configuration: .naturalLanguageDefault(databaseURL: paths.indexFileURL))
+        var configuration = QMDConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
+            configuration.queryExpander = AppleIntelligenceQueryExpander()
+            configuration.reranker = AppleIntelligenceReranker()
+        }
+        return try QMDIndex(configuration: configuration)
     }
 
     func requireCollection(named name: String) throws -> StoredCollection {
@@ -499,12 +505,15 @@ private func runSearch(
 
     let index = try context.makeIndex()
     let resultLimit = all ? 2_000 : 20
+    let rerankLimit = mode == .hybrid ? 50 : 0
+    let expansionLimit = mode == .hybrid ? 2 : 0
     let query = SearchQuery(
         text: queryText,
         limit: resultLimit,
         semanticCandidateLimit: mode.semanticLimit,
         lexicalCandidateLimit: mode.lexicalLimit,
-        rerankLimit: 50
+        rerankLimit: rerankLimit,
+        expansionLimit: expansionLimit
     )
 
     var results = try await index.search(query)
@@ -514,7 +523,7 @@ private func runSearch(
         results = results.filter { $0.documentPath.hasPrefix(root + "/") || $0.documentPath == root }
     }
 
-    results = results.filter { $0.score.fused >= minScore }
+    results = results.filter { $0.score.blended >= minScore }
 
     if files {
         var seen: Set<String> = []
@@ -531,7 +540,7 @@ private func runSearch(
 
     for result in results {
         let docID = "#" + String(result.chunkID, radix: 16)
-        print("\(docID)\t[score=\(String(format: "%.3f", result.score.fused))]\t\(result.documentPath)")
+        print("\(docID)\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)")
         print(result.snippet)
         print("")
     }

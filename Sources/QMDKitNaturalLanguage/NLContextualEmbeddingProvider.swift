@@ -120,24 +120,28 @@ public extension QMDConfiguration {
     static func naturalLanguageDefault(
         databaseURL: URL,
         language: NLLanguage? = nil,
+        queryExpander: (any QueryExpander)? = nil,
         reranker: (any Reranker)? = nil,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = defaultSupportedExtensions,
         semanticCandidateLimit: Int = 200,
         lexicalCandidateLimit: Int = 200,
-        fusionK: Double = 60
+        fusionK: Double = 60,
+        positionAwareBlending: PositionAwareBlending = .default
     ) -> QMDConfiguration {
         QMDConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: NLContextualEmbeddingProvider(language: language),
+            queryExpander: queryExpander,
             reranker: reranker,
             tokenizer: tokenizer,
             chunker: chunker,
             supportedFileExtensions: supportedFileExtensions,
             semanticCandidateLimit: semanticCandidateLimit,
             lexicalCandidateLimit: lexicalCandidateLimit,
-            fusionK: fusionK
+            fusionK: fusionK,
+            positionAwareBlending: positionAwareBlending
         )
     }
 }
