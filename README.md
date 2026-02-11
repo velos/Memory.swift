@@ -6,6 +6,10 @@
 
 This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd). Credit goes to that project for the original ideas and workflow inspiration.
 
+## Development Approach
+
+Development of `Memory.swift` was fully built using the Codex agent harness and GPT-5.3-Codex on Extra High. Each feature / change was initiated by an interactively built plan, executed by the model after the plan was finalized.
+
 ## Features
 
 - Hybrid retrieval: semantic + BM25 + recency
@@ -60,27 +64,27 @@ Build and run:
 swift run memory --help
 ```
 
-memory-style workflow:
+[qmd cli-style workflow](https://github.com/tobi/qmd#quick-start):
 
 ```bash
-memory collection add ~/notes --name notes
-memory collection add ~/Documents/meetings --name meetings
-memory collection add ~/work/docs --name docs
+swift run memory collection add ~/notes --name notes
+swift run memory collection add ~/Documents/meetings --name meetings
+swift run memory collection add ~/work/docs --name docs
 
-memory context add memory://notes "Personal notes and ideas"
-memory context add memory://meetings "Meeting transcripts and notes"
-memory context add memory://docs "Work documentation"
+swift run memory context add memory://notes "Personal notes and ideas"
+swift run memory context add memory://meetings "Meeting transcripts and notes"
+swift run memory context add memory://docs "Work documentation"
 
-memory embed
+swift run memory embed
 
-memory search "project timeline"
-memory vsearch "how to deploy"
-memory query "quarterly planning process"
+swift run memory search "project timeline"
+swift run memory vsearch "how to deploy"
+swift run memory query "quarterly planning process"
 
-memory get "meetings/2024-01-15.md"
-memory get "#1a2b"
-memory multi-get "journals/2025-05*.md"
+swift run memory get "meetings/2024-01-15.md"
+swift run memory get "#1a2b"
+swift run memory multi-get "journals/2025-05*.md"
 
-memory search "API" -c notes
-memory search "API" --all --files --min-score 0.3
+swift run memory search "API" -c notes
+swift run memory search "API" --all --files --min-score 0.3
 ```
