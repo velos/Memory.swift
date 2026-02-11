@@ -3,9 +3,9 @@ import CryptoKit
 import Foundation
 import MemoryStorage
 
-public actor QMDIndex {
-    private let configuration: QMDConfiguration
-    private let storage: QMDStorage
+public actor MemoryIndex {
+    private let configuration: MemoryConfiguration
+    private let storage: MemoryStorage
     private let fileManager: FileManager
 
     private var embeddingCache: [StoredChunkEmbedding]?
@@ -22,18 +22,18 @@ public actor QMDIndex {
         var weight: Double
     }
 
-    public init(configuration: QMDConfiguration, fileManager: FileManager = .default) throws {
+    public init(configuration: MemoryConfiguration, fileManager: FileManager = .default) throws {
         guard !configuration.databaseURL.path.isEmpty else {
-            throw QMDError.configuration("databaseURL must not be empty")
+            throw MemoryError.configuration("databaseURL must not be empty")
         }
 
         self.configuration = configuration
         self.fileManager = fileManager
 
         do {
-            self.storage = try QMDStorage(databaseURL: configuration.databaseURL)
+            self.storage = try MemoryStorage(databaseURL: configuration.databaseURL)
         } catch {
-            throw QMDError.storage("Failed to initialize storage: \(error.localizedDescription)")
+            throw MemoryError.storage("Failed to initialize storage: \(error.localizedDescription)")
         }
     }
 
@@ -148,7 +148,7 @@ public actor QMDIndex {
             do {
                 queryVector = try await configuration.embeddingProvider.embed(text: expandedQuery.text)
             } catch {
-                throw QMDError.embedding("Failed to embed query: \(error.localizedDescription)")
+                throw MemoryError.embedding("Failed to embed query: \(error.localizedDescription)")
             }
 
             events?(.embeddedQuery(dimension: queryVector.count))
@@ -219,7 +219,7 @@ public actor QMDIndex {
     public func createContext(name: String) async throws -> ContextID {
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedName.isEmpty else {
-            throw QMDError.configuration("Context name must not be empty")
+            throw MemoryError.configuration("Context name must not be empty")
         }
 
         let generated = ContextID()
@@ -302,7 +302,7 @@ public actor QMDIndex {
             let standardized = root.standardizedFileURL
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: standardized.path, isDirectory: &isDirectory) else {
-                throw QMDError.ingestion("Path does not exist: \(standardized.path)")
+                throw MemoryError.ingestion("Path does not exist: \(standardized.path)")
             }
 
             if isDirectory.boolValue {
@@ -380,7 +380,7 @@ public actor QMDIndex {
         do {
             content = try String(contentsOf: url, encoding: .utf8)
         } catch {
-            throw QMDError.ingestion("Unable to read UTF-8 file at \(url.path): \(error.localizedDescription)")
+            throw MemoryError.ingestion("Unable to read UTF-8 file at \(url.path): \(error.localizedDescription)")
         }
 
         let kind = inferDocumentKind(for: url)
@@ -391,11 +391,11 @@ public actor QMDIndex {
         do {
             embeddings = try await configuration.embeddingProvider.embed(texts: chunks.map(\.content))
         } catch {
-            throw QMDError.embedding("Failed to embed chunks for \(url.path): \(error.localizedDescription)")
+            throw MemoryError.embedding("Failed to embed chunks for \(url.path): \(error.localizedDescription)")
         }
 
         guard embeddings.count == chunks.count else {
-            throw QMDError.embedding("Embedding provider returned \(embeddings.count) vectors for \(chunks.count) chunks")
+            throw MemoryError.embedding("Embedding provider returned \(embeddings.count) vectors for \(chunks.count) chunks")
         }
 
         let chunkInputs: [StoredChunkInput] = zip(chunks, embeddings).map { chunk, vector in
@@ -457,7 +457,7 @@ public actor QMDIndex {
 
         let queryNorm = l2Norm(queryVector)
         guard queryNorm > 0 else {
-            throw QMDError.search("Query embedding norm is zero")
+            throw MemoryError.search("Query embedding norm is zero")
         }
 
         let embeddings = try await loadEmbeddings()
@@ -744,10 +744,10 @@ public actor QMDIndex {
         return String(normalized[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func normalizeError(_ error: Error) -> QMDError {
-        if let typed = error as? QMDError {
+    private func normalizeError(_ error: Error) -> MemoryError {
+        if let typed = error as? MemoryError {
             return typed
         }
-        return QMDError.storage(error.localizedDescription)
+        return MemoryError.storage(error.localizedDescription)
     }
 }

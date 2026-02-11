@@ -29,8 +29,8 @@ import Memory
 import MemoryNaturalLanguage
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
-let config = QMDConfiguration.naturalLanguageDefault(databaseURL: dbURL)
-let index = try QMDIndex(configuration: config)
+let config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
+let index = try MemoryIndex(configuration: config)
 
 try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))

@@ -21,24 +21,24 @@ let package = Package(
         .target(
             name: "Memory",
             dependencies: ["MemoryStorage"],
-            path: "Sources/QMDKit"
+            path: "Sources/Memory"
         ),
         .target(
             name: "MemoryStorage",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
-            path: "Sources/QMDKitStorage"
+            path: "Sources/MemoryStorage"
         ),
         .target(
             name: "MemoryNaturalLanguage",
             dependencies: ["Memory"],
-            path: "Sources/QMDKitNaturalLanguage"
+            path: "Sources/MemoryNaturalLanguage"
         ),
         .target(
             name: "MemoryAppleIntelligence",
             dependencies: ["Memory"],
-            path: "Sources/QMDKitAppleIntelligence"
+            path: "Sources/MemoryAppleIntelligence"
         ),
         .executableTarget(
             name: "memory_cli",
@@ -53,7 +53,7 @@ let package = Package(
         .testTarget(
             name: "MemoryTests",
             dependencies: ["Memory"],
-            path: "Tests/QMDKitTests"
+            path: "Tests/MemoryTests"
         ),
         .testTarget(
             name: "MemoryIntegrationTests",
@@ -61,12 +61,12 @@ let package = Package(
                 "Memory",
                 "MemoryNaturalLanguage",
             ],
-            path: "Tests/QMDKitIntegrationTests"
+            path: "Tests/MemoryIntegrationTests"
         ),
         .testTarget(
             name: "MemoryPerformanceTests",
             dependencies: ["Memory"],
-            path: "Tests/QMDKitPerformanceTests"
+            path: "Tests/MemoryPerformanceTests"
         ),
     ]
 )

@@ -33,7 +33,7 @@ public actor NLContextualEmbeddingProvider: EmbeddingProvider {
     private func embedSingle(text: String) throws -> [Float] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw QMDError.embedding("Cannot embed empty text")
+            throw MemoryError.embedding("Cannot embed empty text")
         }
 
         let detectedLanguage = fixedLanguage ?? NLLanguageRecognizer.dominantLanguage(for: trimmed) ?? .english
@@ -44,7 +44,7 @@ public actor NLContextualEmbeddingProvider: EmbeddingProvider {
         } else if let fallback = try resolveEmbedding(for: .english) {
             embedding = fallback
         } else {
-            throw QMDError.embedding(
+            throw MemoryError.embedding(
                 "No NLContextualEmbedding available for language \(language.rawValue), and english fallback is unavailable"
             )
         }
@@ -80,7 +80,7 @@ public actor NLContextualEmbeddingProvider: EmbeddingProvider {
         }
 
         guard vectorCount > 0, !pooled.isEmpty else {
-            throw QMDError.embedding("Contextual embedding returned no token vectors")
+            throw MemoryError.embedding("Contextual embedding returned no token vectors")
         }
 
         let divisor = Double(vectorCount)
@@ -109,14 +109,14 @@ public actor NLContextualEmbeddingProvider: EmbeddingProvider {
             try embedding.load()
             loadedModelIdentifiers.insert(embedding.modelIdentifier)
         } catch {
-            throw QMDError.embedding(
+            throw MemoryError.embedding(
                 "Failed to load NLContextualEmbedding model \(embedding.modelIdentifier): \(error.localizedDescription)"
             )
         }
     }
 }
 
-public extension QMDConfiguration {
+public extension MemoryConfiguration {
     static func naturalLanguageDefault(
         databaseURL: URL,
         language: NLLanguage? = nil,
@@ -129,8 +129,8 @@ public extension QMDConfiguration {
         lexicalCandidateLimit: Int = 200,
         fusionK: Double = 60,
         positionAwareBlending: PositionAwareBlending = .default
-    ) -> QMDConfiguration {
-        QMDConfiguration(
+    ) -> MemoryConfiguration {
+        MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: NLContextualEmbeddingProvider(language: language),
             queryExpander: queryExpander,

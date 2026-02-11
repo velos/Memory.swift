@@ -72,7 +72,7 @@ actor ClosureReranker: Reranker {
 
 func makeTemporaryDirectory(function: String = #function) throws -> URL {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("qmdkit-tests")
+        .appendingPathComponent("memory-tests")
         .appendingPathComponent(function.replacingOccurrences(of: " ", with: "_"))
         .appendingPathComponent(UUID().uuidString)
 

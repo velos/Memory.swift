@@ -23,7 +23,7 @@ private actor IntegrationMockEmbeddingProvider: EmbeddingProvider {
 
 private func makeTempDir(_ name: String = #function) throws -> URL {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("qmdkit-integration")
+        .appendingPathComponent("memory-integration")
         .appendingPathComponent(name)
         .appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -35,7 +35,7 @@ private func write(_ url: URL, _ text: String) throws {
     try text.write(to: url, atomically: true, encoding: .utf8)
 }
 
-struct QMDKitIntegrationTests {
+struct MemoryIntegrationTests {
     @Test
     func incrementalSyncAndRemoval() async throws {
         let root = try makeTempDir()
@@ -47,8 +47,8 @@ struct QMDKitIntegrationTests {
 
         try write(a, "alpha one")
 
-        let index = try QMDIndex(
-            configuration: QMDConfiguration(
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
                 databaseURL: db,
                 embeddingProvider: IntegrationMockEmbeddingProvider()
             )
@@ -79,8 +79,8 @@ struct QMDKitIntegrationTests {
         try write(docs.appendingPathComponent("note.md"), "swift package manager and async actors")
 
         do {
-            let index = try QMDIndex(
-                configuration: QMDConfiguration(
+            let index = try MemoryIndex(
+                configuration: MemoryConfiguration(
                     databaseURL: db,
                     embeddingProvider: IntegrationMockEmbeddingProvider()
                 )
@@ -88,8 +88,8 @@ struct QMDKitIntegrationTests {
             try await index.rebuildIndex(from: [docs])
         }
 
-        let reloaded = try QMDIndex(
-            configuration: QMDConfiguration(
+        let reloaded = try MemoryIndex(
+            configuration: MemoryConfiguration(
                 databaseURL: db,
                 embeddingProvider: IntegrationMockEmbeddingProvider()
             )
@@ -102,7 +102,7 @@ struct QMDKitIntegrationTests {
     @Test
     func naturalLanguageDefaultConfigurationConstructs() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let config = QMDConfiguration.naturalLanguageDefault(databaseURL: root.appendingPathComponent("index.sqlite"))
+        let config = MemoryConfiguration.naturalLanguageDefault(databaseURL: root.appendingPathComponent("index.sqlite"))
 
         #expect(config.semanticCandidateLimit == 200)
         #expect(config.lexicalCandidateLimit == 200)

@@ -99,7 +99,7 @@ public struct LexicalHit: Sendable {
     }
 }
 
-public actor QMDStorage {
+public actor MemoryStorage {
     private let dbQueue: DatabaseQueue
 
     public init(databaseURL: URL) throws {

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Memory
 
-struct QMDIndexTests {
+struct MemoryIndexTests {
     @Test
     func searchReturnsRelevantDocument() async throws {
         let root = try makeTemporaryDirectory()
@@ -18,14 +18,14 @@ struct QMDIndexTests {
             "# Garden\nTomatoes need sunlight and healthy soil."
         )
 
-        let config = QMDConfiguration(
+        let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: MockEmbeddingProvider(),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 20)
         )
 
-        let index = try QMDIndex(configuration: config)
+        let index = try MemoryIndex(configuration: config)
         try await index.rebuildIndex(from: [docs])
 
         let results = try await index.search(SearchQuery(text: "swift actor isolation", limit: 3))
@@ -43,14 +43,14 @@ struct QMDIndexTests {
         try writeFile(docs.appendingPathComponent("a.md"), "alpha beta gamma delta")
         try writeFile(docs.appendingPathComponent("b.md"), "orange kiwi apple pear")
 
-        let config = QMDConfiguration(
+        let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: MockEmbeddingProvider(),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
         )
 
-        let index = try QMDIndex(configuration: config)
+        let index = try MemoryIndex(configuration: config)
         try await index.rebuildIndex(from: [docs])
 
         let initial = try await index.search(SearchQuery(text: "alpha", limit: 5))
@@ -91,14 +91,14 @@ struct QMDIndexTests {
             modifiedAt: old
         )
 
-        let config = QMDConfiguration(
+        let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
         )
 
-        let index = try QMDIndex(configuration: config)
+        let index = try MemoryIndex(configuration: config)
         try await index.rebuildIndex(from: [docs])
 
         let results = try await index.search(SearchQuery(text: "alpha", limit: 2))
@@ -121,7 +121,7 @@ struct QMDIndexTests {
             "gardening tomatoes soil watering routine"
         )
 
-        let config = QMDConfiguration(
+        let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
             queryExpander: StaticQueryExpander(alternates: ["deployment rollout"]),
@@ -129,7 +129,7 @@ struct QMDIndexTests {
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
         )
 
-        let index = try QMDIndex(configuration: config)
+        let index = try MemoryIndex(configuration: config)
         try await index.rebuildIndex(from: [docs])
 
         let query = SearchQuery(
@@ -153,7 +153,7 @@ struct QMDIndexTests {
         try writeFile(docs.appendingPathComponent("a.md"), "alpha planning roadmap")
         try writeFile(docs.appendingPathComponent("b.md"), "alpha planning roadmap")
 
-        let config = QMDConfiguration(
+        let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
             reranker: ClosureReranker(scoreForCandidate: { result in
@@ -163,7 +163,7 @@ struct QMDIndexTests {
             chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
         )
 
-        let index = try QMDIndex(configuration: config)
+        let index = try MemoryIndex(configuration: config)
         try await index.rebuildIndex(from: [docs])
 
         let results = try await index.search(

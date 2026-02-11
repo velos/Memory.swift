@@ -20,11 +20,11 @@ private actor PerfEmbeddingProvider: EmbeddingProvider {
     }
 }
 
-struct QMDKitPerformanceTests {
+struct MemoryPerformanceTests {
     @Test
     func searchLatencyBaseline() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("qmdkit-perf")
+            .appendingPathComponent("memory-perf")
             .appendingPathComponent(UUID().uuidString)
         let docs = root.appendingPathComponent("docs")
         let db = root.appendingPathComponent("index.sqlite")
@@ -41,8 +41,8 @@ struct QMDKitPerformanceTests {
             try text.write(to: url, atomically: true, encoding: .utf8)
         }
 
-        let index = try QMDIndex(
-            configuration: QMDConfiguration(
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
                 databaseURL: db,
                 embeddingProvider: PerfEmbeddingProvider()
             )

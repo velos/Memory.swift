@@ -1,6 +1,6 @@
 import Foundation
 
-public enum QMDError: Error, LocalizedError, Sendable {
+public enum MemoryError: Error, LocalizedError, Sendable {
     case configuration(String)
     case ingestion(String)
     case embedding(String)
@@ -32,7 +32,7 @@ public protocol EmbeddingProvider: Sendable {
 public extension EmbeddingProvider {
     func embed(text: String) async throws -> [Float] {
         guard let first = try await embed(texts: [text]).first else {
-            throw QMDError.embedding("Embedding provider \(identifier) returned no vectors")
+            throw MemoryError.embedding("Embedding provider \(identifier) returned no vectors")
         }
         return first
     }
@@ -56,7 +56,7 @@ public protocol Chunker: Sendable {
     func chunk(text: String, kind: DocumentKind, sourceURL: URL?) -> [Chunk]
 }
 
-public struct QMDConfiguration: Sendable {
+public struct MemoryConfiguration: Sendable {
     public var databaseURL: URL
     public var embeddingProvider: any EmbeddingProvider
     public var queryExpander: (any QueryExpander)?

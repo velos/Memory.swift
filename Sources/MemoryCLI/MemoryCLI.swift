@@ -99,13 +99,13 @@ struct CLIContext {
         return CLIContext(paths: paths, store: store, state: state)
     }
 
-    func makeIndex() throws -> QMDIndex {
-        var configuration = QMDConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
+    func makeIndex() throws -> MemoryIndex {
+        var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
             configuration.queryExpander = AppleIntelligenceQueryExpander()
             configuration.reranker = AppleIntelligenceReranker()
         }
-        return try QMDIndex(configuration: configuration)
+        return try MemoryIndex(configuration: configuration)
     }
 
     func requireCollection(named name: String) throws -> StoredCollection {
@@ -549,11 +549,6 @@ private func runSearch(
 private func parseCollectionRef(_ value: String) -> String? {
     if value.hasPrefix("memory://") {
         let raw = value.dropFirst("memory://".count)
-        return raw.isEmpty ? nil : String(raw)
-    }
-
-    if value.hasPrefix("qmd://") {
-        let raw = value.dropFirst("qmd://".count)
         return raw.isEmpty ? nil : String(raw)
     }
 
