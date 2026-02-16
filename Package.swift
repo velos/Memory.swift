@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
         .library(name: "MemoryAppleIntelligence", targets: ["MemoryAppleIntelligence"]),
         .executable(name: "memory", targets: ["memory_cli"]),
+        .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -49,6 +50,17 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/MemoryCLI"
+        ),
+        .executableTarget(
+            name: "memory_eval",
+            dependencies: [
+                "Memory",
+                "MemoryNaturalLanguage",
+                "MemoryAppleIntelligence",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/MemoryEvalCLI"
         ),
         .testTarget(
             name: "MemoryTests",

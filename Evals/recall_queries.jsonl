@@ -1,0 +1,240 @@
+{"id": "q-0001", "query": "What’s our rule of thumb for when a refactor is actually worth it?", "relevant_document_ids": ["doc-0166"], "memory_types": ["semantic"]}
+{"id": "q-0002", "query": "How do we handle a customer report that “sync is stuck” without going down rabbit holes?", "relevant_document_ids": ["doc-0078"], "memory_types": ["procedural"]}
+{"id": "q-0003", "query": "I wrote a note about a disagreement that was really about feeling unseen—where is that?", "relevant_document_ids": ["doc-0203"], "memory_types": ["emotional"]}
+{"id": "q-0004", "query": "What did we decide about analytics privacy—are we sending raw content or just product-level signals?", "relevant_document_ids": ["doc-0334"], "memory_types": ["contextual"]}
+{"id": "q-0005", "query": "When did we update the status page during that API latency blip, and what was the confirmation?", "relevant_document_ids": ["doc-0025"], "memory_types": ["factual"]}
+{"id": "q-0006", "query": "In the sprint retro on February 6, 2026, what was the confirmed cause of the login spike?", "relevant_document_ids": ["doc-0038"], "memory_types": ["factual"]}
+{"id": "q-0007", "query": "Which teammate said they’ve been feeling isolated since the reorg and missing informal chats?", "relevant_document_ids": ["doc-0275"], "memory_types": ["social"]}
+{"id": "q-0008", "query": "Remind me what caused the elevated login failures during that Monday rollout.", "relevant_document_ids": ["doc-0049"]}
+{"id": "q-0009", "query": "What’s our exact meaning of “Draft” versus “Published” in product terms?", "relevant_document_ids": ["doc-0188"]}
+{"id": "q-0010", "query": "Who prefers quick pings instead of long threads, and what’s the nuance there?", "relevant_document_ids": ["doc-0299"], "memory_types": ["social"]}
+{"id": "q-0011", "query": "Did we standardize password reset emails across staging and prod? What changed?", "relevant_document_ids": ["doc-0030"]}
+{"id": "q-0012", "query": "I captured a customer call with Nadia about a bug where reports were doing something weird—where are those details?", "relevant_document_ids": ["doc-0110"], "memory_types": ["episodic"]}
+{"id": "q-0013", "query": "What’s our current mobile security posture around TLS and do we do certificate pinning?", "relevant_document_ids": ["doc-0045"], "memory_types": ["factual"]}
+{"id": "q-0014", "query": "During the on-call window with elevated 502s, what times did it happen and what was impacted?", "relevant_document_ids": ["doc-0036"]}
+{"id": "q-0015", "query": "What’s the working agreement about needing a written agenda to be effective in meetings?", "relevant_document_ids": ["doc-0322"], "memory_types": ["contextual"]}
+{"id": "q-0016", "query": "What’s the principle we use in reviews to separate preference from actual risk?", "relevant_document_ids": ["doc-0158"], "memory_types": ["semantic"]}
+{"id": "q-0017", "query": "What changed in our CI setup at the end of January 2026 that sped up builds?", "relevant_document_ids": ["doc-0042"], "memory_types": ["factual", "temporal"]}
+{"id": "q-0018", "query": "How do we safely grant someone temporary elevated access for a debugging session?", "relevant_document_ids": ["doc-0085"], "memory_types": ["procedural"]}
+{"id": "q-0019", "query": "Remind me of the step-by-step flow to migrate a wiki page without losing important context.", "relevant_document_ids": ["doc-0093"], "memory_types": ["procedural"]}
+{"id": "q-0020", "query": "In that recent 1:1, who was overloaded by switching between support and feature work?", "relevant_document_ids": ["doc-0128"], "memory_types": ["episodic"]}
+{"id": "q-0021", "query": "What did I note about Jamie’s meeting preferences during onboarding?", "relevant_document_ids": ["doc-0125"], "memory_types": ["episodic", "social"]}
+{"id": "q-0022", "query": "Where did that overnight crash report point—was it a null value issue?", "relevant_document_ids": ["doc-0139"]}
+{"id": "q-0023", "query": "What’s the best way to validate localization changes before we ship?", "relevant_document_ids": ["doc-0061"], "memory_types": ["procedural"]}
+{"id": "q-0024", "query": "I’m trying to avoid scope creep—what’s the simple rule-of-thumb I’ve been using?", "relevant_document_ids": ["doc-0159"], "memory_types": ["semantic"]}
+{"id": "q-0025", "query": "What’s my pattern for learning new domains faster—something about anchoring to user stories?", "relevant_document_ids": ["doc-0176"]}
+{"id": "q-0026", "query": "I keep slipping into reactive mode in the morning—what habit tends to set my tone for the day?", "relevant_document_ids": ["doc-0175"], "memory_types": ["semantic"]}
+{"id": "q-0027", "query": "After that hotfix right after the release, what was I feeling but didn’t say out loud?", "relevant_document_ids": ["doc-0239"], "memory_types": ["emotional"]}
+{"id": "q-0028", "query": "What do my notes say about Dana’s leadership style and what she steps in on?", "relevant_document_ids": ["doc-0295"], "memory_types": ["social"]}
+{"id": "q-0029", "query": "I need a better approach with Alex—what wording helps me give him ownership without micromanaging?", "relevant_document_ids": ["doc-0300", "doc-0255"], "memory_types": ["social"]}
+{"id": "q-0030", "query": "What categories should our API wrapper use when classifying errors?", "relevant_document_ids": ["doc-0332"], "memory_types": ["contextual"]}
+{"id": "q-0031", "query": "When did alerts first fire for the elevated 500s on search during that February incident, and what happened next?", "relevant_document_ids": ["doc-0388"], "memory_types": ["temporal"]}
+{"id": "q-0032", "query": "In the Feb 6 retro notes, what did we confirm caused the February login spike?", "relevant_document_ids": ["doc-0038"]}
+{"id": "q-0033", "query": "What are the steps we follow to rotate the weekly on-call schedule and make sure the handoff doesn’t drop anything?", "relevant_document_ids": ["doc-0087"], "memory_types": ["procedural"]}
+{"id": "q-0034", "query": "How do we run a tabletop incident drill for practice (not a real incident)?", "relevant_document_ids": ["doc-0060"], "memory_types": ["procedural"]}
+{"id": "q-0035", "query": "What’s the monthly process for reviewing user access and roles?", "relevant_document_ids": ["doc-0067"], "memory_types": ["procedural"]}
+{"id": "q-0036", "query": "Remind me what our incident triage flow is right when an alert fires (ack, comms, next checks).", "relevant_document_ids": ["doc-0065"], "memory_types": ["procedural"]}
+{"id": "q-0037", "query": "How should we triage a customer report that sync is stuck so we don’t chase random logs?", "relevant_document_ids": ["doc-0078"], "memory_types": ["procedural"]}
+{"id": "q-0038", "query": "What’s the checklist for running a product demo without surprises?", "relevant_document_ids": ["doc-0091"], "memory_types": ["procedural"]}
+{"id": "q-0039", "query": "Walk me through what to do when a payment callback is failing in production.", "relevant_document_ids": ["doc-0094"], "memory_types": ["procedural"]}
+{"id": "q-0040", "query": "What’s the right way to plan a database change so we can safely roll it back if needed?", "relevant_document_ids": ["doc-0098"], "memory_types": ["procedural"]}
+{"id": "q-0041", "query": "What’s the latest status of the 5.12.0 rollout across iOS and Android?", "relevant_document_ids": ["doc-0031"], "memory_types": ["factual"]}
+{"id": "q-0042", "query": "Did we change anything recently in CI that made builds faster, like caching dependencies?", "relevant_document_ids": ["doc-0042"], "memory_types": ["factual"]}
+{"id": "q-0043", "query": "What were the biggest drivers of support tickets in the week of 2026-02-02?", "relevant_document_ids": ["doc-0043"], "memory_types": ["factual"]}
+{"id": "q-0044", "query": "When does the in-app messaging project kick off, and what are the key dates after that?", "relevant_document_ids": ["doc-0394"], "memory_types": ["temporal"]}
+{"id": "q-0045", "query": "What happened in that late-night pairing session where we chased a flaky test—what was the real issue?", "relevant_document_ids": ["doc-0120"], "memory_types": ["episodic"]}
+{"id": "q-0046", "query": "I remember testing the new login rate limit in a more realistic way one morning—what did I do and what did I learn?", "relevant_document_ids": ["doc-0112"], "memory_types": ["episodic"]}
+{"id": "q-0047", "query": "What’s my note about overcommitting when I feel behind and how it affects trust with myself?", "relevant_document_ids": ["doc-0313"], "memory_types": ["contextual"]}
+{"id": "q-0048", "query": "Any tips for working with Jordan in meetings, especially when they’re anxious and start taking over?", "relevant_document_ids": ["doc-0253", "doc-0290"], "memory_types": ["social"]}
+{"id": "q-0049", "query": "Which US states did we validate the updated sales tax calculation rules against?", "relevant_document_ids": ["doc-0035"], "memory_types": ["factual"]}
+{"id": "q-0050", "query": "What’s our step-by-step playbook for investigating a sudden latency spike isolated to one API endpoint?", "relevant_document_ids": ["doc-0084"], "memory_types": ["procedural"]}
+{"id": "q-0051", "query": "How do we add a new feature flag safely in our process (naming, defaults, rollout)?", "relevant_document_ids": ["doc-0057"]}
+{"id": "q-0052", "query": "What’s the standard process for adding a new analytics event and naming it correctly?", "relevant_document_ids": ["doc-0053"], "memory_types": ["procedural"]}
+{"id": "q-0053", "query": "In Q4, what confusion did users have about account deletion and transaction history?", "relevant_document_ids": ["doc-0001"], "memory_types": ["factual"]}
+{"id": "q-0054", "query": "Remind me what we learned about Mei’s communication style in group discussions.", "relevant_document_ids": ["doc-0291"], "memory_types": ["social"]}
+{"id": "q-0055", "query": "When a customer says “sync is stuck,” what’s the triage flow we follow?", "relevant_document_ids": ["doc-0078"], "memory_types": ["procedural"]}
+{"id": "q-0056", "query": "What are the key steps in the runbook for handling a sudden spike in 5xx errors?", "relevant_document_ids": ["doc-0052"]}
+{"id": "q-0057", "query": "What’s the weekly on-call handoff checklist we’re supposed to complete before rotation starts?", "relevant_document_ids": ["doc-0077"], "memory_types": ["procedural"]}
+{"id": "q-0058", "query": "What went wrong the last time we tried to simplify the auth flow (something about refresh tokens)?", "relevant_document_ids": ["doc-0325"], "memory_types": ["contextual"]}
+{"id": "q-0059", "query": "What are the required notice/communication rules when we update Terms of Service or the Privacy Policy?", "relevant_document_ids": ["doc-0012"], "memory_types": ["factual"]}
+{"id": "q-0060", "query": "How do we rotate an API token without breaking existing clients?", "relevant_document_ids": ["doc-0076"]}
+{"id": "q-0061", "query": "What did the design system consolidation decide for button variants (and when was that inventory taken)?", "relevant_document_ids": ["doc-0044"], "memory_types": ["factual"]}
+{"id": "q-0062", "query": "On Feb 9, 2026, how was the iOS squad staffed across feature work, maintenance, and on-call?", "relevant_document_ids": ["doc-0037"], "memory_types": ["temporal"]}
+{"id": "q-0063", "query": "What were the Q4 support metrics changes—especially the average first response time improvement?", "relevant_document_ids": ["doc-0014"]}
+{"id": "q-0064", "query": "What did we align on in the weekly sync today (Feb 16) about the notifications revamp rollout timeline?", "relevant_document_ids": ["doc-0399"], "memory_types": ["temporal"]}
+{"id": "q-0065", "query": "What’s our standard format for writing a bug fix note that both Support and Engineering can reuse?", "relevant_document_ids": ["doc-0092"], "memory_types": ["procedural"]}
+{"id": "q-0066", "query": "Runbook question: if we’re seeing a broad service degradation (latency and error rate up), what sequence do we follow first?", "relevant_document_ids": ["doc-0100"], "memory_types": ["procedural"]}
+{"id": "q-0067", "query": "How should we respond when CI starts failing across multiple repos at once?", "relevant_document_ids": ["doc-0082"], "memory_types": ["procedural"]}
+{"id": "q-0068", "query": "I remember a warning about adding pagination to the activity feed—what was the gotcha with assuming page size?", "relevant_document_ids": ["doc-0326"], "memory_types": ["contextual"]}
+{"id": "q-0069", "query": "How are we supposed to key the image cache when URLs include query params?", "relevant_document_ids": ["doc-0335"]}
+{"id": "q-0070", "query": "Do we rely on silent push notifications for critical badge counts, or is that considered unreliable?", "relevant_document_ids": ["doc-0330"]}
+{"id": "q-0071", "query": "If we see duplicate background tasks being scheduled, what’s the likely cause in our app lifecycle hooks?", "relevant_document_ids": ["doc-0336"], "memory_types": ["contextual"]}
+{"id": "q-0072", "query": "Remind me of the mental model for planning when there are a lot of unknowns—I don’t want to pretend we have precise estimates.", "relevant_document_ids": ["doc-0169"], "memory_types": ["semantic"]}
+{"id": "q-0073", "query": "I keep underestimating because I only count the happy path—do we have a note about fixing that estimation bias?", "relevant_document_ids": ["doc-0310"], "memory_types": ["contextual"]}
+{"id": "q-0074", "query": "What’s the personal rule about overcommitting when feeling behind and then losing trust later?", "relevant_document_ids": ["doc-0313"]}
+{"id": "q-0075", "query": "There was a note about endless ‘cleanup’ work that feels busy but doesn’t move outcomes—what was the suggested fix?", "relevant_document_ids": ["doc-0320"], "memory_types": ["contextual"]}
+{"id": "q-0076", "query": "In meeting dynamics, who tends to dominate when anxious, and what’s the tactic to make room for others?", "relevant_document_ids": ["doc-0253"], "memory_types": ["social"]}
+{"id": "q-0077", "query": "Which cross-functional sync mentioned someone interrupting another person twice, and who were they?", "relevant_document_ids": ["doc-0266"]}
+{"id": "q-0078", "query": "When ownership is fuzzy and it’s unclear who decides, what’s the recommended behavior to prevent drift?", "relevant_document_ids": ["doc-0177", "doc-0339"], "memory_types": ["semantic"]}
+{"id": "q-0079", "query": "What are the consolidated button style variants in the design system inventory?", "relevant_document_ids": ["doc-0044"]}
+{"id": "q-0080", "query": "What changed in the CI pipeline around late January 2026 that improved build times?", "relevant_document_ids": ["doc-0042"], "memory_types": ["factual"]}
+{"id": "q-0081", "query": "What’s our standard process for rolling out a feature flag safely, including kill switch checks?", "relevant_document_ids": ["doc-0068"], "memory_types": ["procedural"]}
+{"id": "q-0082", "query": "If a customer says “sync is stuck,” what triage flow should I follow before I start guessing?", "relevant_document_ids": ["doc-0078"], "memory_types": ["procedural"]}
+{"id": "q-0083", "query": "When do we schedule routine database maintenance windows (day/time and timezone)?", "relevant_document_ids": ["doc-0011"], "memory_types": ["factual"]}
+{"id": "q-0084", "query": "What are the key offline-mode expectations users keep repeating about syncing after reconnect?", "relevant_document_ids": ["doc-0008"]}
+{"id": "q-0085", "query": "How do we define Sev1 vs other incident severities, and what does that imply for response?", "relevant_document_ids": ["doc-0003"], "memory_types": ["factual"]}
+{"id": "q-0086", "query": "What’s the on-call handoff checklist I should do before a new rotation starts?", "relevant_document_ids": ["doc-0077"]}
+{"id": "q-0087", "query": "I need the steps for rotating secrets—what’s the timeline and who needs to be notified?", "relevant_document_ids": ["doc-0072"], "memory_types": ["procedural"]}
+{"id": "q-0088", "query": "How do I prepare a database change so it’s reversible if something goes wrong?", "relevant_document_ids": ["doc-0098"]}
+{"id": "q-0089", "query": "What’s the team standard for creating a new analytics event (naming + steps to add it)?", "relevant_document_ids": ["doc-0053", "doc-0010"], "memory_types": ["procedural"]}
+{"id": "q-0090", "query": "What’s the guidance on analytics event naming and privacy—especially avoiding PII?", "relevant_document_ids": ["doc-0010"]}
+{"id": "q-0091", "query": "What was the phased migration schedule—what percent on which days?", "relevant_document_ids": ["doc-0372"], "memory_types": ["temporal"]}
+{"id": "q-0092", "query": "What’s the timeline around the Payments API deprecation warning and what we did right after?", "relevant_document_ids": ["doc-0398"], "memory_types": ["temporal"]}
+{"id": "q-0093", "query": "What’s the rule for syncing external calendar events so we don’t accidentally delete local items?", "relevant_document_ids": ["doc-0333"]}
+{"id": "q-0094", "query": "I keep slipping into deep-layer debugging when a bug report is vague—where did I note that pattern?", "relevant_document_ids": ["doc-0314"], "memory_types": ["contextual"]}
+{"id": "q-0095", "query": "Any note about how I tend to hear feedback as a judgment on my competence?", "relevant_document_ids": ["doc-0312"], "memory_types": ["contextual"]}
+{"id": "q-0096", "query": "What did I write about equating speed with competence and the downsides of rushing unclear requirements?", "relevant_document_ids": ["doc-0180"]}
+{"id": "q-0097", "query": "What did we decide in the Feb 6 retro about the cause of the login spike?", "relevant_document_ids": ["doc-0038"], "memory_types": ["factual", "temporal"]}
+{"id": "q-0098", "query": "Remind me what the incident recap said was behind the rollout login failures—something about credentials?", "relevant_document_ids": ["doc-0049"], "memory_types": ["factual"]}
+{"id": "q-0099", "query": "Which rooms had AV equipment issues in the recent conference room audit, and what was failing?", "relevant_document_ids": ["doc-0015"], "memory_types": ["factual"]}
+{"id": "q-0100", "query": "What was the estimated monthly compute cost baseline for the new image processing pipeline?", "relevant_document_ids": ["doc-0033"]}
+{"id": "q-0101", "query": "Before shipping the hotfix, what are the key checks we’re supposed to do?", "relevant_document_ids": ["doc-0051"], "memory_types": ["procedural"]}
+{"id": "q-0102", "query": "Walk me through the daily deploy runbook’s pre-flight steps before starting a release window.", "relevant_document_ids": ["doc-0063"]}
+{"id": "q-0103", "query": "What’s the procedure for handling a suspected data corruption report so we don’t make it worse?", "relevant_document_ids": ["doc-0080"], "memory_types": ["procedural"]}
+{"id": "q-0104", "query": "How do we investigate a sudden latency spike that seems isolated to one endpoint?", "relevant_document_ids": ["doc-0084"]}
+{"id": "q-0105", "query": "What happened when I paired with Mei to validate the audit export changes—what steps did we replay?", "relevant_document_ids": ["doc-0103"], "memory_types": ["episodic"]}
+{"id": "q-0106", "query": "I remember staying late to help with a rollback that looked clean on paper but users still complained—what was that about?", "relevant_document_ids": ["doc-0104"]}
+{"id": "q-0107", "query": "During the quarterly access review shadowing Carlos, what did I learn about the real workflow versus the documented one?", "relevant_document_ids": ["doc-0109"]}
+{"id": "q-0108", "query": "After that mentorship session about my standups, what feedback did Lina give me about how I show up in those meetings?", "relevant_document_ids": ["doc-0133"], "memory_types": ["episodic"]}
+{"id": "q-0109", "query": "What’s the note about treating meeting agendas like interfaces—inputs, outputs, constraints?", "relevant_document_ids": ["doc-0167"], "memory_types": ["semantic"]}
+{"id": "q-0110", "query": "What’s the difference we captured between agreement and alignment, and what simple fix was suggested?", "relevant_document_ids": ["doc-0162"]}
+{"id": "q-0111", "query": "What do we mean when we say “Draft” isn’t just a weaker “Published” in our product terminology?", "relevant_document_ids": ["doc-0188"], "memory_types": ["semantic"]}
+{"id": "q-0112", "query": "What’s in the cross-team sync timeline about the payments API deprecation warning and the follow-up actions?", "relevant_document_ids": ["doc-0398"], "memory_types": ["temporal"]}
+{"id": "q-0113", "query": "What are the rules we follow for analytics event names, especially around privacy?", "relevant_document_ids": ["doc-0010", "doc-0048"], "memory_types": ["factual"]}
+{"id": "q-0114", "query": "How do I prep a small DB schema change safely, including rollback?", "relevant_document_ids": ["doc-0058"], "memory_types": ["procedural"]}
+{"id": "q-0115", "query": "Which locales were supported as of the early-Feb localization rollup?", "relevant_document_ids": ["doc-0046"], "memory_types": ["factual"]}
+{"id": "q-0116", "query": "Remind me what happened in the Sep 14 release with background sync and what we saw the next morning.", "relevant_document_ids": ["doc-0370"], "memory_types": ["temporal"]}
+{"id": "q-0117", "query": "What was the timeline and messaging approach for the API deprecation notices to enterprise customers?", "relevant_document_ids": ["doc-0361"], "memory_types": ["temporal"]}
+{"id": "q-0118", "query": "I keep getting stuck doing endless “cleanup” work—what was my plan to stop that?", "relevant_document_ids": ["doc-0320"], "memory_types": ["contextual"]}
+{"id": "q-0119", "query": "What did the retro say about feature flag naming/documentation problems?", "relevant_document_ids": ["doc-0347"], "memory_types": ["contextual"]}
+{"id": "q-0120", "query": "What are the steps for rotating third-party API keys without causing an outage?", "relevant_document_ids": ["doc-0054"], "memory_types": ["procedural"]}
+{"id": "q-0121", "query": "What’s the weekly on-call handoff checklist we’re supposed to do before rotation starts?", "relevant_document_ids": ["doc-0077"], "memory_types": ["procedural"]}
+{"id": "q-0122", "query": "What did the customer support digest say were the top ticket drivers that week in early February 2026?", "relevant_document_ids": ["doc-0043"]}
+{"id": "q-0123", "query": "We had a sprint retro about a February login spike—what was the root cause?", "relevant_document_ids": ["doc-0038"]}
+{"id": "q-0124", "query": "I remember a build verification where a feature flag for search suggestions was on in staging—what was the note?", "relevant_document_ids": ["doc-0140"], "memory_types": ["episodic"]}
+{"id": "q-0125", "query": "What did I learn about Diego’s preferences during the cross-team handoff meeting?", "relevant_document_ids": ["doc-0136"], "memory_types": ["social"]}
+{"id": "q-0126", "query": "What did Nia from Support say about how engineering engages with their pain points?", "relevant_document_ids": ["doc-0284"], "memory_types": ["social"]}
+{"id": "q-0127", "query": "I have a note about why I hesitate to ask for help—what was the insight and why it costs me time?", "relevant_document_ids": ["doc-0183"], "memory_types": ["semantic"]}
+{"id": "q-0128", "query": "What did we align on today (Mon, Feb 16) regarding the rollout timeline for the notifications revamp?", "relevant_document_ids": ["doc-0399"], "memory_types": ["temporal"]}
+{"id": "q-0129", "query": "What did we decide about delaying the API contract change and what was it contingent on?", "relevant_document_ids": ["doc-0364"], "memory_types": ["temporal"]}
+{"id": "q-0130", "query": "How do I roll out a new feature flag without accidentally exposing it to everyone?", "relevant_document_ids": ["doc-0057", "doc-0160"], "memory_types": ["procedural", "semantic"]}
+{"id": "q-0131", "query": "What’s the release-day checklist we use before submitting the mobile app update?", "relevant_document_ids": ["doc-0083"], "memory_types": ["procedural"]}
+{"id": "q-0132", "query": "I need steps for moving a wiki page to a new location without losing the important context—what’s the process?", "relevant_document_ids": ["doc-0093"]}
+{"id": "q-0133", "query": "What’s the guidance on analytics event names and privacy constraints (like avoiding PII)?", "relevant_document_ids": ["doc-0010"], "memory_types": ["factual"]}
+{"id": "q-0134", "query": "Any notes on why Erin’s buy-in was hard to get during quarterly planning?", "relevant_document_ids": ["doc-0135"]}
+{"id": "q-0135", "query": "What happened with that rollback where the deploy looked fine but users still saw issues?", "relevant_document_ids": ["doc-0104"], "memory_types": ["episodic"]}
+{"id": "q-0136", "query": "Remind me of the situation with the analytics partner team—why has the relationship been tense?", "relevant_document_ids": ["doc-0272"], "memory_types": ["social"]}
+{"id": "q-0137", "query": "When did design hand off the final settings revamp specs, especially the new Data & Privacy section?", "relevant_document_ids": ["doc-0389"]}
+{"id": "q-0138", "query": "I’m about to write a bug-fix note for support—what structure should I follow so it’s usable for both teams?", "relevant_document_ids": ["doc-0092"], "memory_types": ["procedural"]}
+{"id": "q-0139", "query": "What’s the safe approach for preparing a reversible database migration (forward + rollback)?", "relevant_document_ids": ["doc-0098"]}
+{"id": "q-0140", "query": "I keep forgetting what we learned about “done” meaning different things across teams—where are those notes?", "relevant_document_ids": ["doc-0157", "doc-0345"], "memory_types": ["semantic", "contextual"]}
+{"id": "q-0141", "query": "What’s my personal reminder about being more effective in meetings—especially around having an agenda?", "relevant_document_ids": ["doc-0322"], "memory_types": ["contextual"]}
+{"id": "q-0142", "query": "Do we have a timeline recap for the data retention work—scope finalized, then paused?", "relevant_document_ids": ["doc-0376"]}
+{"id": "q-0143", "query": "Who prefers very brief, no-hedging communication and gets impatient with long explanations?", "relevant_document_ids": ["doc-0259"], "memory_types": ["social"]}
+{"id": "q-0144", "query": "What did my 1:1 notes say about weekly status updates sounding like marketing instead of surfacing risks?", "relevant_document_ids": ["doc-0338"]}
+{"id": "q-0145", "query": "What are the upstream vendor’s rate limits and connection concurrency caps for the Partner API?", "relevant_document_ids": ["doc-0002"], "memory_types": ["factual"]}
+{"id": "q-0146", "query": "What’s our internal definition of incident severities and who owns what on-call?", "relevant_document_ids": ["doc-0003"], "memory_types": ["factual"]}
+{"id": "q-0147", "query": "Remind me of the receipts rule for expense reimbursements—what’s the threshold again?", "relevant_document_ids": ["doc-0018"], "memory_types": ["factual"]}
+{"id": "q-0148", "query": "What did the Q4 support escalations say about user expectations around account deletion and transaction history?", "relevant_document_ids": ["doc-0001"]}
+{"id": "q-0149", "query": "I need the steps for a lightweight post-incident review—what’s the recommended sequence and timing?", "relevant_document_ids": ["doc-0095"], "memory_types": ["procedural"]}
+{"id": "q-0150", "query": "If a payment processor callback fails in production, what’s the checklist to diagnose and recover?", "relevant_document_ids": ["doc-0094"], "memory_types": ["procedural"]}
+{"id": "q-0151", "query": "How do we do a schema migration with minimal downtime (additive-first approach)?", "relevant_document_ids": ["doc-0081"], "memory_types": ["procedural"]}
+{"id": "q-0152", "query": "What’s the process when we suspect data corruption so we don’t make things worse?", "relevant_document_ids": ["doc-0080"]}
+{"id": "q-0153", "query": "Which locales do we currently support, and what was the last noted translation turnaround expectation?", "relevant_document_ids": ["doc-0046"], "memory_types": ["factual"]}
+{"id": "q-0154", "query": "What were the top ticket drivers in the support digest for the week of 2026-02-02?", "relevant_document_ids": ["doc-0043"], "memory_types": ["temporal", "factual"]}
+{"id": "q-0155", "query": "When did the incident alerts start yesterday and when did we confirm the 5xx spike?", "relevant_document_ids": ["doc-0355"], "memory_types": ["temporal"]}
+{"id": "q-0156", "query": "What was the timeline around the Payments team warning about an API deprecation and our follow-up actions?", "relevant_document_ids": ["doc-0398"]}
+{"id": "q-0157", "query": "What did I observe about Jamie’s preferences during that onboarding sync (agenda style, cold-calling, etc.)?", "relevant_document_ids": ["doc-0125"], "memory_types": ["episodic", "social"]}
+{"id": "q-0158", "query": "What did I learn in the cross-team handoff about what Diego cares about most in communication?", "relevant_document_ids": ["doc-0136"]}
+{"id": "q-0159", "query": "What’s the mental model about avoiding fake precision when planning tasks with unknowns?", "relevant_document_ids": ["doc-0169"], "memory_types": ["semantic"]}
+{"id": "q-0160", "query": "Who’s the partner contact that prefers very brief, time-sensitive communication and dislikes hedging?", "relevant_document_ids": ["doc-0259"], "memory_types": ["social"]}
+{"id": "q-0161", "query": "What are the steps I should do before starting the weekly on-call rotation handoff?", "relevant_document_ids": ["doc-0077"], "memory_types": ["procedural"]}
+{"id": "q-0162", "query": "How do I safely reset the staging database when someone asks in Slack?", "relevant_document_ids": ["doc-0075"], "memory_types": ["procedural"]}
+{"id": "q-0163", "query": "What do we do one week before rotating secrets, and who needs to be notified?", "relevant_document_ids": ["doc-0072"], "memory_types": ["procedural"]}
+{"id": "q-0164", "query": "Remind me of the runbook for rotating third-party API keys without causing downtime.", "relevant_document_ids": ["doc-0054"], "memory_types": ["procedural"]}
+{"id": "q-0165", "query": "What’s the checklist for executing a data migration, especially around backups and restores?", "relevant_document_ids": ["doc-0069"]}
+{"id": "q-0166", "query": "What are the partner API rate limits and concurrency constraints again?", "relevant_document_ids": ["doc-0002"], "memory_types": ["factual"]}
+{"id": "q-0167", "query": "What’s our analytics event naming guidance and privacy constraints?", "relevant_document_ids": ["doc-0010"], "memory_types": ["factual"]}
+{"id": "q-0168", "query": "What button variants did we standardize on in the design system inventory from late January 2026?", "relevant_document_ids": ["doc-0044"]}
+{"id": "q-0169", "query": "Which crash reporting vendor did we renew at the end of January 2026, and for how long?", "relevant_document_ids": ["doc-0039"]}
+{"id": "q-0170", "query": "What did customers say they wanted around visibility into scheduled maintenance notifications?", "relevant_document_ids": ["doc-0022"], "memory_types": ["factual"]}
+{"id": "q-0171", "query": "Between Oct 2 and Oct 6, what was going on with those “missing notifications” enterprise escalations?", "relevant_document_ids": ["doc-0371"], "memory_types": ["temporal"]}
+{"id": "q-0172", "query": "What’s the timeline for the Feb 2 incident where search started returning elevated 500s?", "relevant_document_ids": ["doc-0388"], "memory_types": ["temporal"]}
+{"id": "q-0173", "query": "When did we see outbound request timeouts creeping up in April, and how did it progress?", "relevant_document_ids": ["doc-0365"]}
+{"id": "q-0174", "query": "Why were the “stuck checkout” reports not actually a payment provider outage?", "relevant_document_ids": ["doc-0327"], "memory_types": ["contextual"]}
+{"id": "q-0175", "query": "How should I tailor a message or ask when working with Victor, given his communication style?", "relevant_document_ids": ["doc-0259"], "memory_types": ["social"]}
+{"id": "q-0176", "query": "What’s the main lesson I wrote about underestimating coordination tasks even when the code change is small?", "relevant_document_ids": ["doc-0321", "doc-0350"], "memory_types": ["contextual"]}
+{"id": "q-0177", "query": "What’s our policy when syncing external calendars if an event disappears upstream?", "relevant_document_ids": ["doc-0333"], "memory_types": ["contextual"]}
+{"id": "q-0178", "query": "How exactly do we define “Activation” in analytics right now?", "relevant_document_ids": ["doc-0040"], "memory_types": ["factual"]}
+{"id": "q-0179", "query": "Remind me of the steps to rotate an API token without breaking existing clients.", "relevant_document_ids": ["doc-0076"], "memory_types": ["procedural"]}
+{"id": "q-0180", "query": "What’s the internal checklist we follow before pushing a hotfix?", "relevant_document_ids": ["doc-0051"], "memory_types": ["procedural"]}
+{"id": "q-0181", "query": "What’s the recommended routine for doing a code review before diving into the diff?", "relevant_document_ids": ["doc-0073"]}
+{"id": "q-0182", "query": "Why did we move background job scheduling away from fixed-interval polling?", "relevant_document_ids": ["doc-0007"], "memory_types": ["factual", "semantic"]}
+{"id": "q-0183", "query": "What was the agreed principle about analytics vs privacy (how granular events should be)?", "relevant_document_ids": ["doc-0334"], "memory_types": ["contextual"]}
+{"id": "q-0184", "query": "Do we rely on silent push for badge counts or anything critical?", "relevant_document_ids": ["doc-0330"]}
+{"id": "q-0185", "query": "What’s the decision about treating events vs documents in our collaboration model?", "relevant_document_ids": ["doc-0196"], "memory_types": ["semantic"]}
+{"id": "q-0186", "query": "I remember an ops note about a maintenance window and then slower dashboards—when did that happen and what was done?", "relevant_document_ids": ["doc-0393"], "memory_types": ["temporal"]}
+{"id": "q-0187", "query": "When did we shift the nightly refresh window to a later time, and what were the new hours?", "relevant_document_ids": ["doc-0363"]}
+{"id": "q-0188", "query": "In group meetings, who should I pre-brief to make sure others get airtime?", "relevant_document_ids": ["doc-0253"], "memory_types": ["social"]}
+{"id": "q-0189", "query": "What’s the best way to get Mei’s input in a group setting?", "relevant_document_ids": ["doc-0291"]}
+{"id": "q-0190", "query": "Any notes on Marcos’s communication style that might be misread over text?", "relevant_document_ids": ["doc-0298"], "memory_types": ["social"]}
+{"id": "q-0191", "query": "Which button variants are in the design system now?", "relevant_document_ids": ["doc-0044"], "memory_types": ["factual"]}
+{"id": "q-0192", "query": "What’s that guideline for writing internal docs so they’re useful for someone skimming later?", "relevant_document_ids": ["doc-0170"], "memory_types": ["semantic"]}
+{"id": "q-0193", "query": "What are the partner API rate limits and connection limits again?", "relevant_document_ids": ["doc-0002"], "memory_types": ["factual"]}
+{"id": "q-0194", "query": "How do we add a new analytics event following the team standard?", "relevant_document_ids": ["doc-0053"], "memory_types": ["procedural"]}
+{"id": "q-0195", "query": "Which doc defines “Activation” and when was it approved?", "relevant_document_ids": ["doc-0040"], "memory_types": ["factual", "temporal"]}
+{"id": "q-0196", "query": "What’s the recommended playbook when CI starts failing across multiple repos at once?", "relevant_document_ids": ["doc-0082"], "memory_types": ["procedural"]}
+{"id": "q-0197", "query": "Remind me what the reversible DB change steps are (forward + rollback).", "relevant_document_ids": ["doc-0098", "doc-0058"]}
+{"id": "q-0198", "query": "What did we learn when investigating the slow cold launch / startup spike with Lee?", "relevant_document_ids": ["doc-0144"], "memory_types": ["episodic"]}
+{"id": "q-0199", "query": "I remember a note about joking at a team lunch after a release and it not landing well—where is that captured?", "relevant_document_ids": ["doc-0130"]}
+{"id": "q-0200", "query": "What’s the principle for writing internal docs for busy future readers?", "relevant_document_ids": ["doc-0170"], "memory_types": ["semantic"]}
+{"id": "q-0201", "query": "Is there guidance on how to run meetings so we don’t confuse agreement with alignment?", "relevant_document_ids": ["doc-0162", "doc-0167"]}
+{"id": "q-0202", "query": "Where did we write about people waiting for perfect requirements instead of negotiating constraints?", "relevant_document_ids": ["doc-0155"], "memory_types": ["semantic"]}
+{"id": "q-0203", "query": "I need the timeline for the mobile hotfix that moved because the crash only reproduced on one OS version.", "relevant_document_ids": ["doc-0366"], "memory_types": ["temporal"]}
+{"id": "q-0204", "query": "When did we update the public status page during the API latency spike incident?", "relevant_document_ids": ["doc-0025"]}
+{"id": "q-0205", "query": "What’s the on-call handoff checklist we’re supposed to do before rotation starts?", "relevant_document_ids": ["doc-0077"], "memory_types": ["procedural"]}
+{"id": "q-0206", "query": "Any notes about my habit of using urgency as a substitute for clarity in requests?", "relevant_document_ids": ["doc-0349"], "memory_types": ["contextual"]}
+{"id": "q-0207", "query": "Which memo notes that Priya dislikes frequent check-ins and prefers autonomy?", "relevant_document_ids": ["doc-0252"], "memory_types": ["social"]}
+{"id": "q-0208", "query": "Do we have a write-up about feeling lonely during an incident/retro even with lots of people on the call?", "relevant_document_ids": ["doc-0205", "doc-0249", "doc-0220"], "memory_types": ["emotional"]}
+{"id": "q-0209", "query": "Which note mentioned the CI pipeline switching to a shared dependency cache and reducing build time?", "relevant_document_ids": ["doc-0042"], "memory_types": ["factual"]}
+{"id": "q-0210", "query": "What’s the runbook snippet about when we schedule routine database maintenance windows?", "relevant_document_ids": ["doc-0011"], "memory_types": ["factual"]}
+{"id": "q-0211", "query": "Find the procedure for handling support tickets that starts with confirming the customer’s environment details.", "relevant_document_ids": ["doc-0066"], "memory_types": ["procedural"]}
+{"id": "q-0212", "query": "Where’s the checklist/procedure for preparing a small feature for a staged rollout behind a server-controlled flag?", "relevant_document_ids": ["doc-0088"], "memory_types": ["procedural"]}
+{"id": "q-0213", "query": "I need the steps for restoring service after a partial outage caused by a misconfiguration.", "relevant_document_ids": ["doc-0062"], "memory_types": ["procedural"]}
+{"id": "q-0214", "query": "Which document outlines how to reproduce and triage a customer report that their app is stuck syncing?", "relevant_document_ids": ["doc-0090"]}
+{"id": "q-0215", "query": "Where did we document the QA regression pass procedure that starts by syncing the test plan to the release timeline?", "relevant_document_ids": ["doc-0071"], "memory_types": ["procedural"]}
+{"id": "q-0216", "query": "Which note is the release-day checklist for submitting the mobile app (version/build numbers, etc.)?", "relevant_document_ids": ["doc-0083"]}
+{"id": "q-0217", "query": "Looking for the entry about reconciling January subscription revenue using Stripe exports vs the internal ledger.", "relevant_document_ids": ["doc-0026"], "memory_types": ["factual"]}
+{"id": "q-0218", "query": "Where’s the payments reconciliation note describing daily matching of internal order IDs to processor settlement reports?", "relevant_document_ids": ["doc-0047"]}
+{"id": "q-0219", "query": "What was that coaching reflection about scanning for risk the way you scan for typos?", "relevant_document_ids": ["doc-0231"], "memory_types": ["emotional"]}
+{"id": "q-0220", "query": "Find the retro prep where I said I was embarrassed by how much a Slack thread got under my skin.", "relevant_document_ids": ["doc-0219"], "memory_types": ["emotional"]}
+{"id": "q-0221", "query": "Which entry captures feeling lonely after a retro even though the outcomes were fine?", "relevant_document_ids": ["doc-0249"]}
+{"id": "q-0222", "query": "Where did I write about leaving a 1:1 feeling hollow even though the agenda and action items were clear?", "relevant_document_ids": ["doc-0213"], "memory_types": ["emotional"]}
+{"id": "q-0223", "query": "Which stakeholder relationship note is about Ren (Product) and how they sometimes feel engineering is dismissive?", "relevant_document_ids": ["doc-0282"], "memory_types": ["social"]}
+{"id": "q-0224", "query": "Find the team memory about silent push not being reliable enough for critical badge counts.", "relevant_document_ids": ["doc-0330"], "memory_types": ["contextual"]}
+{"id": "q-0225", "query": "What’s our standard process when an alert fires so we don’t miss initial comms?", "relevant_document_ids": ["doc-0065"], "memory_types": ["procedural"]}
+{"id": "q-0226", "query": "How do I write up a reproducible bug report specifically for a UX regression?", "relevant_document_ids": ["doc-0056"], "memory_types": ["procedural"]}
+{"id": "q-0227", "query": "What’s the recommended sequence to triage a customer report that “sync is stuck”?", "relevant_document_ids": ["doc-0078"]}
+{"id": "q-0228", "query": "If we suspect data corruption, what immediate steps should we take before investigating deeper?", "relevant_document_ids": ["doc-0080"], "memory_types": ["procedural"]}
+{"id": "q-0229", "query": "What did we conclude was behind the February login spike, and when was that discussed?", "relevant_document_ids": ["doc-0038"], "memory_types": ["factual", "temporal"]}
+{"id": "q-0230", "query": "What are the current button style variants in the design system, and when was that inventory recorded?", "relevant_document_ids": ["doc-0044"]}
+{"id": "q-0231", "query": "What’s the retention policy outcome from the annual review for customer docs vs logs?", "relevant_document_ids": ["doc-0032"], "memory_types": ["factual"]}
+{"id": "q-0232", "query": "Do we have a note about users thinking account deletion removes transaction history?", "relevant_document_ids": ["doc-0001"]}
+{"id": "q-0233", "query": "What’s the guidance for classifying API-wrapper errors (connectivity vs server vs auth vs validation)?", "relevant_document_ids": ["doc-0332"], "memory_types": ["contextual"]}
+{"id": "q-0234", "query": "What’s the lesson about treating feature flags as part of the product surface (not just an engineering trick)?", "relevant_document_ids": ["doc-0160"]}
+{"id": "q-0235", "query": "Any reminder about why metrics alone don’t drive behavior and we need narrative/actionability with alerts?", "relevant_document_ids": ["doc-0156"], "memory_types": ["semantic"]}
+{"id": "q-0236", "query": "What’s the recommended experiment setup pattern (hypothesis, metric, stop condition)?", "relevant_document_ids": ["doc-0174"]}
+{"id": "q-0237", "query": "In that morning crash triage, what did the stack trace suggest was happening?", "relevant_document_ids": ["doc-0139"], "memory_types": ["episodic"]}
+{"id": "q-0238", "query": "What did Theo call out in my change request review—something about adding a new config?", "relevant_document_ids": ["doc-0111"]}
+{"id": "q-0239", "query": "Which stakeholders should I be careful with for last-minute requests, and who values psych safety enough to step in?", "relevant_document_ids": ["doc-0256", "doc-0295"], "memory_types": ["social"]}
+{"id": "q-0240", "query": "What was the plan on Feb 3 about pausing the API contract change until after the March maintenance period?", "relevant_document_ids": ["doc-0364"], "memory_types": ["temporal"]}

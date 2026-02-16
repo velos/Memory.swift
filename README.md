@@ -104,3 +104,47 @@ swift run memory multi-get "journals/2025-05*.md"
 swift run memory search "API" -c notes
 swift run memory search "API" --all --files --min-score 0.3
 ```
+
+## Eval Harness (`memory_eval`)
+
+Generate datasets with MiniMax (Anthropic-compatible API):
+
+```bash
+python3 scripts/generate_eval_data_minimax.py --dataset-root ./Evals --env-file .env --overwrite
+```
+
+Generate datasets with Codex (`gpt-5.2`) in atomic batches:
+
+```bash
+python3 scripts/generate_eval_data_codex.py \
+  --dataset-root ./Evals \
+  --model gpt-5.2 \
+  --storage-batch-size 6 \
+  --documents-batch-size 8 \
+  --queries-batch-size 10 \
+  --resume
+```
+
+Initialize dataset templates:
+
+```bash
+swift run memory_eval init --dataset-root ./Evals
+```
+
+Run baseline eval:
+
+```bash
+swift run memory_eval run --profile baseline --dataset-root ./Evals
+```
+
+Run Apple-powered eval (classification + expansion/reranking):
+
+```bash
+swift run memory_eval run --profile full_apple --dataset-root ./Evals
+```
+
+Compare run outputs:
+
+```bash
+swift run memory_eval compare ./Evals/runs/*.json
+```
