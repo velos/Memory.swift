@@ -7,19 +7,28 @@ public struct StoredChunkInput: Sendable {
     public var tokenCount: Int
     public var embedding: [Float]
     public var norm: Double
+    public var memoryTypeOverride: String?
+    public var memoryTypeOverrideSource: String?
+    public var memoryTypeOverrideConfidence: Double?
 
     public init(
         ordinal: Int,
         content: String,
         tokenCount: Int,
         embedding: [Float],
-        norm: Double
+        norm: Double,
+        memoryTypeOverride: String? = nil,
+        memoryTypeOverrideSource: String? = nil,
+        memoryTypeOverrideConfidence: Double? = nil
     ) {
         self.ordinal = ordinal
         self.content = content
         self.tokenCount = tokenCount
         self.embedding = embedding
         self.norm = norm
+        self.memoryTypeOverride = memoryTypeOverride
+        self.memoryTypeOverrideSource = memoryTypeOverrideSource
+        self.memoryTypeOverrideConfidence = memoryTypeOverrideConfidence
     }
 }
 
@@ -28,6 +37,9 @@ public struct StoredDocumentInput: Sendable {
     public var title: String?
     public var modifiedAt: Date
     public var checksum: String
+    public var memoryType: String
+    public var memoryTypeSource: String
+    public var memoryTypeConfidence: Double?
     public var chunks: [StoredChunkInput]
 
     public init(
@@ -35,12 +47,18 @@ public struct StoredDocumentInput: Sendable {
         title: String?,
         modifiedAt: Date,
         checksum: String,
+        memoryType: String = "factual",
+        memoryTypeSource: String = "fallback",
+        memoryTypeConfidence: Double? = nil,
         chunks: [StoredChunkInput]
     ) {
         self.path = path
         self.title = title
         self.modifiedAt = modifiedAt
         self.checksum = checksum
+        self.memoryType = memoryType
+        self.memoryTypeSource = memoryTypeSource
+        self.memoryTypeConfidence = memoryTypeConfidence
         self.chunks = chunks
     }
 }
@@ -53,6 +71,9 @@ public struct StoredChunkEmbedding: Sendable {
     public var documentPath: String
     public var title: String?
     public var modifiedAt: Date
+    public var memoryType: String
+    public var memoryTypeSource: String
+    public var memoryTypeConfidence: Double?
 
     public init(
         chunkID: Int64,
@@ -61,7 +82,10 @@ public struct StoredChunkEmbedding: Sendable {
         content: String,
         documentPath: String,
         title: String?,
-        modifiedAt: Date
+        modifiedAt: Date,
+        memoryType: String,
+        memoryTypeSource: String,
+        memoryTypeConfidence: Double?
     ) {
         self.chunkID = chunkID
         self.vector = vector
@@ -70,6 +94,9 @@ public struct StoredChunkEmbedding: Sendable {
         self.documentPath = documentPath
         self.title = title
         self.modifiedAt = modifiedAt
+        self.memoryType = memoryType
+        self.memoryTypeSource = memoryTypeSource
+        self.memoryTypeConfidence = memoryTypeConfidence
     }
 }
 
@@ -79,13 +106,28 @@ public struct StoredChunkMetadata: Sendable {
     public var documentPath: String
     public var title: String?
     public var modifiedAt: Date
+    public var memoryType: String
+    public var memoryTypeSource: String
+    public var memoryTypeConfidence: Double?
 
-    public init(chunkID: Int64, content: String, documentPath: String, title: String?, modifiedAt: Date) {
+    public init(
+        chunkID: Int64,
+        content: String,
+        documentPath: String,
+        title: String?,
+        modifiedAt: Date,
+        memoryType: String,
+        memoryTypeSource: String,
+        memoryTypeConfidence: Double?
+    ) {
         self.chunkID = chunkID
         self.content = content
         self.documentPath = documentPath
         self.title = title
         self.modifiedAt = modifiedAt
+        self.memoryType = memoryType
+        self.memoryTypeSource = memoryTypeSource
+        self.memoryTypeConfidence = memoryTypeConfidence
     }
 }
 
@@ -133,14 +175,27 @@ public actor MemoryStorage {
             let now = Date().timeIntervalSince1970
             try db.execute(
                 sql: """
-                INSERT INTO documents (path, title, modified_at, checksum, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO documents (
+                    path,
+                    title,
+                    modified_at,
+                    checksum,
+                    memory_type,
+                    memory_type_source,
+                    memory_type_confidence,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     input.path,
                     input.title,
                     input.modifiedAt.timeIntervalSince1970,
                     input.checksum,
+                    input.memoryType,
+                    input.memoryTypeSource,
+                    input.memoryTypeConfidence,
                     now,
                     now,
                 ]
@@ -150,14 +205,26 @@ public actor MemoryStorage {
             for chunk in input.chunks {
                 try db.execute(
                     sql: """
-                    INSERT INTO chunks (document_id, ordinal, content, token_count, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO chunks (
+                        document_id,
+                        ordinal,
+                        content,
+                        token_count,
+                        memory_type_override,
+                        memory_type_override_source,
+                        memory_type_override_confidence,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         documentID,
                         chunk.ordinal,
                         chunk.content,
                         chunk.tokenCount,
+                        chunk.memoryTypeOverride,
+                        chunk.memoryTypeOverrideSource,
+                        chunk.memoryTypeOverrideConfidence,
                         now,
                     ]
                 )
@@ -199,6 +266,9 @@ public actor MemoryStorage {
                     d.path AS document_path,
                     d.title AS title,
                     d.modified_at AS modified_at,
+                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
                     e.vector_blob AS vector_blob,
                     e.norm AS norm
                 FROM chunks c
@@ -222,7 +292,10 @@ public actor MemoryStorage {
                     content: row["content"],
                     documentPath: row["document_path"],
                     title: row["title"],
-                    modifiedAt: Date(timeIntervalSince1970: row["modified_at"])
+                    modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+                    memoryType: row["memory_type"],
+                    memoryTypeSource: row["memory_type_source"],
+                    memoryTypeConfidence: row["memory_type_confidence"]
                 )
             }
         }
@@ -238,7 +311,10 @@ public actor MemoryStorage {
                 c.content AS content,
                 d.path AS document_path,
                 d.title AS title,
-                d.modified_at AS modified_at
+                d.modified_at AS modified_at,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE c.id IN (\(Self.placeholders(count: chunkIDs.count)))
@@ -251,7 +327,10 @@ public actor MemoryStorage {
                     content: $0["content"],
                     documentPath: $0["document_path"],
                     title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"])
+                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
+                    memoryType: $0["memory_type"],
+                    memoryTypeSource: $0["memory_type_source"],
+                    memoryTypeConfidence: $0["memory_type_confidence"]
                 )
             }
         }
@@ -267,7 +346,10 @@ public actor MemoryStorage {
                     c.content AS content,
                     d.path AS document_path,
                     d.title AS title,
-                    d.modified_at AS modified_at
+                    d.modified_at AS modified_at,
+                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.id = ?
@@ -281,7 +363,10 @@ public actor MemoryStorage {
                 content: row["content"],
                 documentPath: row["document_path"],
                 title: row["title"],
-                modifiedAt: Date(timeIntervalSince1970: row["modified_at"])
+                modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+                memoryType: row["memory_type"],
+                memoryTypeSource: row["memory_type_source"],
+                memoryTypeConfidence: row["memory_type_confidence"]
             )
         }
     }
@@ -298,7 +383,8 @@ public actor MemoryStorage {
     public func lexicalSearch(
         query: String,
         limit: Int,
-        allowedChunkIDs: Set<Int64>? = nil
+        allowedChunkIDs: Set<Int64>? = nil,
+        allowedMemoryTypes: Set<String>? = nil
     ) throws -> [LexicalHit] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let pattern = FTS5Pattern(matchingAnyTokenIn: trimmed) else { return [] }
@@ -315,6 +401,19 @@ public actor MemoryStorage {
                 let orderedAllowed = allowedChunkIDs.sorted()
                 sql += " AND rowid IN (\(Self.placeholders(count: orderedAllowed.count)))"
                 arguments += StatementArguments(orderedAllowed)
+            }
+
+            if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
+                let orderedTypes = allowedMemoryTypes.sorted()
+                sql += """
+                 AND rowid IN (
+                    SELECT c.id
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))
+                 )
+                """
+                arguments += StatementArguments(orderedTypes)
             }
 
             sql += " ORDER BY rank LIMIT ?"
@@ -397,7 +496,10 @@ public actor MemoryStorage {
                     c.content AS content,
                     d.path AS document_path,
                     d.title AS title,
-                    d.modified_at AS modified_at
+                    d.modified_at AS modified_at,
+                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
                 FROM context_chunks cc
                 JOIN chunks c ON c.id = cc.chunk_id
                 JOIN documents d ON d.id = c.document_id
@@ -413,9 +515,56 @@ public actor MemoryStorage {
                     content: $0["content"],
                     documentPath: $0["document_path"],
                     title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"])
+                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
+                    memoryType: $0["memory_type"],
+                    memoryTypeSource: $0["memory_type_source"],
+                    memoryTypeConfidence: $0["memory_type_confidence"]
                 )
             }
+        }
+    }
+
+    @discardableResult
+    public func setDocumentMemoryType(
+        path: String,
+        type: String,
+        source: String,
+        confidence: Double?
+    ) throws -> Bool {
+        try dbQueue.write { db in
+            let now = Date().timeIntervalSince1970
+            try db.execute(
+                sql: """
+                UPDATE documents
+                SET memory_type = ?, memory_type_source = ?, memory_type_confidence = ?, updated_at = ?
+                WHERE path = ?
+                """,
+                arguments: [type, source, confidence, now, path]
+            )
+            return db.changesCount > 0
+        }
+    }
+
+    @discardableResult
+    public func setChunkMemoryTypeOverride(
+        chunkID: Int64,
+        type: String?,
+        source: String?,
+        confidence: Double?
+    ) throws -> Bool {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE chunks
+                SET
+                    memory_type_override = ?,
+                    memory_type_override_source = ?,
+                    memory_type_override_confidence = ?
+                WHERE id = ?
+                """,
+                arguments: [type, source, confidence, chunkID]
+            )
+            return db.changesCount > 0
         }
     }
 
@@ -478,6 +627,23 @@ public actor MemoryStorage {
                 table.synchronize(withTable: "chunks")
                 table.column("content")
             }
+        }
+
+        migrator.registerMigration("v3_memory_types") { db in
+            try db.alter(table: "documents") { table in
+                table.add(column: "memory_type", .text).notNull().defaults(to: "factual")
+                table.add(column: "memory_type_source", .text).notNull().defaults(to: "fallback")
+                table.add(column: "memory_type_confidence", .double)
+            }
+
+            try db.alter(table: "chunks") { table in
+                table.add(column: "memory_type_override", .text)
+                table.add(column: "memory_type_override_source", .text)
+                table.add(column: "memory_type_override_confidence", .double)
+            }
+
+            try db.create(index: "documents_memory_type", on: "documents", columns: ["memory_type"])
+            try db.create(index: "chunks_memory_type_override", on: "chunks", columns: ["memory_type_override"])
         }
 
         return migrator

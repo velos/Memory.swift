@@ -61,6 +61,7 @@ public struct MemoryConfiguration: Sendable {
     public var embeddingProvider: any EmbeddingProvider
     public var queryExpander: (any QueryExpander)?
     public var reranker: (any Reranker)?
+    public var memoryTyping: MemoryTypingConfiguration
     public var tokenizer: any Tokenizer
     public var chunker: any Chunker
     public var supportedFileExtensions: Set<String>
@@ -74,6 +75,7 @@ public struct MemoryConfiguration: Sendable {
         embeddingProvider: any EmbeddingProvider,
         queryExpander: (any QueryExpander)? = nil,
         reranker: (any Reranker)? = nil,
+        memoryTyping: MemoryTypingConfiguration = .default,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = Self.defaultSupportedExtensions,
@@ -86,6 +88,7 @@ public struct MemoryConfiguration: Sendable {
         self.embeddingProvider = embeddingProvider
         self.queryExpander = queryExpander
         self.reranker = reranker
+        self.memoryTyping = memoryTyping
         self.tokenizer = tokenizer
         self.chunker = chunker
         self.supportedFileExtensions = supportedFileExtensions

@@ -52,7 +52,11 @@ let package = Package(
         ),
         .testTarget(
             name: "MemoryTests",
-            dependencies: ["Memory"],
+            dependencies: [
+                "Memory",
+                "MemoryStorage",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Tests/MemoryTests"
         ),
         .testTarget(

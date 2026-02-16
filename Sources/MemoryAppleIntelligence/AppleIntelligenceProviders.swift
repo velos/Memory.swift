@@ -209,6 +209,83 @@ public actor AppleIntelligenceReranker: Reranker {
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+public actor AppleIntelligenceMemoryTypeClassifier: MemoryTypeClassifier {
+    public let identifier: String
+
+    private let model: SystemLanguageModel
+    private let session: LanguageModelSession
+    private let options: GenerationOptions
+    private let maxInputCharacters: Int
+
+    public init(
+        identifier: String = "apple-intelligence-memory-type-classifier",
+        model: SystemLanguageModel = .default,
+        maxInputCharacters: Int = 6_000,
+        options: GenerationOptions = GenerationOptions(
+            sampling: .greedy,
+            temperature: 0.0,
+            maximumResponseTokens: 160
+        )
+    ) {
+        self.identifier = identifier
+        self.model = model
+        self.options = options
+        self.maxInputCharacters = max(1_000, maxInputCharacters)
+        self.session = LanguageModelSession(
+            model: model,
+            instructions: """
+            Classify memory content into exactly one of:
+            factual, procedural, episodic, semantic, emotional, social, contextual, temporal.
+            Return only the best matching type and confidence from 0.0 to 1.0.
+            """
+        )
+    }
+
+    public func classify(
+        documentText: String,
+        kind: DocumentKind,
+        sourceURL: URL?
+    ) async throws -> MemoryTypeAssignment? {
+        guard model.isAvailable else { return nil }
+
+        let trimmed = documentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let excerpt = String(trimmed.prefix(maxInputCharacters))
+        let location = sourceURL?.path ?? "unknown"
+        let prompt = """
+        Document kind: \(kind.rawValue)
+        Source path: \(location)
+
+        Content:
+        \(excerpt)
+
+        Output requirements:
+        - memoryType must be one of: factual, procedural, episodic, semantic, emotional, social, contextual, temporal
+        - confidence must be between 0.0 and 1.0
+        """
+
+        let response = try await session.respond(
+            to: prompt,
+            generating: MemoryTypeClassificationGeneration.self,
+            options: options
+        )
+
+        guard let type = MemoryType.parse(response.content.memoryType) else {
+            return nil
+        }
+
+        let confidence = min(1, max(0, response.content.confidence))
+        return MemoryTypeAssignment(
+            type: type,
+            source: .automatic,
+            confidence: confidence,
+            classifierID: identifier
+        )
+    }
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @Generable(description: "Alternate query phrasings for retrieval.")
 private struct QueryExpansionGeneration {
     var alternates: [String]
@@ -226,5 +303,12 @@ private struct RerankAssessmentGeneration {
     var chunkID: String
     var relevance: Double
     var rationale: String?
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@Generable(description: "Memory type classification for one document.")
+private struct MemoryTypeClassificationGeneration {
+    var memoryType: String
+    var confidence: Double
 }
 #endif

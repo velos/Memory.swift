@@ -135,6 +135,18 @@ public actor MemoryIndex {
             allowedChunkIDs = nil
         }
 
+        let allowedMemoryTypes: Set<String>?
+        if let requestedTypes = query.memoryTypes {
+            let normalizedTypes = Set(requestedTypes.map(\.rawValue))
+            if normalizedTypes.isEmpty {
+                events?(.completed(count: 0))
+                return []
+            }
+            allowedMemoryTypes = normalizedTypes
+        } else {
+            allowedMemoryTypes = nil
+        }
+
         let expandedQueries = try await buildExpandedQueries(query: query, normalizedText: normalizedText)
         events?(.expandedQueries(count: max(0, expandedQueries.count - 1)))
 
@@ -156,7 +168,8 @@ public actor MemoryIndex {
             let semanticHits = try await semanticSearch(
                 queryVector: queryVector,
                 limit: query.semanticCandidateLimit,
-                allowedChunkIDs: allowedChunkIDs
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes
             )
             semanticCandidateCount += semanticHits.count
             accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
@@ -164,7 +177,8 @@ public actor MemoryIndex {
             let lexicalHits = try await storage.lexicalSearch(
                 query: expandedQuery.text,
                 limit: query.lexicalCandidateLimit,
-                allowedChunkIDs: allowedChunkIDs
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes
             )
             lexicalCandidateCount += lexicalHits.count
             accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
@@ -248,17 +262,64 @@ public actor MemoryIndex {
         }
     }
 
+    public func setDocumentMemoryType(path: String, type: MemoryType) async throws {
+        let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty else {
+            throw MemoryError.configuration("Document path must not be empty")
+        }
+
+        do {
+            let updated = try await storage.setDocumentMemoryType(
+                path: normalizedPath,
+                type: type.rawValue,
+                source: MemoryTypeSource.manual.rawValue,
+                confidence: nil
+            )
+            guard updated else {
+                throw MemoryError.storage("Document not found at path \(normalizedPath)")
+            }
+            embeddingCache = nil
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
+    public func setChunkMemoryTypeOverride(chunkID: Int64, type: MemoryType?) async throws {
+        do {
+            let updated = try await storage.setChunkMemoryTypeOverride(
+                chunkID: chunkID,
+                type: type?.rawValue,
+                source: type == nil ? nil : MemoryTypeSource.manual.rawValue,
+                confidence: nil
+            )
+            guard updated else {
+                throw MemoryError.storage("Chunk not found for id \(chunkID)")
+            }
+            embeddingCache = nil
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
     public func listContextChunks(_ contextID: ContextID) async throws -> [SearchResult] {
         do {
             let rows = try await storage.listContextChunks(contextID: contextID.rawValue)
             return rows.map {
-                SearchResult(
+                let assignment = resolveMemoryAssignment(
+                    typeRaw: $0.memoryType,
+                    sourceRaw: $0.memoryTypeSource,
+                    confidence: $0.memoryTypeConfidence
+                )
+                return SearchResult(
                     chunkID: $0.chunkID,
                     documentPath: $0.documentPath,
                     title: $0.title,
                     content: $0.content,
                     snippet: makeSnippet(content: $0.content, queryText: nil),
                     modifiedAt: $0.modifiedAt,
+                    memoryType: assignment.type,
+                    memoryTypeSource: assignment.source,
+                    memoryTypeConfidence: assignment.confidence,
                     score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0)
                 )
             }
@@ -273,6 +334,11 @@ public actor MemoryIndex {
                 return nil
             }
 
+            let assignment = resolveMemoryAssignment(
+                typeRaw: row.memoryType,
+                sourceRaw: row.memoryTypeSource,
+                confidence: row.memoryTypeConfidence
+            )
             return SearchResult(
                 chunkID: row.chunkID,
                 documentPath: row.documentPath,
@@ -280,6 +346,9 @@ public actor MemoryIndex {
                 content: row.content,
                 snippet: makeSnippet(content: row.content, queryText: nil),
                 modifiedAt: row.modifiedAt,
+                memoryType: assignment.type,
+                memoryTypeSource: assignment.source,
+                memoryTypeConfidence: assignment.confidence,
                 score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0)
             )
         } catch {
@@ -384,6 +453,11 @@ public actor MemoryIndex {
         }
 
         let kind = inferDocumentKind(for: url)
+        let memoryAssignment = try await resolveDocumentMemoryType(
+            content: content,
+            kind: kind,
+            sourceURL: url
+        )
         let chunks = configuration.chunker.chunk(text: content, kind: kind, sourceURL: url)
         guard !chunks.isEmpty else { return nil }
 
@@ -404,7 +478,10 @@ public actor MemoryIndex {
                 content: chunk.content,
                 tokenCount: chunk.tokenCount,
                 embedding: vector,
-                norm: l2Norm(vector)
+                norm: l2Norm(vector),
+                memoryTypeOverride: nil,
+                memoryTypeOverrideSource: nil,
+                memoryTypeOverrideConfidence: nil
             )
         }
 
@@ -416,6 +493,9 @@ public actor MemoryIndex {
             title: inferTitle(content: content, fallback: url.deletingPathExtension().lastPathComponent),
             modifiedAt: modifiedAt,
             checksum: checksum(content),
+            memoryType: memoryAssignment.type.rawValue,
+            memoryTypeSource: memoryAssignment.source.rawValue,
+            memoryTypeConfidence: memoryAssignment.confidence,
             chunks: chunkInputs
         )
     }
@@ -446,10 +526,98 @@ public actor MemoryIndex {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    private func resolveDocumentMemoryType(
+        content: String,
+        kind: DocumentKind,
+        sourceURL: URL
+    ) async throws -> MemoryTypeAssignment {
+        if kind == .markdown, let manualType = parseFrontmatterMemoryType(from: content) {
+            return MemoryTypeAssignment(
+                type: manualType,
+                source: .manual,
+                confidence: nil,
+                classifierID: nil
+            )
+        }
+
+        if configuration.memoryTyping.mode == .automatic,
+           let classifier = configuration.memoryTyping.classifier {
+            do {
+                if let classified = try await classifier.classify(
+                    documentText: content,
+                    kind: kind,
+                    sourceURL: sourceURL
+                ) {
+                    let source: MemoryTypeSource = classified.source == .manual ? .automatic : classified.source
+                    return MemoryTypeAssignment(
+                        type: classified.type,
+                        source: source,
+                        confidence: classified.confidence,
+                        classifierID: classified.classifierID ?? classifier.identifier
+                    )
+                }
+            } catch {
+                // Classifier failures degrade to static fallback type.
+            }
+        }
+
+        return MemoryTypeAssignment(
+            type: configuration.memoryTyping.fallbackType,
+            source: .fallback,
+            confidence: nil,
+            classifierID: nil
+        )
+    }
+
+    private func parseFrontmatterMemoryType(from content: String) -> MemoryType? {
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "---" else {
+            return nil
+        }
+
+        guard let closingIndex = lines.dropFirst().firstIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed == "---" || trimmed == "..."
+        }) else {
+            return nil
+        }
+
+        for line in lines[1..<closingIndex] {
+            guard let separator = line.firstIndex(of: ":") else { continue }
+            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard key == "memory_type" else { continue }
+
+            let valueStart = line.index(after: separator)
+            let rawValue = line[valueStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+            let unquoted = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+            if let parsed = MemoryType.parse(unquoted) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
+    private func resolveMemoryAssignment(
+        typeRaw: String,
+        sourceRaw: String,
+        confidence: Double?
+    ) -> MemoryTypeAssignment {
+        let parsedType = MemoryType.parse(typeRaw) ?? configuration.memoryTyping.fallbackType
+        let parsedSource = MemoryTypeSource.parse(sourceRaw) ?? .fallback
+        return MemoryTypeAssignment(
+            type: parsedType,
+            source: parsedSource,
+            confidence: confidence,
+            classifierID: nil
+        )
+    }
+
     private func semanticSearch(
         queryVector: [Float],
         limit: Int,
-        allowedChunkIDs: Set<Int64>?
+        allowedChunkIDs: Set<Int64>?,
+        allowedMemoryTypes: Set<String>?
     ) async throws -> [LexicalHit] {
         if queryVector.isEmpty {
             return []
@@ -466,6 +634,9 @@ public actor MemoryIndex {
 
         for embedding in embeddings {
             if let allowedChunkIDs, !allowedChunkIDs.contains(embedding.chunkID) {
+                continue
+            }
+            if let allowedMemoryTypes, !allowedMemoryTypes.contains(embedding.memoryType) {
                 continue
             }
 
@@ -560,6 +731,11 @@ public actor MemoryIndex {
 
         for chunkID in candidateIDs {
             guard let metadata = metadataMap[chunkID] else { continue }
+            let assignment = resolveMemoryAssignment(
+                typeRaw: metadata.memoryType,
+                sourceRaw: metadata.memoryTypeSource,
+                confidence: metadata.memoryTypeConfidence
+            )
 
             let semantic = semanticRRF[chunkID] ?? 0
             let lexical = lexicalRRF[chunkID] ?? 0
@@ -575,6 +751,9 @@ public actor MemoryIndex {
                     content: metadata.content,
                     snippet: makeSnippet(content: metadata.content, queryText: primaryQueryText),
                     modifiedAt: metadata.modifiedAt,
+                    memoryType: assignment.type,
+                    memoryTypeSource: assignment.source,
+                    memoryTypeConfidence: assignment.confidence,
                     score: SearchScoreBreakdown(
                         semantic: semantic,
                         lexical: lexical,

@@ -101,6 +101,17 @@ struct CLIContext {
 
     func makeIndex() throws -> MemoryIndex {
         var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
+        var typingConfiguration = configuration.memoryTyping
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
+            typingConfiguration.classifier = FallbackMemoryTypeClassifier(
+                primary: AppleIntelligenceMemoryTypeClassifier(),
+                fallback: HeuristicMemoryTypeClassifier()
+            )
+        } else {
+            typingConfiguration.classifier = HeuristicMemoryTypeClassifier()
+        }
+        configuration.memoryTyping = typingConfiguration
+
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
             configuration.queryExpander = AppleIntelligenceQueryExpander()
             configuration.reranker = AppleIntelligenceReranker()
@@ -344,8 +355,23 @@ struct SearchCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
+    @Option(
+        name: .long,
+        parsing: .upToNextOption,
+        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
+    )
+    var memoryType: [String] = []
+
     mutating func run() async throws {
-        try await runSearch(mode: .keyword, text: text, collection: collection, all: all, files: files, minScore: minScore)
+        try await runSearch(
+            mode: .keyword,
+            text: text,
+            collection: collection,
+            all: all,
+            files: files,
+            minScore: minScore,
+            memoryTypes: memoryType
+        )
     }
 }
 
@@ -367,8 +393,23 @@ struct VSearchCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
+    @Option(
+        name: .long,
+        parsing: .upToNextOption,
+        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
+    )
+    var memoryType: [String] = []
+
     mutating func run() async throws {
-        try await runSearch(mode: .semantic, text: text, collection: collection, all: all, files: files, minScore: minScore)
+        try await runSearch(
+            mode: .semantic,
+            text: text,
+            collection: collection,
+            all: all,
+            files: files,
+            minScore: minScore,
+            memoryTypes: memoryType
+        )
     }
 }
 
@@ -390,8 +431,23 @@ struct QueryCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
+    @Option(
+        name: .long,
+        parsing: .upToNextOption,
+        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
+    )
+    var memoryType: [String] = []
+
     mutating func run() async throws {
-        try await runSearch(mode: .hybrid, text: text, collection: collection, all: all, files: files, minScore: minScore)
+        try await runSearch(
+            mode: .hybrid,
+            text: text,
+            collection: collection,
+            all: all,
+            files: files,
+            minScore: minScore,
+            memoryTypes: memoryType
+        )
     }
 }
 
@@ -483,7 +539,8 @@ private func runSearch(
     collection: String?,
     all: Bool,
     files: Bool,
-    minScore: Double
+    minScore: Double,
+    memoryTypes: [String]
 ) async throws {
     let context = try CLIContext.load()
 
@@ -507,13 +564,15 @@ private func runSearch(
     let resultLimit = all ? 2_000 : 20
     let rerankLimit = mode == .hybrid ? 50 : 0
     let expansionLimit = mode == .hybrid ? 2 : 0
+    let parsedMemoryTypes = try parseMemoryTypes(memoryTypes)
     let query = SearchQuery(
         text: queryText,
         limit: resultLimit,
         semanticCandidateLimit: mode.semanticLimit,
         lexicalCandidateLimit: mode.lexicalLimit,
         rerankLimit: rerankLimit,
-        expansionLimit: expansionLimit
+        expansionLimit: expansionLimit,
+        memoryTypes: parsedMemoryTypes
     )
 
     var results = try await index.search(query)
@@ -540,7 +599,9 @@ private func runSearch(
 
     for result in results {
         let docID = "#" + String(result.chunkID, radix: 16)
-        print("\(docID)\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)")
+        print(
+            "\(docID)\t[type=\(result.memoryType.rawValue)]\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)"
+        )
         print(result.snippet)
         print("")
     }
@@ -557,6 +618,34 @@ private func parseCollectionRef(_ value: String) -> String? {
 
 private func normalizeCollectionArgument(_ value: String) -> String {
     parseCollectionRef(value) ?? value
+}
+
+private func parseMemoryTypes(_ values: [String]) throws -> Set<MemoryType>? {
+    guard !values.isEmpty else { return nil }
+
+    var parsed: Set<MemoryType> = []
+    var invalid: [String] = []
+
+    for raw in values {
+        let candidates = raw.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        for candidate in candidates where !candidate.isEmpty {
+            if let type = MemoryType.parse(candidate) {
+                parsed.insert(type)
+            } else {
+                invalid.append(candidate)
+            }
+        }
+    }
+
+    if !invalid.isEmpty {
+        let allowed = MemoryType.allCases.map(\.rawValue).joined(separator: ", ")
+        throw ValidationError("Invalid memory type(s): \(invalid.joined(separator: ", ")). Allowed: \(allowed)")
+    }
+
+    return parsed.isEmpty ? nil : parsed
 }
 
 private func resolveDocumentTarget(_ target: String, context: CLIContext) async throws -> URL {

@@ -40,6 +40,7 @@ public struct SearchQuery: Sendable {
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
     public var contextID: ContextID?
+    public var memoryTypes: Set<MemoryType>?
 
     public init(
         text: String,
@@ -50,7 +51,8 @@ public struct SearchQuery: Sendable {
         expansionLimit: Int = 2,
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
-        contextID: ContextID? = nil
+        contextID: ContextID? = nil,
+        memoryTypes: Set<MemoryType>? = nil
     ) {
         self.text = text
         self.limit = max(1, limit)
@@ -61,6 +63,7 @@ public struct SearchQuery: Sendable {
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
         self.contextID = contextID
+        self.memoryTypes = memoryTypes
     }
 }
 
@@ -96,6 +99,9 @@ public struct SearchResult: Sendable {
     public var content: String
     public var snippet: String
     public var modifiedAt: Date
+    public var memoryType: MemoryType
+    public var memoryTypeSource: MemoryTypeSource
+    public var memoryTypeConfidence: Double?
     public var score: SearchScoreBreakdown
 
     public init(
@@ -105,6 +111,9 @@ public struct SearchResult: Sendable {
         content: String,
         snippet: String,
         modifiedAt: Date,
+        memoryType: MemoryType = .factual,
+        memoryTypeSource: MemoryTypeSource = .fallback,
+        memoryTypeConfidence: Double? = nil,
         score: SearchScoreBreakdown
     ) {
         self.chunkID = chunkID
@@ -113,6 +122,9 @@ public struct SearchResult: Sendable {
         self.content = content
         self.snippet = snippet
         self.modifiedAt = modifiedAt
+        self.memoryType = memoryType
+        self.memoryTypeSource = memoryTypeSource
+        self.memoryTypeConfidence = memoryTypeConfidence
         self.score = score
     }
 }
