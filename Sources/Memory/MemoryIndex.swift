@@ -195,14 +195,16 @@ public actor MemoryIndex {
         )
         events?(.fusedCandidates(count: fused.count))
 
-        if let reranker = configuration.reranker, !fused.isEmpty, query.rerankLimit > 0 {
+        let rerankCount = effectiveRerankCount(query: query, fusedCount: fused.count)
+        if let reranker = configuration.reranker, !fused.isEmpty, rerankCount > 0 {
             do {
                 fused = try await applyReranker(
                     reranker,
                     query: query,
-                    fusedResults: fused
+                    fusedResults: fused,
+                    rerankCount: rerankCount
                 )
-                events?(.reranked(count: min(query.rerankLimit, fused.count)))
+                events?(.reranked(count: rerankCount))
             } catch {
                 // Fall back to fused ordering if reranking fails.
                 fused = fused.map {
@@ -726,6 +728,7 @@ public actor MemoryIndex {
         let metadataMap = Dictionary(uniqueKeysWithValues: metadataRows.map { ($0.chunkID, $0) })
 
         let now = Date()
+        let weights = fusionWeights(for: primaryQueryText)
         var results: [SearchResult] = []
         results.reserveCapacity(candidateIDs.count)
 
@@ -741,7 +744,8 @@ public actor MemoryIndex {
             let lexical = lexicalRRF[chunkID] ?? 0
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
-            let fused = (0.60 * semantic) + (0.30 * lexical) + (0.10 * recency)
+            let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
+            let fused = (weights.semantic * semantic) + (weights.lexical * lexical) + (weights.recency * recency) + anchorBonus
 
             results.append(
                 SearchResult(
@@ -771,7 +775,7 @@ public actor MemoryIndex {
                 }
                 return lhs.score.fused > rhs.score.fused
             }
-            .prefix(max(query.limit, query.rerankLimit, 100))
+            .prefix(candidatePoolLimit(for: query))
             .map { $0 }
     }
 
@@ -828,13 +832,14 @@ public actor MemoryIndex {
     private func applyReranker(
         _ reranker: any Reranker,
         query: SearchQuery,
-        fusedResults: [SearchResult]
+        fusedResults: [SearchResult],
+        rerankCount: Int
     ) async throws -> [SearchResult] {
         guard !fusedResults.isEmpty else { return [] }
 
-        let rerankCount = min(query.rerankLimit, fusedResults.count)
-        let rerankable = Array(fusedResults.prefix(rerankCount))
-        let remaining = Array(fusedResults.dropFirst(rerankCount))
+        let effectiveRerankCount = min(max(1, rerankCount), fusedResults.count)
+        let rerankable = Array(fusedResults.prefix(effectiveRerankCount))
+        let remaining = Array(fusedResults.dropFirst(effectiveRerankCount))
 
         let assessments = try await reranker.rerank(query: query, candidates: rerankable)
         let allowedIDs = Set(rerankable.map(\.chunkID))
@@ -888,6 +893,90 @@ public actor MemoryIndex {
         return (reranked + untouched).sorted(by: sortByBlendedScore(_:_:))
     }
 
+    private func candidatePoolLimit(for query: SearchQuery) -> Int {
+        let requested = max(query.limit, query.rerankLimit)
+        let expanded = max(query.limit * 8, query.rerankLimit * 4, 200)
+        return min(1_000, max(100, max(requested, expanded)))
+    }
+
+    private func effectiveRerankCount(query: SearchQuery, fusedCount: Int) -> Int {
+        guard query.rerankLimit > 0, fusedCount > 0 else { return 0 }
+        let expanded = max(query.rerankLimit, query.limit * 3, 80)
+        return min(fusedCount, expanded)
+    }
+
+    private func fusionWeights(for queryText: String) -> (semantic: Double, lexical: Double, recency: Double) {
+        if isTimeAnchoredQuery(queryText) {
+            return (semantic: 0.64, lexical: 0.35, recency: 0.01)
+        }
+        return (semantic: 0.62, lexical: 0.33, recency: 0.05)
+    }
+
+    private func isTimeAnchoredQuery(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+
+        if temporalCueWords.contains(where: lower.contains) {
+            return true
+        }
+
+        if lower.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if lower.range(of: #"\b\d{1,2}:\d{2}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
+    }
+
+    private func anchorCoverageBonus(queryText: String, metadata: StoredChunkMetadata) -> Double {
+        let anchors = anchorTokens(from: queryText)
+        guard !anchors.isEmpty else { return 0 }
+
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(2_000)))
+            .lowercased()
+
+        var matched = 0
+        for anchor in anchors where searchable.contains(anchor) {
+            matched += 1
+        }
+        guard matched > 0 else { return 0 }
+
+        let coverage = Double(matched) / Double(anchors.count)
+        return 0.003 * coverage
+    }
+
+    private func anchorTokens(from queryText: String) -> [String] {
+        let rawTokens = queryText.split { character in
+            !character.isLetter && !character.isNumber
+        }
+
+        var prioritized: [String] = []
+        var fallback: [String] = []
+        var seen: Set<String> = []
+
+        for raw in rawTokens {
+            let token = String(raw)
+            guard token.count >= 2 else { continue }
+            let lower = token.lowercased()
+            guard seen.insert(lower).inserted else { continue }
+
+            if token.contains(where: \.isNumber) || (token.first?.isUppercase == true && token.count >= 3) {
+                prioritized.append(lower)
+                continue
+            }
+
+            if token.count >= 5 && !queryStopWords.contains(lower) {
+                fallback.append(lower)
+            }
+        }
+
+        if !prioritized.isEmpty {
+            return Array(prioritized.prefix(4))
+        }
+        return Array(fallback.prefix(3))
+    }
+
     private func sortByBlendedScore(_ lhs: SearchResult, _ rhs: SearchResult) -> Bool {
         if lhs.score.blended == rhs.score.blended {
             if lhs.score.fused == rhs.score.fused {
@@ -930,3 +1019,20 @@ public actor MemoryIndex {
         return MemoryError.storage(error.localizedDescription)
     }
 }
+
+private let temporalCueWords: [String] = [
+    "when", "timeline", "chronology", "chronological", "date", "dates",
+    "schedule", "scheduled", "milestone", "kickoff", "kick-off",
+    "jan", "january", "feb", "february", "mar", "march", "apr", "april",
+    "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept", "september",
+    "oct", "october", "nov", "november", "dec", "december",
+    "today", "yesterday", "tomorrow"
+]
+
+private let queryStopWords: Set<String> = [
+    "about", "after", "all", "also", "an", "and", "any", "are", "as", "at",
+    "be", "been", "before", "but", "by", "can", "do", "does", "for", "from",
+    "how", "if", "in", "into", "is", "it", "its", "of", "on", "or", "our",
+    "that", "the", "their", "them", "there", "these", "they", "this", "to",
+    "up", "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your"
+]

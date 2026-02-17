@@ -179,6 +179,11 @@ private struct RecallSuiteReport: Codable {
     var queryResults: [RecallQueryResult]
 }
 
+private struct RecallSuiteRunOutput {
+    var report: RecallSuiteReport
+    var notes: [String]
+}
+
 private struct EvalRunReport: Codable {
     var schemaVersion: Int
     var createdAt: Date
@@ -277,7 +282,7 @@ struct RunCommand: AsyncParsableCommand {
             root: runRoot,
             verbose: verbose
         )
-        let recallReport = try await runRecallSuite(
+        let recallOutput = try await runRecallSuite(
             profile: profile,
             documents: dataset.recallDocuments,
             queries: dataset.recallQueries,
@@ -292,11 +297,11 @@ struct RunCommand: AsyncParsableCommand {
             profile: profile,
             datasetRoot: datasetRootURL.path,
             storage: storageReport,
-            recall: recallReport,
+            recall: recallOutput.report,
             notes: [
                 "Storage eval uses direct database inspection for classification/span metrics.",
                 "Recall eval uses document-level metrics (deduped by document path).",
-            ]
+            ] + recallOutput.notes
         )
 
         let outputURL = try resolvedOutputURL(baseRoot: datasetRootURL, output: output, profile: profile)
@@ -536,14 +541,20 @@ private func runRecallSuite(
     kValues: [Int],
     root: URL,
     verbose: Bool
-) async throws -> RecallSuiteReport {
+) async throws -> RecallSuiteRunOutput {
     let docsRoot = root.appendingPathComponent("recall_docs", isDirectory: true)
     try FileManager.default.createDirectory(at: docsRoot, withIntermediateDirectories: true)
 
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
+    var memoryTypeByDocumentID: [String: MemoryType] = [:]
 
     for document in documents {
+        if let memoryTypeRaw = document.memoryType {
+            let parsed = try parseMemoryType(memoryTypeRaw, context: "recall document \(document.id)")
+            memoryTypeByDocumentID[document.id] = parsed
+        }
+
         let ext = extensionForKind(document.kind) ?? "md"
         let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
         let path: URL
@@ -577,6 +588,7 @@ private func runRecallSuite(
     }
 
     let maxK = kValues.max() ?? 10
+    var incompatibleFilterQueryCount = 0
     var progress = DeterminateProgress(label: "recall", total: queries.count)
     for queryCase in queries {
         let relevant = Set(queryCase.relevantDocumentIds)
@@ -592,6 +604,19 @@ private func runRecallSuite(
         }
 
         let filterMemoryTypes = try parseOptionalMemoryTypes(queryCase.memoryTypes)
+        var effectiveMemoryTypes = filterMemoryTypes
+        if let filterMemoryTypes, !filterMemoryTypes.isEmpty {
+            let relevantKnownTypes = Set(relevant.compactMap { memoryTypeByDocumentID[$0] })
+            if !relevantKnownTypes.isEmpty, filterMemoryTypes.isDisjoint(with: relevantKnownTypes) {
+                incompatibleFilterQueryCount += 1
+                effectiveMemoryTypes = nil
+
+                let filterRaw = filterMemoryTypes.map(\.rawValue).sorted().joined(separator: ",")
+                let relevantRaw = relevantKnownTypes.map(\.rawValue).sorted().joined(separator: ",")
+                print("[recall][warn] \(queryCase.id): memory_types=[\(filterRaw)] excludes relevant types [\(relevantRaw)]; ignoring filter.")
+            }
+        }
+
         let searchResults = try await index.search(
             SearchQuery(
                 text: queryCase.query,
@@ -600,7 +625,7 @@ private func runRecallSuite(
                 lexicalCandidateLimit: 300,
                 rerankLimit: config.reranker == nil ? 0 : max(50, maxK * 3),
                 expansionLimit: config.queryExpander == nil ? 0 : 2,
-                memoryTypes: filterMemoryTypes
+                memoryTypes: effectiveMemoryTypes
             )
         )
 
@@ -675,11 +700,21 @@ private func runRecallSuite(
         )
     }
 
-    return RecallSuiteReport(
-        totalQueries: totalQueries,
-        kValues: kValues,
-        metricsByK: metrics,
-        queryResults: queryResults.sorted { $0.id < $1.id }
+    var notes: [String] = []
+    if incompatibleFilterQueryCount > 0 {
+        notes.append(
+            "Ignored contradictory recall query memory_types filters for \(incompatibleFilterQueryCount) quer\(incompatibleFilterQueryCount == 1 ? "y" : "ies") because they excluded all relevant_document_ids."
+        )
+    }
+
+    return RecallSuiteRunOutput(
+        report: RecallSuiteReport(
+            totalQueries: totalQueries,
+            kValues: kValues,
+            metricsByK: metrics,
+            queryResults: queryResults.sorted { $0.id < $1.id }
+        ),
+        notes: notes
     )
 }
 

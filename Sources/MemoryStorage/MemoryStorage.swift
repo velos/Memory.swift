@@ -387,45 +387,62 @@ public actor MemoryStorage {
         allowedMemoryTypes: Set<String>? = nil
     ) throws -> [LexicalHit] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let pattern = FTS5Pattern(matchingAnyTokenIn: trimmed) else { return [] }
+        guard !trimmed.isEmpty else { return [] }
+
+        let strictPattern = Self.makeStrictFTSQuery(from: trimmed)
+        let relaxedPattern = Self.makeRelaxedFTSQuery(from: trimmed)
+        guard strictPattern != nil || relaxedPattern != nil else { return [] }
 
         return try dbQueue.read { db in
-            var arguments = StatementArguments([pattern])
-            var sql = """
-            SELECT rowid AS chunk_id, rank AS rank
-            FROM chunks_fts
-            WHERE chunks_fts MATCH ?
-            """
+            let effectiveLimit = max(1, limit)
+            var mergedByChunkID: [Int64: Double] = [:]
+            var seenChunkIDs: Set<Int64> = []
 
-            if let allowedChunkIDs, !allowedChunkIDs.isEmpty {
-                let orderedAllowed = allowedChunkIDs.sorted()
-                sql += " AND rowid IN (\(Self.placeholders(count: orderedAllowed.count)))"
-                arguments += StatementArguments(orderedAllowed)
+            if let strictPattern {
+                let strictHits = try Self.runLexicalSearchQuery(
+                    in: db,
+                    pattern: strictPattern,
+                    limit: effectiveLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes,
+                    excludedChunkIDs: nil
+                )
+                for (index, hit) in strictHits.enumerated() {
+                    seenChunkIDs.insert(hit.chunkID)
+                    let rank = Double(index + 1)
+                    let score = 1.2 / (60 + rank)
+                    mergedByChunkID[hit.chunkID, default: 0] += score
+                }
             }
 
-            if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
-                let orderedTypes = allowedMemoryTypes.sorted()
-                sql += """
-                 AND rowid IN (
-                    SELECT c.id
-                    FROM chunks c
-                    JOIN documents d ON d.id = c.document_id
-                    WHERE COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))
-                 )
-                """
-                arguments += StatementArguments(orderedTypes)
+            if let relaxedPattern {
+                let relaxedHits = try Self.runLexicalSearchQuery(
+                    in: db,
+                    pattern: relaxedPattern,
+                    limit: effectiveLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes,
+                    excludedChunkIDs: nil
+                )
+
+                for (index, hit) in relaxedHits.enumerated() {
+                    seenChunkIDs.insert(hit.chunkID)
+                    let rank = Double(index + 1)
+                    let score = 1.0 / (60 + rank)
+                    mergedByChunkID[hit.chunkID, default: 0] += score
+                }
             }
 
-            sql += " ORDER BY rank LIMIT ?"
-            arguments += StatementArguments([max(1, limit)])
-
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return rows.enumerated().map { index, row in
-                let chunkID: Int64 = row["chunk_id"]
-                let rank: Double? = row["rank"]
-                let score = -(rank ?? Double(index + 1))
-                return LexicalHit(chunkID: chunkID, score: score)
-            }
+            return seenChunkIDs
+                .map { LexicalHit(chunkID: $0, score: mergedByChunkID[$0, default: 0]) }
+                .sorted { lhs, rhs in
+                    if lhs.score == rhs.score {
+                        return lhs.chunkID < rhs.chunkID
+                    }
+                    return lhs.score > rhs.score
+                }
+                .prefix(effectiveLimit)
+                .map { $0 }
         }
     }
 
@@ -652,6 +669,129 @@ public actor MemoryStorage {
     private static func placeholders(count: Int) -> String {
         String(repeating: "?,", count: max(1, count)).dropLast().description
     }
+
+    private static func runLexicalSearchQuery(
+        in db: Database,
+        pattern: String,
+        limit: Int,
+        allowedChunkIDs: Set<Int64>?,
+        allowedMemoryTypes: Set<String>?,
+        excludedChunkIDs: Set<Int64>?
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+
+        var arguments = StatementArguments([pattern])
+        var sql = """
+        SELECT rowid AS chunk_id, rank AS rank
+        FROM chunks_fts
+        WHERE chunks_fts MATCH ?
+        """
+
+        if let allowedChunkIDs, !allowedChunkIDs.isEmpty {
+            let orderedAllowed = allowedChunkIDs.sorted()
+            sql += " AND rowid IN (\(Self.placeholders(count: orderedAllowed.count)))"
+            arguments += StatementArguments(orderedAllowed)
+        }
+
+        if let excludedChunkIDs, !excludedChunkIDs.isEmpty {
+            let orderedExcluded = excludedChunkIDs.sorted()
+            sql += " AND rowid NOT IN (\(Self.placeholders(count: orderedExcluded.count)))"
+            arguments += StatementArguments(orderedExcluded)
+        }
+
+        if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
+            let orderedTypes = allowedMemoryTypes.sorted()
+            sql += """
+             AND rowid IN (
+                SELECT c.id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))
+             )
+            """
+            arguments += StatementArguments(orderedTypes)
+        }
+
+        sql += " ORDER BY rank LIMIT ?"
+        arguments += StatementArguments([limit])
+
+        let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+        return rows.enumerated().map { index, row in
+            let chunkID: Int64 = row["chunk_id"]
+            let rank: Double? = row["rank"]
+            let score = -(rank ?? Double(index + 1))
+            return LexicalHit(chunkID: chunkID, score: score)
+        }
+    }
+
+    private static func makeStrictFTSQuery(from query: String) -> String? {
+        let significant = lexicalTokens(from: query).filter { token in
+            isImportantShortToken(token) || token.contains(where: \.isNumber) || (token.count >= 3 && !lexicalStopWords.contains(token))
+        }
+        guard !significant.isEmpty else { return nil }
+
+        let limited = Array(significant.prefix(6))
+        if limited.count == 1 {
+            return "\(limited[0])*"
+        }
+        return limited.map { "\($0)*" }.joined(separator: " AND ")
+    }
+
+    private static func makeRelaxedFTSQuery(from query: String) -> String? {
+        let tokens = lexicalTokens(from: query)
+        guard !tokens.isEmpty else { return nil }
+
+        let preferred = tokens.filter { token in
+            if token.contains(where: \.isNumber) { return true }
+            if isImportantShortToken(token) { return true }
+            if token.count >= 3 && !lexicalStopWords.contains(token) { return true }
+            return false
+        }
+
+        let source = preferred.isEmpty ? tokens : preferred
+        let limited = Array(source.prefix(12))
+        guard !limited.isEmpty else { return nil }
+        return limited.map { "\($0)*" }.joined(separator: " OR ")
+    }
+
+    private static func lexicalTokens(from query: String) -> [String] {
+        var seen: Set<String> = []
+        var tokens: [String] = []
+
+        let rawTokens = query.lowercased().split { character in
+            !character.isLetter && !character.isNumber
+        }
+
+        for raw in rawTokens {
+            let token = String(raw)
+            guard token.count >= 2 || token.contains(where: \.isNumber) else {
+                continue
+            }
+            if seen.insert(token).inserted {
+                tokens.append(token)
+            }
+        }
+
+        return tokens
+    }
+
+    private static func isImportantShortToken(_ token: String) -> Bool {
+        importantShortTokens.contains(token)
+    }
+
+    private static let importantShortTokens: Set<String> = [
+        "ai", "api", "ci", "db", "id", "qa", "sdk", "sli", "slo", "ui", "ux"
+    ]
+
+    private static let lexicalStopWords: Set<String> = [
+        "about", "after", "again", "against", "all", "also", "among", "an", "and", "any", "are", "as",
+        "at", "be", "been", "before", "between", "both", "but", "by", "can", "did", "do", "does",
+        "during", "each", "end", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is",
+        "it", "its", "just", "like", "more", "most", "need", "not", "of", "on", "or", "our", "out",
+        "over", "should", "so", "some", "than", "that", "the", "their", "them", "then", "there", "these",
+        "they", "this", "those", "to", "too", "under", "up", "use", "using", "was", "we", "what", "when",
+        "where", "which", "who", "why", "with", "would", "you", "your"
+    ]
 
     private static func encodeVector(_ vector: [Float]) -> Data {
         let copy = vector

@@ -180,4 +180,47 @@ struct MemoryIndexTests {
         #expect(results.first?.score.rerank ?? 0 > 0.9)
         #expect(results.first?.score.blended ?? 0 > results.first?.score.fused ?? 0)
     }
+
+    @Test
+    func rerankerCanLiftRelevantResultBeyondInitialTopWindow() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<70 {
+            try writeFile(
+                docs.appendingPathComponent(String(format: "doc-%03d.md", index)),
+                "alpha planning roadmap notes"
+            )
+        }
+        try writeFile(
+            docs.appendingPathComponent("zzz-target.md"),
+            "alpha planning roadmap notes"
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            reranker: ClosureReranker(scoreForCandidate: { result in
+                result.documentPath.contains("zzz-target.md") ? 1.0 : 0.1
+            }),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha planning",
+                limit: 5,
+                rerankLimit: 10,
+                expansionLimit: 0
+            )
+        )
+
+        #expect(results.isEmpty == false)
+        #expect(results.first?.documentPath.contains("zzz-target.md") == true)
+    }
 }
