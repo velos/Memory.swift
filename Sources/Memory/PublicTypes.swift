@@ -41,6 +41,7 @@ public struct SearchQuery: Sendable {
     public var expansionQueryWeight: Double
     public var contextID: ContextID?
     public var memoryTypes: Set<MemoryType>?
+    public var includeTagScoring: Bool
 
     public init(
         text: String,
@@ -52,25 +53,28 @@ public struct SearchQuery: Sendable {
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
         contextID: ContextID? = nil,
-        memoryTypes: Set<MemoryType>? = nil
+        memoryTypes: Set<MemoryType>? = nil,
+        includeTagScoring: Bool = true
     ) {
         self.text = text
         self.limit = max(1, limit)
-        self.semanticCandidateLimit = max(1, semanticCandidateLimit)
-        self.lexicalCandidateLimit = max(1, lexicalCandidateLimit)
+        self.semanticCandidateLimit = max(0, semanticCandidateLimit)
+        self.lexicalCandidateLimit = max(0, lexicalCandidateLimit)
         self.rerankLimit = max(0, rerankLimit)
         self.expansionLimit = max(0, expansionLimit)
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
         self.contextID = contextID
         self.memoryTypes = memoryTypes
+        self.includeTagScoring = includeTagScoring
     }
 }
 
-public struct SearchScoreBreakdown: Sendable {
+public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
     public var semantic: Double
     public var lexical: Double
     public var recency: Double
+    public var tag: Double
     public var fused: Double
     public var rerank: Double
     public var blended: Double
@@ -79,6 +83,7 @@ public struct SearchScoreBreakdown: Sendable {
         semantic: Double,
         lexical: Double,
         recency: Double,
+        tag: Double = 0,
         fused: Double,
         rerank: Double = 0,
         blended: Double? = nil
@@ -86,6 +91,7 @@ public struct SearchScoreBreakdown: Sendable {
         self.semantic = semantic
         self.lexical = lexical
         self.recency = recency
+        self.tag = tag
         self.fused = fused
         self.rerank = rerank
         self.blended = blended ?? fused
@@ -129,10 +135,190 @@ public struct SearchResult: Sendable {
     }
 }
 
+public enum MemoryCategory: String, CaseIterable, Codable, Sendable {
+    case fact
+    case preference
+    case decision
+    case identity
+    case event
+    case observation
+    case goal
+    case todo
+
+    public static func parse(_ raw: String) -> MemoryCategory? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return MemoryCategory(rawValue: normalized)
+    }
+}
+
+public enum ConversationRole: String, Codable, Sendable {
+    case system
+    case user
+    case assistant
+}
+
+public struct ConversationMessage: Sendable, Codable, Hashable {
+    public var role: ConversationRole
+    public var content: String
+    public var createdAt: Date?
+
+    public init(role: ConversationRole, content: String, createdAt: Date? = nil) {
+        self.role = role
+        self.content = content
+        self.createdAt = createdAt
+    }
+}
+
+public struct ExtractedMemory: Sendable, Codable, Hashable {
+    public var text: String
+    public var category: MemoryCategory
+    public var importance: Double
+    public var createdAt: Date?
+    public var source: String
+    public var tags: [String]
+
+    public init(
+        text: String,
+        category: MemoryCategory,
+        importance: Double = 0.5,
+        createdAt: Date? = nil,
+        source: String = "extract",
+        tags: [String] = []
+    ) {
+        self.text = text
+        self.category = category
+        self.importance = min(1, max(0, importance))
+        self.createdAt = createdAt
+        self.source = source
+        self.tags = tags
+    }
+}
+
+public struct MemoryRecord: Sendable, Codable, Hashable {
+    public var chunkID: Int64
+    public var documentPath: String
+    public var title: String?
+    public var text: String
+    public var category: MemoryCategory
+    public var importance: Double
+    public var accessCount: Int
+    public var createdAt: Date
+    public var modifiedAt: Date
+    public var lastAccessedAt: Date?
+    public var memoryType: MemoryType
+    public var memoryTypeSource: MemoryTypeSource
+    public var memoryTypeConfidence: Double?
+    public var tags: [ContentTag]
+    public var score: SearchScoreBreakdown?
+
+    public init(
+        chunkID: Int64,
+        documentPath: String,
+        title: String?,
+        text: String,
+        category: MemoryCategory,
+        importance: Double,
+        accessCount: Int,
+        createdAt: Date,
+        modifiedAt: Date,
+        lastAccessedAt: Date?,
+        memoryType: MemoryType,
+        memoryTypeSource: MemoryTypeSource,
+        memoryTypeConfidence: Double?,
+        tags: [ContentTag],
+        score: SearchScoreBreakdown? = nil
+    ) {
+        self.chunkID = chunkID
+        self.documentPath = documentPath
+        self.title = title
+        self.text = text
+        self.category = category
+        self.importance = min(1, max(0, importance))
+        self.accessCount = max(0, accessCount)
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.lastAccessedAt = lastAccessedAt
+        self.memoryType = memoryType
+        self.memoryTypeSource = memoryTypeSource
+        self.memoryTypeConfidence = memoryTypeConfidence
+        self.tags = tags
+        self.score = score
+    }
+}
+
+public struct MemoryIngestResult: Sendable, Codable, Hashable {
+    public var requestedCount: Int
+    public var storedCount: Int
+    public var discardedCount: Int
+    public var records: [MemoryRecord]
+
+    public init(
+        requestedCount: Int,
+        storedCount: Int,
+        discardedCount: Int,
+        records: [MemoryRecord]
+    ) {
+        self.requestedCount = max(0, requestedCount)
+        self.storedCount = max(0, storedCount)
+        self.discardedCount = max(0, discardedCount)
+        self.records = records
+    }
+}
+
+public enum RecallMode: Sendable {
+    case hybrid(query: String)
+    case recent
+    case important
+    case typed(category: MemoryCategory)
+}
+
+public enum RecallSort: String, Codable, Sendable {
+    case recent
+    case importance
+    case mostAccessed = "most_accessed"
+}
+
+public struct RecallFeatures: OptionSet, Sendable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let semantic = RecallFeatures(rawValue: 1 << 0)
+    public static let lexical = RecallFeatures(rawValue: 1 << 1)
+    public static let tags = RecallFeatures(rawValue: 1 << 2)
+    public static let expansion = RecallFeatures(rawValue: 1 << 3)
+    public static let rerank = RecallFeatures(rawValue: 1 << 4)
+    public static let planner = RecallFeatures(rawValue: 1 << 5)
+
+    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion, .rerank]
+}
+
+public struct MemoryRecallResponse: Sendable, Codable, Hashable {
+    public var records: [MemoryRecord]
+
+    public init(records: [MemoryRecord]) {
+        self.records = records
+    }
+}
+
 public enum DocumentKind: String, Sendable {
     case markdown
     case code
     case plainText
+}
+
+public struct ContentTag: Sendable, Codable, Hashable {
+    public var name: String
+    public var confidence: Double
+
+    public init(name: String, confidence: Double) {
+        self.name = name
+        self.confidence = confidence
+    }
 }
 
 public struct Chunk: Sendable {

@@ -7,4 +7,6 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 Evals/runs/
+Evals/cache/
+Evals/*.sqlite
 .env

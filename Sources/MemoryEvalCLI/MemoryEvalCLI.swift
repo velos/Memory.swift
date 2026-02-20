@@ -1,4 +1,5 @@
 import ArgumentParser
+import CryptoKit
 import Foundation
 import GRDB
 import Memory
@@ -18,6 +19,12 @@ Required files:
 Common commands:
 - `swift run memory_eval init --dataset-root ./Evals`
 - `swift run memory_eval run --profile baseline --dataset-root ./Evals`
+- `swift run memory_eval run --dataset-root ./Evals` (runs all profiles sequentially)
+- `swift run memory_eval run --profile apple_tags --dataset-root ./Evals`
+- `swift run memory_eval run --profile expansion_only --dataset-root ./Evals`
+- `swift run memory_eval run --profile oracle_ceiling --dataset-root ./Evals`
+- `swift run memory_eval run --profile expansion_rerank --dataset-root ./Evals`
+- `swift run memory_eval run --profile expansion_rerank_tag --dataset-root ./Evals`
 - `swift run memory_eval run --profile full_apple --dataset-root ./Evals`
 - `swift run memory_eval compare ./Evals/runs/*.json`
 """
@@ -26,6 +33,14 @@ private let storageTemplate = """
 {"id":"storage-1","kind":"markdown","text":"I felt frustrated during yesterday's outage review.","expected_memory_type":"emotional","required_spans":["frustrated","outage review"]}
 {"id":"storage-2","kind":"markdown","text":"Step 1: run migration. Step 2: verify alerts. Step 3: announce release.","expected_memory_type":"procedural","required_spans":["Step 1","verify alerts"]}
 """
+
+private let rerankerStopWords: Set<String> = [
+    "about", "after", "also", "and", "are", "for", "from", "into",
+    "its", "our", "that", "the", "their", "there", "these", "this",
+    "what", "when", "where", "which", "with", "your"
+]
+
+private let evalIndexCacheSchemaVersion = 1
 
 private let recallDocumentsTemplate = """
 {"id":"doc-a","relative_path":"project/roadmap.md","kind":"markdown","text":"Q3 roadmap includes API stability work and a September launch milestone.","memory_type":"temporal"}
@@ -128,8 +143,13 @@ private struct RecallQueryCase: Decodable {
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case baseline
+    case appleTags = "apple_tags"
     case appleStorage = "apple_storage"
     case appleRecall = "apple_recall"
+    case expansionOnly = "expansion_only"
+    case oracleCeiling = "oracle_ceiling"
+    case expansionRerank = "expansion_rerank"
+    case expansionRerankTag = "expansion_rerank_tag"
     case fullApple = "full_apple"
 }
 
@@ -182,6 +202,594 @@ private struct RecallSuiteReport: Codable {
 private struct RecallSuiteRunOutput {
     var report: RecallSuiteReport
     var notes: [String]
+}
+
+private struct ContentTagGenerationStats {
+    var chunkCount: Int
+    var taggedChunkCount: Int
+    var totalTagCount: Int
+}
+
+private struct GeneratedChunkTag: Decodable {
+    var name: String
+    var confidence: Double
+}
+
+private struct OperationTimeoutError: Error {}
+
+private actor ContentTaggingDiagnosticsCollector {
+    private var totalCalls = 0
+    private var successWithTags = 0
+    private var successEmpty = 0
+    private var failures = 0
+    private var totalTags = 0
+    private var inputLengthBuckets: [String: Int] = [:]
+    private var failureReasons: [String: Int] = [:]
+
+    func recordSuccess(tagCount: Int, textLength: Int) {
+        totalCalls += 1
+        totalTags += max(0, tagCount)
+        inputLengthBuckets[lengthBucket(for: textLength), default: 0] += 1
+
+        if tagCount > 0 {
+            successWithTags += 1
+        } else {
+            successEmpty += 1
+        }
+    }
+
+    func recordFailure(error: Error, textLength: Int) {
+        totalCalls += 1
+        failures += 1
+        inputLengthBuckets[lengthBucket(for: textLength), default: 0] += 1
+
+        let reason = "\(String(describing: type(of: error))): \(error.localizedDescription)"
+        failureReasons[truncate(reason, maxLength: 120), default: 0] += 1
+    }
+
+    func summaryLine(suite: SuiteKind) -> String {
+        guard totalCalls > 0 else {
+            return "[\(suiteLabel(suite))][tagging-diagnostics] no tagger calls recorded."
+        }
+
+        let successRate = Double(successWithTags) / Double(totalCalls)
+        let emptyRate = Double(successEmpty) / Double(totalCalls)
+        let failureRate = Double(failures) / Double(totalCalls)
+        let avgTags = successWithTags == 0 ? 0 : Double(totalTags) / Double(successWithTags)
+
+        return "[\(suiteLabel(suite))][tagging-diagnostics] calls=\(totalCalls), withTags=\(successWithTags) (\(percent(successRate))), empty=\(successEmpty) (\(percent(emptyRate))), failures=\(failures) (\(percent(failureRate))), avgTagsPerTaggedCall=\(format(avgTags))"
+    }
+
+    func detailLines(suite: SuiteKind) -> [String] {
+        var lines: [String] = []
+
+        let orderedBuckets: [String] = ["0-199", "200-399", "400-799", "800-1199", "1200+"]
+        let bucketSummary = orderedBuckets
+            .map { (bucket: String) -> String in
+                let count = inputLengthBuckets[bucket, default: 0]
+                return "\(bucket):\(count)"
+            }
+            .joined(separator: ", ")
+        lines.append("[\(suiteLabel(suite))][tagging-diagnostics] input-length-buckets \(bucketSummary)")
+
+        if failureReasons.isEmpty {
+            lines.append("[\(suiteLabel(suite))][tagging-diagnostics] failure-reasons none")
+        } else {
+            let topReasons = failureReasons
+                .sorted { lhs, rhs in
+                    if lhs.value == rhs.value {
+                        return lhs.key < rhs.key
+                    }
+                    return lhs.value > rhs.value
+                }
+                .prefix(3)
+                .map { "\($0.value)x \($0.key)" }
+                .joined(separator: " | ")
+            lines.append("[\(suiteLabel(suite))][tagging-diagnostics] top-failure-reasons \(topReasons)")
+        }
+
+        return lines
+    }
+
+    private func lengthBucket(for textLength: Int) -> String {
+        switch textLength {
+        case ..<200:
+            return "0-199"
+        case ..<400:
+            return "200-399"
+        case ..<800:
+            return "400-799"
+        case ..<1200:
+            return "800-1199"
+        default:
+            return "1200+"
+        }
+    }
+
+    private func truncate(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+        return String(text.prefix(maxLength - 3)) + "..."
+    }
+}
+
+private actor RecallDiagnosticsCollector {
+    private struct StageStats {
+        var calls = 0
+        var successes = 0
+        var failures = 0
+        var timeouts = 0
+        var totalRequested = 0
+        var totalProduced = 0
+        var failureReasons: [String: Int] = [:]
+    }
+
+    private var expansion = StageStats()
+    private var rerank = StageStats()
+
+    func recordExpansionSuccess(requestedLimit: Int, alternateCount: Int) {
+        expansion.calls += 1
+        expansion.successes += 1
+        expansion.totalRequested += max(0, requestedLimit)
+        expansion.totalProduced += max(0, alternateCount)
+    }
+
+    func recordExpansionFailure(error: Error, requestedLimit: Int) {
+        expansion.calls += 1
+        expansion.failures += 1
+        expansion.totalRequested += max(0, requestedLimit)
+        if isTimeout(error) {
+            expansion.timeouts += 1
+        }
+        expansion.failureReasons[truncate(errorReason(error), maxLength: 120), default: 0] += 1
+    }
+
+    func recordRerankSuccess(candidateCount: Int, assessmentCount: Int) {
+        rerank.calls += 1
+        rerank.successes += 1
+        rerank.totalRequested += max(0, candidateCount)
+        rerank.totalProduced += max(0, assessmentCount)
+    }
+
+    func recordRerankFailure(error: Error, candidateCount: Int) {
+        rerank.calls += 1
+        rerank.failures += 1
+        rerank.totalRequested += max(0, candidateCount)
+        if isTimeout(error) {
+            rerank.timeouts += 1
+        }
+        rerank.failureReasons[truncate(errorReason(error), maxLength: 120), default: 0] += 1
+    }
+
+    func summaryLines(suite: SuiteKind) -> [String] {
+        [
+            stageSummaryLine(
+                stage: "expansion",
+                suite: suite,
+                stats: expansion,
+                avgProducedLabel: "avgAlternates"
+            ),
+            stageSummaryLine(
+                stage: "rerank",
+                suite: suite,
+                stats: rerank,
+                avgProducedLabel: "avgAssessments"
+            ),
+        ]
+    }
+
+    func detailLines(suite: SuiteKind) -> [String] {
+        [
+            stageFailureDetail(stage: "expansion", suite: suite, stats: expansion),
+            stageFailureDetail(stage: "rerank", suite: suite, stats: rerank),
+        ]
+    }
+
+    private func stageSummaryLine(
+        stage: String,
+        suite: SuiteKind,
+        stats: StageStats,
+        avgProducedLabel: String
+    ) -> String {
+        guard stats.calls > 0 else {
+            return "[\(suiteLabel(suite))][recall-diagnostics][\(stage)] no calls recorded."
+        }
+
+        let successRate = Double(stats.successes) / Double(stats.calls)
+        let failureRate = Double(stats.failures) / Double(stats.calls)
+        let timeoutRate = Double(stats.timeouts) / Double(stats.calls)
+        let avgRequested = Double(stats.totalRequested) / Double(stats.calls)
+        let avgProduced = Double(stats.totalProduced) / Double(stats.calls)
+
+        return "[\(suiteLabel(suite))][recall-diagnostics][\(stage)] calls=\(stats.calls), success=\(stats.successes) (\(percent(successRate))), failures=\(stats.failures) (\(percent(failureRate))), timeouts=\(stats.timeouts) (\(percent(timeoutRate))), avgRequested=\(format(avgRequested)), \(avgProducedLabel)=\(format(avgProduced))"
+    }
+
+    private func stageFailureDetail(stage: String, suite: SuiteKind, stats: StageStats) -> String {
+        guard !stats.failureReasons.isEmpty else {
+            return "[\(suiteLabel(suite))][recall-diagnostics][\(stage)] failure-reasons none"
+        }
+
+        let topReasons = stats.failureReasons
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key < rhs.key
+                }
+                return lhs.value > rhs.value
+            }
+            .prefix(3)
+            .map { "\($0.value)x \($0.key)" }
+            .joined(separator: " | ")
+        return "[\(suiteLabel(suite))][recall-diagnostics][\(stage)] top-failure-reasons \(topReasons)"
+    }
+
+    private func errorReason(_ error: Error) -> String {
+        "\(String(describing: type(of: error))): \(error.localizedDescription)"
+    }
+
+    private func isTimeout(_ error: Error) -> Bool {
+        let text = errorReason(error).lowercased()
+        return text.contains("timed out") || text.contains("timeout")
+    }
+
+    private func truncate(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+        return String(text.prefix(maxLength - 3)) + "..."
+    }
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+private actor DiagnosticContentTagger: ContentTagger {
+    let identifier: String
+    private let base: any ContentTagger
+    private let diagnostics: ContentTaggingDiagnosticsCollector
+
+    init(base: any ContentTagger, diagnostics: ContentTaggingDiagnosticsCollector) {
+        self.base = base
+        self.diagnostics = diagnostics
+        self.identifier = base.identifier
+    }
+
+    func tag(text: String, kind: DocumentKind, sourceURL: URL?) async throws -> [ContentTag] {
+        do {
+            let tags = try await base.tag(text: text, kind: kind, sourceURL: sourceURL)
+            await diagnostics.recordSuccess(tagCount: tags.count, textLength: text.count)
+            return tags
+        } catch {
+            await diagnostics.recordFailure(error: error, textLength: text.count)
+            throw error
+        }
+    }
+}
+
+private actor DiagnosticQueryExpander: QueryExpander {
+    let identifier: String
+    private let base: any QueryExpander
+    private let diagnostics: RecallDiagnosticsCollector
+
+    init(base: any QueryExpander, diagnostics: RecallDiagnosticsCollector) {
+        self.base = base
+        self.diagnostics = diagnostics
+        self.identifier = base.identifier
+    }
+
+    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+        do {
+            let alternatives = try await base.expand(query: query, limit: limit)
+            await diagnostics.recordExpansionSuccess(requestedLimit: limit, alternateCount: alternatives.count)
+            return alternatives
+        } catch {
+            await diagnostics.recordExpansionFailure(error: error, requestedLimit: limit)
+            throw error
+        }
+    }
+}
+
+private actor DiagnosticReranker: Reranker {
+    let identifier: String
+    private let base: any Reranker
+    private let diagnostics: RecallDiagnosticsCollector
+
+    init(base: any Reranker, diagnostics: RecallDiagnosticsCollector) {
+        self.base = base
+        self.diagnostics = diagnostics
+        self.identifier = base.identifier
+    }
+
+    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment] {
+        do {
+            let assessments = try await base.rerank(query: query, candidates: candidates)
+            await diagnostics.recordRerankSuccess(
+                candidateCount: candidates.count,
+                assessmentCount: assessments.count
+            )
+            return assessments
+        } catch {
+            await diagnostics.recordRerankFailure(error: error, candidateCount: candidates.count)
+            throw error
+        }
+    }
+}
+
+private actor EvalResponseCache {
+    private struct CacheStats {
+        var hits = 0
+        var misses = 0
+        var writes = 0
+    }
+
+    private let dbQueue: DatabaseQueue
+    private var statsByNamespace: [String: CacheStats] = [:]
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    init(databaseURL: URL) throws {
+        dbQueue = try DatabaseQueue(path: databaseURL.path)
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                CREATE TABLE IF NOT EXISTS eval_provider_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    namespace TEXT NOT NULL,
+                    value_blob BLOB NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
+            try db.execute(
+                sql: """
+                CREATE INDEX IF NOT EXISTS eval_provider_cache_namespace_idx
+                ON eval_provider_cache(namespace)
+                """
+            )
+        }
+    }
+
+    func load<T: Decodable>(
+        namespace: String,
+        keyComponents: [String],
+        as type: T.Type
+    ) throws -> T? {
+        let cacheKey = makeCacheKey(namespace: namespace, components: keyComponents)
+        let payload: Data? = try dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: "SELECT value_blob FROM eval_provider_cache WHERE cache_key = ?",
+                arguments: [cacheKey]
+            )
+            return row?["value_blob"]
+        }
+
+        if let payload {
+            statsByNamespace[namespace, default: CacheStats()].hits += 1
+            return try decoder.decode(T.self, from: payload)
+        }
+
+        statsByNamespace[namespace, default: CacheStats()].misses += 1
+        return nil
+    }
+
+    func store<T: Encodable>(
+        namespace: String,
+        keyComponents: [String],
+        value: T
+    ) throws {
+        let cacheKey = makeCacheKey(namespace: namespace, components: keyComponents)
+        let payload = try encoder.encode(value)
+        let updatedAt = Date().timeIntervalSince1970
+
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO eval_provider_cache (cache_key, namespace, value_blob, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    namespace = excluded.namespace,
+                    value_blob = excluded.value_blob,
+                    updated_at = excluded.updated_at
+                """,
+                arguments: [cacheKey, namespace, payload, updatedAt]
+            )
+        }
+
+        statsByNamespace[namespace, default: CacheStats()].writes += 1
+    }
+
+    func drainSummaryLines(suite: SuiteKind) -> [String] {
+        guard !statsByNamespace.isEmpty else {
+            return ["[\(suiteLabel(suite))][cache] no cache traffic."]
+        }
+
+        let lines = statsByNamespace
+            .keys
+            .sorted()
+            .map { namespace in
+                let stats = statsByNamespace[namespace, default: CacheStats()]
+                let requests = stats.hits + stats.misses
+                let hitRate = requests == 0 ? 0 : Double(stats.hits) / Double(requests)
+                return "[\(suiteLabel(suite))][cache][\(namespace)] hits=\(stats.hits), misses=\(stats.misses), writes=\(stats.writes), hitRate=\(percent(hitRate))"
+            }
+
+        statsByNamespace.removeAll()
+        return lines
+    }
+
+    private func makeCacheKey(namespace: String, components: [String]) -> String {
+        ([namespace] + components).joined(separator: "\u{1F}")
+    }
+}
+
+private struct CachedRerankAssessment: Codable {
+    var chunkID: Int64
+    var relevance: Double
+    var rationale: String?
+}
+
+private actor CachingContentTagger: ContentTagger {
+    let identifier: String
+    private let base: any ContentTagger
+    private let cache: EvalResponseCache
+
+    init(base: any ContentTagger, cache: EvalResponseCache) {
+        self.base = base
+        self.cache = cache
+        self.identifier = base.identifier
+    }
+
+    func tag(text: String, kind: DocumentKind, sourceURL: URL?) async throws -> [ContentTag] {
+        let keyComponents = [
+            identifier,
+            kind.rawValue,
+            sourceURL?.lastPathComponent ?? "unknown",
+            text,
+        ]
+
+        if let cached = try await cache.load(
+            namespace: "tag",
+            keyComponents: keyComponents,
+            as: [ContentTag].self
+        ) {
+            return cached
+        }
+
+        let generated = try await base.tag(text: text, kind: kind, sourceURL: sourceURL)
+        try await cache.store(namespace: "tag", keyComponents: keyComponents, value: generated)
+        return generated
+    }
+}
+
+private actor CachingQueryExpander: QueryExpander {
+    let identifier: String
+    private let base: any QueryExpander
+    private let cache: EvalResponseCache
+
+    init(base: any QueryExpander, cache: EvalResponseCache) {
+        self.base = base
+        self.cache = cache
+        self.identifier = base.identifier
+    }
+
+    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+        let keyComponents = [
+            identifier,
+            query.text,
+            String(limit),
+        ]
+
+        if let cached = try await cache.load(
+            namespace: "expand",
+            keyComponents: keyComponents,
+            as: [String].self
+        ) {
+            return cached
+        }
+
+        let alternatives = try await base.expand(query: query, limit: limit)
+        try await cache.store(namespace: "expand", keyComponents: keyComponents, value: alternatives)
+        return alternatives
+    }
+}
+
+private actor CachingReranker: Reranker {
+    let identifier: String
+    private let base: any Reranker
+    private let cache: EvalResponseCache
+
+    init(base: any Reranker, cache: EvalResponseCache) {
+        self.base = base
+        self.cache = cache
+        self.identifier = base.identifier
+    }
+
+    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment] {
+        let keyComponents = makeKeyComponents(query: query, candidates: candidates)
+        if let cached = try await cache.load(
+            namespace: "rerank",
+            keyComponents: keyComponents,
+            as: [CachedRerankAssessment].self
+        ) {
+            return cached.map { cached in
+                RerankAssessment(
+                    chunkID: cached.chunkID,
+                    relevance: cached.relevance,
+                    rationale: cached.rationale
+                )
+            }
+        }
+
+        let assessments = try await base.rerank(query: query, candidates: candidates)
+        let encoded = assessments.map { assessment in
+            CachedRerankAssessment(
+                chunkID: assessment.chunkID,
+                relevance: assessment.relevance,
+                rationale: assessment.rationale
+            )
+        }
+        try await cache.store(namespace: "rerank", keyComponents: keyComponents, value: encoded)
+        return assessments
+    }
+
+    private func makeKeyComponents(query: SearchQuery, candidates: [SearchResult]) -> [String] {
+        var components: [String] = [
+            identifier,
+            query.text,
+            String(candidates.count),
+        ]
+        components.reserveCapacity(components.count + candidates.count)
+
+        for candidate in candidates {
+            let pathComponent = URL(fileURLWithPath: candidate.documentPath).lastPathComponent
+            let normalizedSnippet = candidate.snippet
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let excerpt = String(normalizedSnippet.prefix(180))
+            components.append("\(candidate.chunkID)|\(pathComponent)|\(excerpt)")
+        }
+
+        return components
+    }
+}
+
+private actor HeuristicOverlapReranker: Reranker {
+    let identifier = "heuristic-overlap-reranker"
+
+    func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment] {
+        guard !candidates.isEmpty else { return [] }
+
+        let queryTokens = tokenSet(from: query.text)
+        guard !queryTokens.isEmpty else {
+            return candidates.map { candidate in
+                RerankAssessment(chunkID: candidate.chunkID, relevance: 0, rationale: nil)
+            }
+        }
+
+        return candidates.map { candidate in
+            let body = "\(candidate.title ?? "") \(candidate.snippet) \(String(candidate.content.prefix(240)))"
+            let candidateTokens = tokenSet(from: body)
+            let overlap = queryTokens.intersection(candidateTokens).count
+            let lexicalScore = Double(overlap) / Double(queryTokens.count)
+            let phraseBonus = body.range(
+                of: query.text,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil ? 0.2 : 0
+            let relevance = min(1, max(0, lexicalScore + phraseBonus))
+
+            return RerankAssessment(
+                chunkID: candidate.chunkID,
+                relevance: relevance,
+                rationale: nil
+            )
+        }
+    }
+
+    private func tokenSet(from text: String) -> Set<String> {
+        let tokens = text
+            .lowercased()
+            .split { character in !character.isLetter && !character.isNumber }
+            .map(String.init)
+            .filter { token in
+                token.count >= 3 && !rerankerStopWords.contains(token)
+            }
+        return Set(tokens)
+    }
 }
 
 private struct EvalRunReport: Codable {
@@ -251,8 +859,8 @@ struct RunCommand: AsyncParsableCommand {
         abstract: "Run storage + recall evaluation and write JSON/Markdown reports."
     )
 
-    @Option(name: .long, help: "Profile to run.")
-    var profile: EvalProfile = .baseline
+    @Option(name: .long, help: "Profile to run. Omit to run all profiles sequentially.")
+    var profile: EvalProfile?
 
     @Option(name: .long, help: "Dataset root folder.")
     var datasetRoot: String = "Evals"
@@ -263,6 +871,20 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.json.")
     var output: String?
 
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Enable provider response cache across eval runs (disable with --no-cache)."
+    )
+    var cache = true
+
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Reuse cached suite indexes across eval runs (disable with --no-index-cache)."
+    )
+    var indexCache = true
+
     @Flag(name: .long, help: "Print per-case details.")
     var verbose = false
 
@@ -270,25 +892,77 @@ struct RunCommand: AsyncParsableCommand {
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
         let ks = try parseKValues(kValues)
+        let responseCache = try makeResponseCacheIfEnabled(enabled: cache, datasetRoot: datasetRootURL)
 
-        let runRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("memory-evals", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+        let profiles = profile.map { [$0] } ?? EvalProfile.allCases
+        if profiles.count > 1, output != nil {
+            throw ValidationError("When --profile is omitted (run all profiles), --output is unsupported. Let memory_eval write per-profile outputs to <dataset-root>/runs/.")
+        }
 
+        var generatedOutputs: [URL] = []
+        for (index, currentProfile) in profiles.enumerated() {
+            if profiles.count > 1 {
+                print("[run] Starting profile \(index + 1)/\(profiles.count): \(currentProfile.rawValue)")
+            }
+
+            let runRoot = FileManager.default.temporaryDirectory
+                .appendingPathComponent("memory-evals", isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+
+            let outputURL = try await runSingleProfile(
+                profile: currentProfile,
+                dataset: dataset,
+                kValues: ks,
+                datasetRootURL: datasetRootURL,
+                runRoot: runRoot,
+                responseCache: responseCache,
+                outputOverride: profiles.count == 1 ? output : nil
+            )
+            generatedOutputs.append(outputURL)
+        }
+
+        if profiles.count > 1 {
+            print("[run] Completed \(profiles.count) profiles.")
+            print("Generated JSON reports:")
+            for path in generatedOutputs.map(\.path) {
+                print("- \(path)")
+            }
+
+            let compareArgs = generatedOutputs.map { "\"\($0.path)\"" }.joined(separator: " ")
+            print("Compare command:")
+            print("swift run memory_eval compare \(compareArgs)")
+        }
+    }
+
+    private func runSingleProfile(
+        profile: EvalProfile,
+        dataset: DatasetBundle,
+        kValues: [Int],
+        datasetRootURL: URL,
+        runRoot: URL,
+        responseCache: EvalResponseCache?,
+        outputOverride: String?
+    ) async throws -> URL {
         let storageReport = try await runStorageSuite(
             profile: profile,
             dataset: dataset.storageCases,
+            datasetRoot: datasetRootURL,
             root: runRoot,
-            verbose: verbose
+            indexCacheEnabled: indexCache,
+            verbose: verbose,
+            responseCache: responseCache
         )
         let recallOutput = try await runRecallSuite(
             profile: profile,
             documents: dataset.recallDocuments,
             queries: dataset.recallQueries,
-            kValues: ks,
+            kValues: kValues,
+            datasetRoot: datasetRootURL,
             root: runRoot,
-            verbose: verbose
+            indexCacheEnabled: indexCache,
+            verbose: verbose,
+            responseCache: responseCache
         )
 
         let report = EvalRunReport(
@@ -299,12 +973,13 @@ struct RunCommand: AsyncParsableCommand {
             storage: storageReport,
             recall: recallOutput.report,
             notes: [
-                "Storage eval uses direct database inspection for classification/span metrics.",
+                "Storage eval uses direct database inspection with production-like chunking for classification/span metrics.",
                 "Recall eval uses document-level metrics (deduped by document path).",
+                "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
             ] + recallOutput.notes
         )
 
-        let outputURL = try resolvedOutputURL(baseRoot: datasetRootURL, output: output, profile: profile)
+        let outputURL = try resolvedOutputURL(baseRoot: datasetRootURL, output: outputOverride, profile: profile)
         try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         let encoder = JSONEncoder()
@@ -327,6 +1002,8 @@ struct RunCommand: AsyncParsableCommand {
         }
         print("JSON report: \(outputURL.path)")
         print("Markdown summary: \(markdownURL.path)")
+
+        return outputURL
     }
 }
 
@@ -404,33 +1081,233 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     )
 }
 
+private func makeResponseCacheIfEnabled(
+    enabled: Bool,
+    datasetRoot: URL
+) throws -> EvalResponseCache? {
+    guard enabled else {
+        print("[cache] disabled (--no-cache).")
+        return nil
+    }
+
+    let cacheURL = evalCacheRootURL(datasetRoot: datasetRoot)
+        .appendingPathComponent("provider", isDirectory: true)
+        .appendingPathComponent("eval_provider_cache.sqlite")
+    try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    print("[cache] enabled: \(cacheURL.path)")
+    return try EvalResponseCache(databaseURL: cacheURL)
+}
+
+private struct EvalIndexWorkspace {
+    var root: URL
+    var docsRoot: URL
+    var databaseURL: URL
+    var readyMarkerURL: URL?
+    var cacheKey: String?
+    var cacheEnabled: Bool
+}
+
+private func prepareIndexWorkspace(
+    suite: SuiteKind,
+    profile: EvalProfile,
+    datasetRoot: URL,
+    runRoot: URL,
+    cacheEnabled: Bool,
+    seed: String
+) throws -> EvalIndexWorkspace {
+    let suiteName = suiteLabel(suite)
+    if !cacheEnabled {
+        let root = runRoot.appendingPathComponent("\(suiteName)_workspace", isDirectory: true)
+        let docsRoot = root.appendingPathComponent("\(suiteName)_docs", isDirectory: true)
+        let databaseURL = root.appendingPathComponent("\(suiteName).sqlite")
+        try FileManager.default.createDirectory(at: docsRoot, withIntermediateDirectories: true)
+        return EvalIndexWorkspace(
+            root: root,
+            docsRoot: docsRoot,
+            databaseURL: databaseURL,
+            readyMarkerURL: nil,
+            cacheKey: nil,
+            cacheEnabled: false
+        )
+    }
+
+    let digestInput = "index-cache-schema=\(evalIndexCacheSchemaVersion)\n" + seed
+    let cacheKey = String(sha256Hex(digestInput).prefix(24))
+    let root = evalCacheRootURL(datasetRoot: datasetRoot)
+        .appendingPathComponent("index", isDirectory: true)
+        .appendingPathComponent(suiteName, isDirectory: true)
+        .appendingPathComponent("\(profile.rawValue)-\(cacheKey)", isDirectory: true)
+    let docsRoot = root.appendingPathComponent("docs", isDirectory: true)
+    let databaseURL = root.appendingPathComponent("\(suiteName).sqlite")
+    let readyMarkerURL = root.appendingPathComponent(".ready")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return EvalIndexWorkspace(
+        root: root,
+        docsRoot: docsRoot,
+        databaseURL: databaseURL,
+        readyMarkerURL: readyMarkerURL,
+        cacheKey: cacheKey,
+        cacheEnabled: true
+    )
+}
+
+private func indexCacheCanReuse(
+    workspace: EvalIndexWorkspace,
+    expectedDocumentPaths: [URL]
+) -> Bool {
+    guard workspace.cacheEnabled else { return false }
+    guard let readyMarkerURL = workspace.readyMarkerURL else { return false }
+    let fileManager = FileManager.default
+
+    guard fileManager.fileExists(atPath: workspace.databaseURL.path),
+          fileManager.fileExists(atPath: readyMarkerURL.path) else {
+        return false
+    }
+
+    return expectedDocumentPaths.allSatisfy { fileManager.fileExists(atPath: $0.path) }
+}
+
+private func resetWorkspaceForRebuild(_ workspace: EvalIndexWorkspace) throws {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: workspace.root.path) {
+        try fileManager.removeItem(at: workspace.root)
+    }
+    try fileManager.createDirectory(at: workspace.docsRoot, withIntermediateDirectories: true)
+}
+
+private func markIndexCacheReady(_ workspace: EvalIndexWorkspace) throws {
+    guard workspace.cacheEnabled, let readyMarkerURL = workspace.readyMarkerURL else { return }
+    let metadata = [
+        "cache_key=\(workspace.cacheKey ?? "unknown")",
+        "updated_at=\(iso8601(Date()))",
+    ].joined(separator: "\n")
+    try metadata.write(to: readyMarkerURL, atomically: true, encoding: .utf8)
+}
+
+private func storageIndexCacheSeed(profile: EvalProfile, dataset: [StorageCase]) -> String {
+    var parts: [String] = [
+        "suite=storage",
+        "profile=\(profile.rawValue)",
+        "chunker=target120-overlap24",
+    ]
+    let sorted = dataset.sorted { $0.id < $1.id }
+    parts.reserveCapacity(parts.count + (sorted.count * 6))
+    for entry in sorted {
+        parts.append("id=\(entry.id)")
+        parts.append("kind=\(entry.kind ?? "")")
+        parts.append("expected=\(entry.expectedMemoryType)")
+        parts.append("required=\(entry.requiredSpans.joined(separator: "\u{1E}"))")
+        parts.append("text=\(entry.text)")
+    }
+    return parts.joined(separator: "\n")
+}
+
+private func recallIndexCacheSeed(profile: EvalProfile, documents: [RecallDocumentCase]) -> String {
+    var parts: [String] = [
+        "suite=recall",
+        "profile=\(profile.rawValue)",
+    ]
+    let sorted = documents.sorted { $0.id < $1.id }
+    parts.reserveCapacity(parts.count + (sorted.count * 6))
+    for document in sorted {
+        parts.append("id=\(document.id)")
+        parts.append("relative_path=\(document.relativePath ?? "")")
+        parts.append("kind=\(document.kind ?? "")")
+        parts.append("memory_type=\(document.memoryType ?? "")")
+        parts.append("text=\(document.text)")
+    }
+    return parts.joined(separator: "\n")
+}
+
+private func evalCacheRootURL(datasetRoot: URL) -> URL {
+    datasetRoot.appendingPathComponent("cache", isDirectory: true)
+}
+
+private func sha256Hex(_ value: String) -> String {
+    let digest = SHA256.hash(data: Data(value.utf8))
+    return digest.map { String(format: "%02x", $0) }.joined()
+}
+
 private func runStorageSuite(
     profile: EvalProfile,
     dataset: [StorageCase],
+    datasetRoot: URL,
     root: URL,
-    verbose: Bool
+    indexCacheEnabled: Bool,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
 ) async throws -> StorageSuiteReport {
-    let docsRoot = root.appendingPathComponent("storage_docs", isDirectory: true)
-    try FileManager.default.createDirectory(at: docsRoot, withIntermediateDirectories: true)
+    let indexSeed = storageIndexCacheSeed(profile: profile, dataset: dataset)
+    let workspace = try prepareIndexWorkspace(
+        suite: .storage,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root,
+        cacheEnabled: indexCacheEnabled,
+        seed: indexSeed
+    )
+    let docsRoot = workspace.docsRoot
 
     var casePathByID: [String: URL] = [:]
     for entry in dataset {
         let ext = extensionForKind(entry.kind) ?? "md"
         let path = docsRoot.appendingPathComponent("\(safeFilename(entry.id)).\(ext)")
-        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try entry.text.write(to: path, atomically: true, encoding: .utf8)
         casePathByID[entry.id] = path
     }
 
-    let dbURL = root.appendingPathComponent("storage.sqlite")
+    let casePaths = Array(casePathByID.values)
+    let canReuseIndex = indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: casePaths)
+    if canReuseIndex {
+        print("[storage][index-cache] hit: \(workspace.root.path)")
+    } else {
+        if workspace.cacheEnabled {
+            print("[storage][index-cache] miss: \(workspace.root.path)")
+        }
+        try resetWorkspaceForRebuild(workspace)
+        for entry in dataset {
+            guard let path = casePathByID[entry.id] else {
+                throw EvalError.invalidDataset("Storage case '\(entry.id)' did not materialize to a document path.")
+            }
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try entry.text.write(to: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    let dbURL = workspace.databaseURL
     var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: dbURL)
-    config.chunker = DefaultChunker(targetTokenCount: 12_000, overlapTokenCount: 0)
+    // Keep span coverage meaningful by allowing long cases to split across chunks.
+    config.chunker = DefaultChunker(targetTokenCount: 120, overlapTokenCount: 24)
+    try await requireFunctionalContentTaggingIfNeeded(profile: profile, configuration: config, suite: .storage)
+    let contentTaggingDiagnostics = installContentTaggingDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+    }
 
     let index = try MemoryIndex(configuration: config)
-    print("[storage] Building index for \(dataset.count) cases...")
-    let indexStart = Date()
-    try await index.rebuildIndex(from: [docsRoot])
-    print("[storage] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
+    if canReuseIndex {
+        print("[storage] Using cached index for \(dataset.count) cases.")
+    } else {
+        print("[storage] Building index for \(dataset.count) cases...")
+        let indexStart = Date()
+        try await index.rebuildIndex(from: [docsRoot])
+        print("[storage] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
+        try markIndexCacheReady(workspace)
+    }
+    if let contentTaggingDiagnostics {
+        print(await contentTaggingDiagnostics.summaryLine(suite: .storage))
+        for detail in await contentTaggingDiagnostics.detailLines(suite: .storage) {
+            print(detail)
+        }
+    }
+    try requireGeneratedContentTagsIfNeeded(profile: profile, databaseURL: dbURL, suite: .storage)
+    if let responseCache {
+        for line in await responseCache.drainSummaryLines(suite: .storage) {
+            print(line)
+        }
+    }
 
     let dbQueue = try DatabaseQueue(path: dbURL.path)
 
@@ -539,15 +1416,28 @@ private func runRecallSuite(
     documents: [RecallDocumentCase],
     queries: [RecallQueryCase],
     kValues: [Int],
+    datasetRoot: URL,
     root: URL,
-    verbose: Bool
+    indexCacheEnabled: Bool,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
 ) async throws -> RecallSuiteRunOutput {
-    let docsRoot = root.appendingPathComponent("recall_docs", isDirectory: true)
-    try FileManager.default.createDirectory(at: docsRoot, withIntermediateDirectories: true)
+    let indexSeed = recallIndexCacheSeed(profile: profile, documents: documents)
+    let workspace = try prepareIndexWorkspace(
+        suite: .recall,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root,
+        cacheEnabled: indexCacheEnabled,
+        seed: indexSeed
+    )
+    let docsRoot = workspace.docsRoot
+    var runtimeNotes: [String] = []
 
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
     var memoryTypeByDocumentID: [String: MemoryType] = [:]
+    var contentByDocumentID: [String: String] = [:]
 
     for document in documents {
         if let memoryTypeRaw = document.memoryType {
@@ -564,21 +1454,72 @@ private func runRecallSuite(
             path = docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
         }
 
-        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
         let content = try materializeRecallDocument(document)
-        try content.write(to: path, atomically: true, encoding: .utf8)
+        contentByDocumentID[document.id] = content
 
         pathByDocumentID[document.id] = path.path
         documentIDByPath[path.path] = document.id
     }
 
-    let dbURL = root.appendingPathComponent("recall.sqlite")
-    let config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: dbURL)
+    let expectedPaths = pathByDocumentID.values.map(URL.init(fileURLWithPath:))
+    let canReuseIndex = indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: expectedPaths)
+    if canReuseIndex {
+        print("[recall][index-cache] hit: \(workspace.root.path)")
+    } else {
+        if workspace.cacheEnabled {
+            print("[recall][index-cache] miss: \(workspace.root.path)")
+        }
+        try resetWorkspaceForRebuild(workspace)
+        for document in documents {
+            guard let pathRaw = pathByDocumentID[document.id],
+                  let content = contentByDocumentID[document.id] else {
+                throw EvalError.invalidDataset("Recall document '\(document.id)' did not materialize to a document path.")
+            }
+            let path = URL(fileURLWithPath: pathRaw)
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    let dbURL = workspace.databaseURL
+    var config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: dbURL)
+    if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
+        profile: profile,
+        configuration: &config,
+        suite: .recall
+    ) {
+        print("[recall][rerank] \(rerankerNote)")
+        runtimeNotes.append(rerankerNote)
+    }
+    try await requireFunctionalContentTaggingIfNeeded(profile: profile, configuration: config, suite: .recall)
+    let contentTaggingDiagnostics = installContentTaggingDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    let recallDiagnostics = installRecallDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+    }
     let index = try MemoryIndex(configuration: config)
-    print("[recall] Building index for \(documents.count) documents...")
-    let indexStart = Date()
-    try await index.rebuildIndex(from: [docsRoot])
-    print("[recall] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
+    if canReuseIndex {
+        print("[recall] Using cached index for \(documents.count) documents.")
+    } else {
+        print("[recall] Building index for \(documents.count) documents...")
+        let indexStart = Date()
+        try await index.rebuildIndex(from: [docsRoot])
+        print("[recall] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
+        try markIndexCacheReady(workspace)
+    }
+    if let contentTaggingDiagnostics {
+        print(await contentTaggingDiagnostics.summaryLine(suite: .recall))
+        for detail in await contentTaggingDiagnostics.detailLines(suite: .recall) {
+            print(detail)
+        }
+    }
+    try requireGeneratedContentTagsIfNeeded(profile: profile, databaseURL: dbURL, suite: .recall)
     print("[recall] Evaluating \(queries.count) queries at k=\(kValues.map(String.init).joined(separator: ","))...")
 
     var queryResults: [RecallQueryResult] = []
@@ -588,7 +1529,11 @@ private func runRecallSuite(
     }
 
     let maxK = kValues.max() ?? 10
+    let recallLimit = recallLimitForProfile(profile: profile, maxK: maxK)
+    let dedupedDocumentLimit = dedupedDocumentLimitForProfile(profile: profile, maxK: maxK)
     var incompatibleFilterQueryCount = 0
+    var oracleCandidateCoverageCount = 0
+    var oracleRelevantCandidateTotal = 0
     var progress = DeterminateProgress(label: "recall", total: queries.count)
     for queryCase in queries {
         let relevant = Set(queryCase.relevantDocumentIds)
@@ -617,28 +1562,38 @@ private func runRecallSuite(
             }
         }
 
-        let searchResults = try await index.search(
-            SearchQuery(
-                text: queryCase.query,
-                limit: max(50, maxK * 4),
-                semanticCandidateLimit: 300,
-                lexicalCandidateLimit: 300,
-                rerankLimit: config.reranker == nil ? 0 : max(50, maxK * 3),
-                expansionLimit: config.queryExpander == nil ? 0 : 2,
-                memoryTypes: effectiveMemoryTypes
-            )
+        let recallResponse = try await index.recall(
+            mode: .hybrid(query: queryCase.query),
+            limit: recallLimit,
+            features: recallFeatures(for: config),
+            memoryTypes: effectiveMemoryTypes
         )
 
         var rankedDocumentIDs: [String] = []
         var seen: Set<String> = []
-        for result in searchResults {
-            guard let documentID = documentIDByPath[result.documentPath] else { continue }
+        for record in recallResponse.records {
+            guard let documentID = documentIDByPath[record.documentPath] else { continue }
             if seen.insert(documentID).inserted {
                 rankedDocumentIDs.append(documentID)
             }
-            if rankedDocumentIDs.count >= max(100, maxK * 4) {
+            if rankedDocumentIDs.count >= dedupedDocumentLimit {
                 break
             }
+        }
+
+        let evaluatedDocumentIDs: [String]
+        if profile == .oracleCeiling {
+            let relevantCandidates = rankedDocumentIDs.filter(relevant.contains)
+            oracleRelevantCandidateTotal += relevantCandidates.count
+            if !relevantCandidates.isEmpty {
+                oracleCandidateCoverageCount += 1
+            }
+            evaluatedDocumentIDs = oracleReorderCandidates(
+                candidates: rankedDocumentIDs,
+                relevant: relevant
+            )
+        } else {
+            evaluatedDocumentIDs = rankedDocumentIDs
         }
 
         var hitByK: [Int: Bool] = [:]
@@ -647,7 +1602,7 @@ private func runRecallSuite(
         var ndcgByK: [Int: Double] = [:]
 
         for k in kValues {
-            let top = Array(rankedDocumentIDs.prefix(k))
+            let top = Array(evaluatedDocumentIDs.prefix(k))
             let retrievedRelevant = top.filter(relevant.contains)
             let hit = !retrievedRelevant.isEmpty
             let recall = Double(retrievedRelevant.count) / Double(relevant.count)
@@ -673,7 +1628,7 @@ private func runRecallSuite(
                 id: queryCase.id,
                 query: queryCase.query,
                 relevantDocumentIds: queryCase.relevantDocumentIds,
-                retrievedDocumentIds: Array(rankedDocumentIDs.prefix(maxK)),
+                retrievedDocumentIds: Array(evaluatedDocumentIDs.prefix(maxK)),
                 hitByK: hitByK,
                 recallByK: recallByK,
                 mrrByK: mrrByK,
@@ -688,6 +1643,20 @@ private func runRecallSuite(
         progress.advance(detail: verbose ? queryCase.id : nil)
     }
 
+    if let recallDiagnostics {
+        for line in await recallDiagnostics.summaryLines(suite: .recall) {
+            print(line)
+        }
+        for line in await recallDiagnostics.detailLines(suite: .recall) {
+            print(line)
+        }
+    }
+    if let responseCache {
+        for line in await responseCache.drainSummaryLines(suite: .recall) {
+            print(line)
+        }
+    }
+
     let totalQueries = queries.count
     let metrics = kValues.map { k in
         let sums = perKAccumulator[k, default: (0, 0, 0, 0)]
@@ -700,11 +1669,19 @@ private func runRecallSuite(
         )
     }
 
-    var notes: [String] = []
+    var notes: [String] = runtimeNotes
     if incompatibleFilterQueryCount > 0 {
         notes.append(
             "Ignored contradictory recall query memory_types filters for \(incompatibleFilterQueryCount) quer\(incompatibleFilterQueryCount == 1 ? "y" : "ies") because they excluded all relevant_document_ids."
         )
+    }
+    if profile == .oracleCeiling {
+        let coverage = totalQueries == 0 ? 0 : Double(oracleCandidateCoverageCount) / Double(totalQueries)
+        let avgRelevantCandidates = totalQueries == 0 ? 0 : Double(oracleRelevantCandidateTotal) / Double(totalQueries)
+        notes.append("oracle_ceiling reorders retrieved candidates using ground-truth labels to estimate ranking headroom (offline upper bound, not deployable).")
+        notes.append("oracle_ceiling candidate window: recall limit \(recallLimit), deduped docs \(dedupedDocumentLimit) per query.")
+        notes.append("oracle_ceiling candidate coverage (>=1 relevant doc in window): \(oracleCandidateCoverageCount)/\(totalQueries) (\(percent(coverage))).")
+        notes.append("oracle_ceiling average relevant docs present in candidate window: \(format(avgRelevantCandidates)).")
     }
 
     return RecallSuiteRunOutput(
@@ -733,6 +1710,8 @@ private func buildConfiguration(
     switch profile {
     case .baseline:
         break
+    case .appleTags:
+        try enableAppleContentTagging(on: &configuration)
     case .appleStorage:
         if suite == .storage {
             configuration.memoryTyping.classifier = try makeAppleFirstMemoryClassifier()
@@ -741,8 +1720,24 @@ private func buildConfiguration(
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
         }
+    case .expansionOnly:
+        if suite == .recall {
+            try enableAppleExpansionCapabilities(on: &configuration)
+        }
+    case .oracleCeiling:
+        break
+    case .expansionRerank:
+        if suite == .recall {
+            try enableAppleRecallCapabilities(on: &configuration)
+        }
+    case .expansionRerankTag:
+        try enableAppleContentTagging(on: &configuration)
+        if suite == .recall {
+            try enableAppleRecallCapabilities(on: &configuration)
+        }
     case .fullApple:
         configuration.memoryTyping.classifier = try makeAppleFirstMemoryClassifier()
+        try enableAppleContentTagging(on: &configuration)
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
         }
@@ -765,11 +1760,367 @@ private func makeAppleFirstMemoryClassifier() throws -> any MemoryTypeClassifier
     )
 }
 
+private func installRecallDiagnosticsIfNeeded(
+    profile: EvalProfile,
+    configuration: inout MemoryConfiguration
+) -> RecallDiagnosticsCollector? {
+    guard profileUsesAppleRecallCapabilities(profile) else { return nil }
+    guard configuration.queryExpander != nil || configuration.reranker != nil else { return nil }
+
+    let diagnostics = RecallDiagnosticsCollector()
+    if let queryExpander = configuration.queryExpander {
+        configuration.queryExpander = DiagnosticQueryExpander(
+            base: queryExpander,
+            diagnostics: diagnostics
+        )
+    }
+    if let reranker = configuration.reranker {
+        configuration.reranker = DiagnosticReranker(
+            base: reranker,
+            diagnostics: diagnostics
+        )
+    }
+    return diagnostics
+}
+
+private func installProviderResponseCachingIfNeeded(
+    configuration: inout MemoryConfiguration,
+    responseCache: EvalResponseCache
+) {
+    if let contentTagger = configuration.contentTagger {
+        configuration.contentTagger = CachingContentTagger(
+            base: contentTagger,
+            cache: responseCache
+        )
+    }
+    if let queryExpander = configuration.queryExpander {
+        configuration.queryExpander = CachingQueryExpander(
+            base: queryExpander,
+            cache: responseCache
+        )
+    }
+    if let reranker = configuration.reranker {
+        configuration.reranker = CachingReranker(
+            base: reranker,
+            cache: responseCache
+        )
+    }
+}
+
+private func ensureFunctionalRerankerIfNeeded(
+    profile: EvalProfile,
+    configuration: inout MemoryConfiguration,
+    suite: SuiteKind
+) async throws -> String? {
+    guard suite == .recall else { return nil }
+    guard profileUsesAppleRecallCapabilities(profile) else { return nil }
+    guard let reranker = configuration.reranker else { return nil }
+    guard reranker.identifier.contains("apple-intelligence-reranker") else { return nil }
+
+    let now = Date()
+    let probeCandidates = [
+        SearchResult(
+            chunkID: 1,
+            documentPath: "probe/a.md",
+            title: "Release Checklist",
+            content: "Run migration and verify alerts before rollout.",
+            snippet: "Run migration and verify alerts before rollout.",
+            modifiedAt: now,
+            memoryType: .procedural,
+            memoryTypeSource: .automatic,
+            memoryTypeConfidence: 0.9,
+            score: SearchScoreBreakdown(
+                semantic: 0.2,
+                lexical: 0.2,
+                recency: 0.8,
+                fused: 0.3
+            )
+        ),
+        SearchResult(
+            chunkID: 2,
+            documentPath: "probe/b.md",
+            title: "Team Notes",
+            content: "Discuss retrospective and backlog grooming topics.",
+            snippet: "Discuss retrospective and backlog grooming topics.",
+            modifiedAt: now,
+            memoryType: .semantic,
+            memoryTypeSource: .automatic,
+            memoryTypeConfidence: 0.8,
+            score: SearchScoreBreakdown(
+                semantic: 0.1,
+                lexical: 0.1,
+                recency: 0.8,
+                fused: 0.2
+            )
+        ),
+    ]
+    let probeQuery = SearchQuery(
+        text: "release checklist migration alerts",
+        limit: 5,
+        semanticCandidateLimit: 0,
+        lexicalCandidateLimit: 0,
+        rerankLimit: 2,
+        expansionLimit: 0
+    )
+
+    do {
+        let assessments = try await withTimeout(seconds: 12) {
+            try await reranker.rerank(query: probeQuery, candidates: probeCandidates)
+        }
+        if assessments.isEmpty {
+            throw ValidationError("Apple reranker probe returned no assessments.")
+        }
+        return nil
+    } catch {
+        configuration.reranker = HeuristicOverlapReranker()
+        return "Apple reranker was unavailable or unresponsive (\(error.localizedDescription)). Using heuristic reranker fallback."
+    }
+}
+
+private func installContentTaggingDiagnosticsIfNeeded(
+    profile: EvalProfile,
+    configuration: inout MemoryConfiguration
+) -> ContentTaggingDiagnosticsCollector? {
+    guard profile == .appleTags else { return nil }
+    guard let contentTagger = configuration.contentTagger else { return nil }
+
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+        let diagnostics = ContentTaggingDiagnosticsCollector()
+        configuration.contentTagger = DiagnosticContentTagger(
+            base: contentTagger,
+            diagnostics: diagnostics
+        )
+        return diagnostics
+    }
+    #endif
+
+    return nil
+}
+
+private func requireGeneratedContentTagsIfNeeded(
+    profile: EvalProfile,
+    databaseURL: URL,
+    suite: SuiteKind
+) throws {
+    guard profile == .appleTags else { return }
+
+    let stats = try loadContentTagGenerationStats(databaseURL: databaseURL)
+    guard stats.chunkCount > 0 else { return }
+    guard stats.totalTagCount > 0 else {
+        throw ValidationError(
+            "apple_tags profile produced zero chunk content tags in the \(suiteLabel(suite)) suite (\(stats.chunkCount) chunks). Content tagging is unavailable or non-functional for this run."
+        )
+    }
+
+    let coverage = stats.chunkCount == 0 ? 0 : Double(stats.taggedChunkCount) / Double(stats.chunkCount)
+    print(
+        "[\(suiteLabel(suite))] Content tagging coverage: \(stats.taggedChunkCount)/\(stats.chunkCount) chunks (\(percent(coverage))), total tags: \(stats.totalTagCount)."
+    )
+}
+
+private func requireFunctionalContentTaggingIfNeeded(
+    profile: EvalProfile,
+    configuration: MemoryConfiguration,
+    suite: SuiteKind
+) async throws {
+    guard profile == .appleTags else { return }
+    guard let tagger = configuration.contentTagger else {
+        throw ValidationError("apple_tags profile requires a configured content tagger.")
+    }
+
+    let probeText = "Release checklist: run migration, verify alerts, and announce rollout."
+
+    let generated: [ContentTag]
+    do {
+        generated = try await withTimeout(seconds: 20) {
+            try await tagger.tag(text: probeText, kind: .plainText, sourceURL: nil)
+        }
+    } catch is OperationTimeoutError {
+        throw ValidationError(
+            "apple_tags profile timed out while probing content tagging in the \(suiteLabel(suite)) suite. Content tagging is unavailable or unresponsive for this runtime."
+        )
+    } catch {
+        throw ValidationError(
+            "apple_tags profile failed content tagging preflight in the \(suiteLabel(suite)) suite: \(error.localizedDescription)"
+        )
+    }
+
+    let valid = generated.filter { tag in
+        !tag.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && tag.confidence.isFinite
+    }
+    guard !valid.isEmpty else {
+        throw ValidationError(
+            "apple_tags profile returned zero tags in content tagging preflight for the \(suiteLabel(suite)) suite. Content tagging is unavailable or non-functional for this runtime."
+        )
+    }
+}
+
+private func withTimeout<T: Sendable>(
+    seconds: Double,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    let timeoutNanoseconds = UInt64(max(1, Int(seconds * 1_000_000_000)))
+    return try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            throw OperationTimeoutError()
+        }
+
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+private func loadContentTagGenerationStats(databaseURL: URL) throws -> ContentTagGenerationStats {
+    let dbQueue = try DatabaseQueue(path: databaseURL.path)
+
+    return try dbQueue.read { db in
+        let rows = try Row.fetchAll(db, sql: "SELECT content_tags_json FROM chunks")
+        var taggedChunkCount = 0
+        var totalTagCount = 0
+
+        for row in rows {
+            let raw: String? = row["content_tags_json"]
+            let tags = decodeGeneratedChunkTags(raw)
+            guard !tags.isEmpty else { continue }
+            taggedChunkCount += 1
+            totalTagCount += tags.count
+        }
+
+        return ContentTagGenerationStats(
+            chunkCount: rows.count,
+            taggedChunkCount: taggedChunkCount,
+            totalTagCount: totalTagCount
+        )
+    }
+}
+
+private func decodeGeneratedChunkTags(_ raw: String?) -> [GeneratedChunkTag] {
+    guard let raw else { return [] }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed != "[]" else { return [] }
+
+    guard let data = trimmed.data(using: .utf8),
+          let decoded = try? JSONDecoder().decode([GeneratedChunkTag].self, from: data) else {
+        return []
+    }
+
+    return decoded.filter { tag in
+        !tag.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && tag.confidence.isFinite
+    }
+}
+
+private func suiteLabel(_ suite: SuiteKind) -> String {
+    switch suite {
+    case .storage:
+        return "storage"
+    case .recall:
+        return "recall"
+    }
+}
+
+private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool {
+    switch profile {
+    case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple:
+        return true
+    case .baseline, .appleTags, .appleStorage, .oracleCeiling:
+        return false
+    }
+}
+
+private func recallLimitForProfile(profile: EvalProfile, maxK: Int) -> Int {
+    switch profile {
+    case .oracleCeiling:
+        return max(120, maxK * 12)
+    default:
+        return max(50, maxK * 4)
+    }
+}
+
+private func dedupedDocumentLimitForProfile(profile: EvalProfile, maxK: Int) -> Int {
+    switch profile {
+    case .oracleCeiling:
+        return max(120, maxK * 12)
+    default:
+        return max(100, maxK * 4)
+    }
+}
+
+private func oracleReorderCandidates(
+    candidates: [String],
+    relevant: Set<String>
+) -> [String] {
+    guard !candidates.isEmpty else { return [] }
+
+    var relevantCandidates: [String] = []
+    var nonRelevantCandidates: [String] = []
+    relevantCandidates.reserveCapacity(candidates.count)
+    nonRelevantCandidates.reserveCapacity(candidates.count)
+
+    for candidate in candidates {
+        if relevant.contains(candidate) {
+            relevantCandidates.append(candidate)
+        } else {
+            nonRelevantCandidates.append(candidate)
+        }
+    }
+
+    return relevantCandidates + nonRelevantCandidates
+}
+
+private func recallFeatures(for configuration: MemoryConfiguration) -> RecallFeatures {
+    var features: RecallFeatures = [.semantic, .lexical]
+    if configuration.contentTagger != nil {
+        features.insert(.tags)
+    }
+    if configuration.queryExpander != nil {
+        features.insert(.expansion)
+    }
+    if configuration.reranker != nil {
+        features.insert(.rerank)
+    }
+    return features
+}
+
+private func enableAppleContentTagging(on configuration: inout MemoryConfiguration) throws {
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isContentTaggingAvailable {
+        configuration.contentTagger = AppleIntelligenceContentTagger()
+        return
+    }
+    #endif
+    throw ValidationError(
+        "Apple content tagging is unavailable for this runtime. Apple tag profiles require FoundationModels contentTagging support on iOS 26/macOS 26/visionOS 26 with Apple Intelligence enabled."
+    )
+}
+
+private func enableAppleExpansionCapabilities(on configuration: inout MemoryConfiguration) throws {
+    #if canImport(FoundationModels)
+    if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
+        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 2.5)
+        return
+    }
+    #endif
+    throw ValidationError(
+        "Apple Intelligence is unavailable for this runtime. Apple expansion profiles require query expansion support."
+    )
+}
+
 private func enableAppleRecallCapabilities(on configuration: inout MemoryConfiguration) throws {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        configuration.queryExpander = AppleIntelligenceQueryExpander()
-        configuration.reranker = AppleIntelligenceReranker()
+        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 2.5)
+        configuration.reranker = AppleIntelligenceReranker(maxCandidates: 24, responseTimeoutSeconds: 10)
+        configuration.positionAwareBlending = PositionAwareBlending(
+            topRankFusedWeight: 0.58,
+            midRankFusedWeight: 0.42,
+            tailRankFusedWeight: 0.28
+        )
         return
     }
     #endif
@@ -955,20 +2306,6 @@ private func computeNDCG(ranked: [String], relevant: Set<String>, k: Int) -> Dou
 private func materializeRecallDocument(_ document: RecallDocumentCase) throws -> String {
     if let memoryTypeRaw = document.memoryType {
         _ = try parseMemoryType(memoryTypeRaw, context: "recall document \(document.id)")
-
-        let kind = parseDocumentKind(document.kind) ?? .markdown
-        if kind == .markdown {
-            let trimmed = document.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("---\n") {
-                return document.text
-            }
-            return """
-            ---
-            memory_type: \(memoryTypeRaw)
-            ---
-            \(document.text)
-            """
-        }
     }
     return document.text
 }

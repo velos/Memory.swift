@@ -216,3 +216,49 @@ public actor FallbackMemoryTypeClassifier: MemoryTypeClassifier {
         return nil
     }
 }
+
+public extension MemoryCategory {
+    var mappedMemoryType: MemoryType {
+        switch self {
+        case .fact:
+            return .factual
+        case .preference:
+            return .contextual
+        case .decision:
+            return .procedural
+        case .identity:
+            return .social
+        case .event:
+            return .episodic
+        case .observation:
+            return .semantic
+        case .goal:
+            return .temporal
+        case .todo:
+            return .procedural
+        }
+    }
+}
+
+public extension MemoryType {
+    var defaultCategory: MemoryCategory {
+        switch self {
+        case .factual:
+            return .fact
+        case .procedural:
+            return .todo
+        case .episodic:
+            return .event
+        case .semantic:
+            return .observation
+        case .emotional:
+            return .observation
+        case .social:
+            return .identity
+        case .contextual:
+            return .preference
+        case .temporal:
+            return .goal
+        }
+    }
+}

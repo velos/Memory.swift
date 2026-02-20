@@ -182,6 +182,48 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func contentTagBonusCanLiftTaggedDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("a-garden.md"), "tomatoes and compost planning notes")
+        try writeFile(docs.appendingPathComponent("z-deploy.md"), "deployment runbook and service cutover checklist")
+
+        let tagger = StaticContentTagger(
+            tagsByNeedle: [
+                "ship safely": [ContentTag(name: "deployment", confidence: 0.95)],
+                "deployment runbook": [ContentTag(name: "deployment", confidence: 0.90)],
+                "tomatoes": [ContentTag(name: "gardening", confidence: 0.90)],
+            ]
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            contentTagger: tagger,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "ship safely",
+                limit: 2,
+                rerankLimit: 0,
+                expansionLimit: 0
+            )
+        )
+
+        #expect(results.count == 2)
+        #expect(results.first?.documentPath.contains("z-deploy.md") == true)
+        #expect(results.first?.score.tag ?? 0 > 0)
+    }
+
+    @Test
     func rerankerCanLiftRelevantResultBeyondInitialTopWindow() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -215,7 +257,7 @@ struct MemoryIndexTests {
             SearchQuery(
                 text: "alpha planning",
                 limit: 5,
-                rerankLimit: 10,
+                rerankLimit: 80,
                 expansionLimit: 0
             )
         )

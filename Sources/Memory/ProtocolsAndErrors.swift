@@ -48,6 +48,35 @@ public protocol Reranker: Sendable {
     func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment]
 }
 
+public protocol ContentTagger: Sendable {
+    var identifier: String { get }
+    func tag(text: String, kind: DocumentKind, sourceURL: URL?) async throws -> [ContentTag]
+}
+
+public protocol MemoryExtractor: Sendable {
+    var identifier: String { get }
+    func extract(messages: [ConversationMessage], limit: Int) async throws -> [ExtractedMemory]
+}
+
+public struct RecallPlan: Sendable {
+    public var query: String
+    public var memoryTypes: Set<MemoryType>?
+
+    public init(query: String, memoryTypes: Set<MemoryType>? = nil) {
+        self.query = query
+        self.memoryTypes = memoryTypes
+    }
+}
+
+public protocol RecallPlanner: Sendable {
+    var identifier: String { get }
+    func plan(
+        query: String,
+        conversationContext: [ConversationMessage],
+        features: RecallFeatures
+    ) async throws -> RecallPlan?
+}
+
 public protocol Tokenizer: Sendable {
     func tokenize(_ text: String) -> [String]
 }
@@ -61,6 +90,9 @@ public struct MemoryConfiguration: Sendable {
     public var embeddingProvider: any EmbeddingProvider
     public var queryExpander: (any QueryExpander)?
     public var reranker: (any Reranker)?
+    public var contentTagger: (any ContentTagger)?
+    public var memoryExtractor: (any MemoryExtractor)?
+    public var recallPlanner: (any RecallPlanner)?
     public var memoryTyping: MemoryTypingConfiguration
     public var tokenizer: any Tokenizer
     public var chunker: any Chunker
@@ -75,6 +107,9 @@ public struct MemoryConfiguration: Sendable {
         embeddingProvider: any EmbeddingProvider,
         queryExpander: (any QueryExpander)? = nil,
         reranker: (any Reranker)? = nil,
+        contentTagger: (any ContentTagger)? = nil,
+        memoryExtractor: (any MemoryExtractor)? = nil,
+        recallPlanner: (any RecallPlanner)? = nil,
         memoryTyping: MemoryTypingConfiguration = .default,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
@@ -88,6 +123,9 @@ public struct MemoryConfiguration: Sendable {
         self.embeddingProvider = embeddingProvider
         self.queryExpander = queryExpander
         self.reranker = reranker
+        self.contentTagger = contentTagger
+        self.memoryExtractor = memoryExtractor
+        self.recallPlanner = recallPlanner
         self.memoryTyping = memoryTyping
         self.tokenizer = tokenizer
         self.chunker = chunker

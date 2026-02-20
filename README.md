@@ -41,6 +41,38 @@ try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))
 ```
 
+## Tool-Oriented API (for agent harnesses)
+
+`MemoryIndex` now exposes high-level methods for external tool integrations:
+
+```swift
+let saved = try await index.save(
+    text: "Switched to SQLite for the prototype phase.",
+    category: .decision,
+    importance: 0.9
+)
+
+let extracted = try await index.extract(
+    from: [
+        ConversationMessage(role: .user, content: "Action item: add migration tests."),
+    ]
+)
+let ingestResult = try await index.ingest(extracted)
+
+let recall = try await index.recall(
+    mode: .hybrid(query: "What do we know about migration tests?"),
+    features: .hybridDefault
+)
+```
+
+Supported recall modes:
+- `.hybrid(query:)`
+- `.recent`
+- `.important`
+- `.typed(category:)`
+
+`RecallFeatures` is an `OptionSet` for hybrid-stage toggles (`semantic`, `lexical`, `tags`, `expansion`, `rerank`, `planner`).
+
 ## Optional Apple Intelligence Query Expansion + Reranking
 
 ```swift
@@ -137,6 +169,24 @@ Run baseline eval:
 swift run memory_eval run --profile baseline --dataset-root ./Evals
 ```
 
+Run full profile matrix (all profiles, back-to-back):
+
+```bash
+swift run memory_eval run --dataset-root ./Evals
+```
+
+Run Apple tag-only eval (content tags as soft ranking signals):
+
+```bash
+swift run memory_eval run --profile apple_tags --dataset-root ./Evals
+```
+
+Run oracle ceiling eval (offline ranking upper bound from retrieved candidates):
+
+```bash
+swift run memory_eval run --profile oracle_ceiling --dataset-root ./Evals
+```
+
 Run Apple-powered eval (classification + expansion/reranking):
 
 ```bash
@@ -148,3 +198,7 @@ Compare run outputs:
 ```bash
 swift run memory_eval compare ./Evals/runs/*.json
 ```
+
+Eval caching defaults:
+- Provider responses: `./Evals/cache/provider/eval_provider_cache.sqlite` (disable with `--no-cache`)
+- Built suite indexes: `./Evals/cache/index/...` (disable with `--no-index-cache`)

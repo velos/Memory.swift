@@ -20,6 +20,25 @@ struct MemoryStorageMigrationTests {
         #expect(row?.memoryType == "factual")
         #expect(row?.memoryTypeSource == "fallback")
         #expect(row?.memoryTypeConfidence == nil)
+        #expect(row?.contentTags.isEmpty == true)
+    }
+
+    @Test
+    func v4MigrationAddsContentTagsColumnAndPreservesExistingRows() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("legacy-v3.sqlite")
+
+        try createLegacyV3Database(at: dbURL)
+
+        let storage = try MemoryStorage(databaseURL: dbURL)
+        let row = try await storage.fetchChunkMetadata(chunkID: 1)
+
+        #expect(row?.chunkID == 1)
+        #expect(row?.content == "legacy chunk content")
+        #expect(row?.memoryType == "semantic")
+        #expect(row?.memoryTypeSource == "manual")
+        #expect(row?.memoryTypeConfidence == 0.9)
+        #expect(row?.contentTags.isEmpty == true)
     }
 
     private func createLegacyV2Database(at url: URL) throws {
@@ -107,6 +126,35 @@ struct MemoryStorageMigrationTests {
             }
             try db.execute(sql: "INSERT INTO grdb_migrations(identifier) VALUES (?)", arguments: ["v1_initial"])
             try db.execute(sql: "INSERT INTO grdb_migrations(identifier) VALUES (?)", arguments: ["v2_chunks_fts5"])
+        }
+    }
+
+    private func createLegacyV3Database(at url: URL) throws {
+        try createLegacyV2Database(at: url)
+
+        let dbQueue = try DatabaseQueue(path: url.path)
+        try dbQueue.write { db in
+            try db.alter(table: "documents") { table in
+                table.add(column: "memory_type", .text).notNull().defaults(to: "factual")
+                table.add(column: "memory_type_source", .text).notNull().defaults(to: "fallback")
+                table.add(column: "memory_type_confidence", .double)
+            }
+
+            try db.alter(table: "chunks") { table in
+                table.add(column: "memory_type_override", .text)
+                table.add(column: "memory_type_override_source", .text)
+                table.add(column: "memory_type_override_confidence", .double)
+            }
+
+            try db.execute(
+                sql: """
+                UPDATE documents
+                SET memory_type = ?, memory_type_source = ?, memory_type_confidence = ?
+                WHERE id = ?
+                """,
+                arguments: ["semantic", "manual", 0.9, 1]
+            )
+            try db.execute(sql: "INSERT INTO grdb_migrations(identifier) VALUES (?)", arguments: ["v3_memory_types"])
         }
     }
 

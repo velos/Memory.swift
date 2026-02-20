@@ -115,6 +115,9 @@ struct CLIContext {
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
             configuration.queryExpander = AppleIntelligenceQueryExpander()
             configuration.reranker = AppleIntelligenceReranker()
+            if AppleIntelligenceSupport.isContentTaggingAvailable {
+                configuration.contentTagger = AppleIntelligenceContentTagger()
+            }
         }
         return try MemoryIndex(configuration: configuration)
     }

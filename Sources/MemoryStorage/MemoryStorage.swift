@@ -1,6 +1,16 @@
 import Foundation
 import GRDB
 
+public struct StoredChunkTag: Sendable, Codable, Hashable {
+    public var name: String
+    public var confidence: Double
+
+    public init(name: String, confidence: Double) {
+        self.name = name
+        self.confidence = confidence
+    }
+}
+
 public struct StoredChunkInput: Sendable {
     public var ordinal: Int
     public var content: String
@@ -10,6 +20,13 @@ public struct StoredChunkInput: Sendable {
     public var memoryTypeOverride: String?
     public var memoryTypeOverrideSource: String?
     public var memoryTypeOverrideConfidence: Double?
+    public var contentTags: [StoredChunkTag]
+    public var memoryCategory: String?
+    public var importance: Double
+    public var accessCount: Int
+    public var lastAccessedAt: Date?
+    public var source: String
+    public var createdAt: Date?
 
     public init(
         ordinal: Int,
@@ -19,7 +36,14 @@ public struct StoredChunkInput: Sendable {
         norm: Double,
         memoryTypeOverride: String? = nil,
         memoryTypeOverrideSource: String? = nil,
-        memoryTypeOverrideConfidence: Double? = nil
+        memoryTypeOverrideConfidence: Double? = nil,
+        contentTags: [StoredChunkTag] = [],
+        memoryCategory: String? = nil,
+        importance: Double = 0.5,
+        accessCount: Int = 0,
+        lastAccessedAt: Date? = nil,
+        source: String = "index",
+        createdAt: Date? = nil
     ) {
         self.ordinal = ordinal
         self.content = content
@@ -29,6 +53,13 @@ public struct StoredChunkInput: Sendable {
         self.memoryTypeOverride = memoryTypeOverride
         self.memoryTypeOverrideSource = memoryTypeOverrideSource
         self.memoryTypeOverrideConfidence = memoryTypeOverrideConfidence
+        self.contentTags = contentTags
+        self.memoryCategory = memoryCategory
+        self.importance = min(1, max(0, importance))
+        self.accessCount = max(0, accessCount)
+        self.lastAccessedAt = lastAccessedAt
+        self.source = source
+        self.createdAt = createdAt
     }
 }
 
@@ -74,6 +105,13 @@ public struct StoredChunkEmbedding: Sendable {
     public var memoryType: String
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
+    public var contentTags: [StoredChunkTag]
+    public var memoryCategory: String
+    public var importance: Double
+    public var accessCount: Int
+    public var lastAccessedAt: Date?
+    public var source: String
+    public var createdAt: Date
 
     public init(
         chunkID: Int64,
@@ -85,7 +123,14 @@ public struct StoredChunkEmbedding: Sendable {
         modifiedAt: Date,
         memoryType: String,
         memoryTypeSource: String,
-        memoryTypeConfidence: Double?
+        memoryTypeConfidence: Double?,
+        contentTags: [StoredChunkTag] = [],
+        memoryCategory: String,
+        importance: Double,
+        accessCount: Int,
+        lastAccessedAt: Date?,
+        source: String,
+        createdAt: Date
     ) {
         self.chunkID = chunkID
         self.vector = vector
@@ -97,6 +142,13 @@ public struct StoredChunkEmbedding: Sendable {
         self.memoryType = memoryType
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
+        self.contentTags = contentTags
+        self.memoryCategory = memoryCategory
+        self.importance = min(1, max(0, importance))
+        self.accessCount = max(0, accessCount)
+        self.lastAccessedAt = lastAccessedAt
+        self.source = source
+        self.createdAt = createdAt
     }
 }
 
@@ -109,6 +161,13 @@ public struct StoredChunkMetadata: Sendable {
     public var memoryType: String
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
+    public var contentTags: [StoredChunkTag]
+    public var memoryCategory: String
+    public var importance: Double
+    public var accessCount: Int
+    public var lastAccessedAt: Date?
+    public var source: String
+    public var createdAt: Date
 
     public init(
         chunkID: Int64,
@@ -118,7 +177,14 @@ public struct StoredChunkMetadata: Sendable {
         modifiedAt: Date,
         memoryType: String,
         memoryTypeSource: String,
-        memoryTypeConfidence: Double?
+        memoryTypeConfidence: Double?,
+        contentTags: [StoredChunkTag] = [],
+        memoryCategory: String,
+        importance: Double,
+        accessCount: Int,
+        lastAccessedAt: Date?,
+        source: String,
+        createdAt: Date
     ) {
         self.chunkID = chunkID
         self.content = content
@@ -128,7 +194,20 @@ public struct StoredChunkMetadata: Sendable {
         self.memoryType = memoryType
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
+        self.contentTags = contentTags
+        self.memoryCategory = memoryCategory
+        self.importance = min(1, max(0, importance))
+        self.accessCount = max(0, accessCount)
+        self.lastAccessedAt = lastAccessedAt
+        self.source = source
+        self.createdAt = createdAt
     }
+}
+
+public enum StoredMemorySort: Sendable {
+    case recent
+    case importance
+    case mostAccessed
 }
 
 public struct LexicalHit: Sendable {
@@ -213,9 +292,15 @@ public actor MemoryStorage {
                         memory_type_override,
                         memory_type_override_source,
                         memory_type_override_confidence,
+                        memory_category,
+                        importance,
+                        access_count,
+                        last_accessed_at,
+                        source,
+                        content_tags_json,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         documentID,
@@ -225,7 +310,13 @@ public actor MemoryStorage {
                         chunk.memoryTypeOverride,
                         chunk.memoryTypeOverrideSource,
                         chunk.memoryTypeOverrideConfidence,
-                        now,
+                        chunk.memoryCategory ?? "observation",
+                        chunk.importance,
+                        chunk.accessCount,
+                        chunk.lastAccessedAt?.timeIntervalSince1970,
+                        chunk.source,
+                        Self.encodeContentTags(chunk.contentTags),
+                        (chunk.createdAt ?? Date()).timeIntervalSince1970,
                     ]
                 )
 
@@ -269,6 +360,13 @@ public actor MemoryStorage {
                     COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                     COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
                     COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                    c.memory_category AS memory_category,
+                    c.importance AS importance,
+                    c.access_count AS access_count,
+                    c.last_accessed_at AS last_accessed_at,
+                    c.source AS source,
+                    c.created_at AS created_at,
+                    COALESCE(c.content_tags_json, '[]') AS content_tags_json,
                     e.vector_blob AS vector_blob,
                     e.norm AS norm
                 FROM chunks c
@@ -295,7 +393,14 @@ public actor MemoryStorage {
                     modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
                     memoryType: row["memory_type"],
                     memoryTypeSource: row["memory_type_source"],
-                    memoryTypeConfidence: row["memory_type_confidence"]
+                    memoryTypeConfidence: row["memory_type_confidence"],
+                    contentTags: Self.decodeContentTags(row["content_tags_json"]),
+                    memoryCategory: row["memory_category"],
+                    importance: row["importance"],
+                    accessCount: row["access_count"],
+                    lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
+                    source: row["source"],
+                    createdAt: Date(timeIntervalSince1970: row["created_at"])
                 )
             }
         }
@@ -314,7 +419,14 @@ public actor MemoryStorage {
                 d.modified_at AS modified_at,
                 COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                 COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE c.id IN (\(Self.placeholders(count: chunkIDs.count)))
@@ -330,7 +442,14 @@ public actor MemoryStorage {
                     modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
                     memoryType: $0["memory_type"],
                     memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"]
+                    memoryTypeConfidence: $0["memory_type_confidence"],
+                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
+                    memoryCategory: $0["memory_category"],
+                    importance: $0["importance"],
+                    accessCount: $0["access_count"],
+                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
+                    source: $0["source"],
+                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
                 )
             }
         }
@@ -349,7 +468,14 @@ public actor MemoryStorage {
                     d.modified_at AS modified_at,
                     COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                     COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                    c.memory_category AS memory_category,
+                    c.importance AS importance,
+                    c.access_count AS access_count,
+                    c.last_accessed_at AS last_accessed_at,
+                    c.source AS source,
+                    c.created_at AS created_at,
+                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.id = ?
@@ -366,7 +492,14 @@ public actor MemoryStorage {
                 modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
                 memoryType: row["memory_type"],
                 memoryTypeSource: row["memory_type_source"],
-                memoryTypeConfidence: row["memory_type_confidence"]
+                memoryTypeConfidence: row["memory_type_confidence"],
+                contentTags: Self.decodeContentTags(row["content_tags_json"]),
+                memoryCategory: row["memory_category"],
+                importance: row["importance"],
+                accessCount: row["access_count"],
+                lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
+                source: row["source"],
+                createdAt: Date(timeIntervalSince1970: row["created_at"])
             )
         }
     }
@@ -380,12 +513,167 @@ public actor MemoryStorage {
         }
     }
 
+    public func fetchChunkMetadataForDocument(path: String) throws -> [StoredChunkMetadata] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT
+                    c.id AS chunk_id,
+                    c.content AS content,
+                    d.path AS document_path,
+                    d.title AS title,
+                    d.modified_at AS modified_at,
+                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                    c.memory_category AS memory_category,
+                    c.importance AS importance,
+                    c.access_count AS access_count,
+                    c.last_accessed_at AS last_accessed_at,
+                    c.source AS source,
+                    c.created_at AS created_at,
+                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
+                FROM documents d
+                JOIN chunks c ON c.document_id = d.id
+                WHERE d.path = ?
+                ORDER BY c.ordinal ASC
+                """,
+                arguments: [path]
+            )
+
+            return rows.map {
+                StoredChunkMetadata(
+                    chunkID: $0["chunk_id"],
+                    content: $0["content"],
+                    documentPath: $0["document_path"],
+                    title: $0["title"],
+                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
+                    memoryType: $0["memory_type"],
+                    memoryTypeSource: $0["memory_type_source"],
+                    memoryTypeConfidence: $0["memory_type_confidence"],
+                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
+                    memoryCategory: $0["memory_category"],
+                    importance: $0["importance"],
+                    accessCount: $0["access_count"],
+                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
+                    source: $0["source"],
+                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
+                )
+            }
+        }
+    }
+
+    public func listMemoryMetadata(
+        limit: Int,
+        sort: StoredMemorySort,
+        memoryCategory: String? = nil,
+        allowedMemoryTypes: Set<String>? = nil
+    ) throws -> [StoredChunkMetadata] {
+        guard limit > 0 else { return [] }
+
+        return try dbQueue.read { db in
+            var arguments = StatementArguments()
+            var filters: [String] = []
+
+            if let memoryCategory {
+                let trimmed = memoryCategory.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !trimmed.isEmpty {
+                    filters.append("c.memory_category = ?")
+                    arguments += StatementArguments([trimmed])
+                }
+            }
+
+            if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
+                let orderedTypes = allowedMemoryTypes.sorted()
+                filters.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))")
+                arguments += StatementArguments(orderedTypes)
+            }
+
+            let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
+
+            let orderClause: String
+            switch sort {
+            case .recent:
+                orderClause = "ORDER BY c.created_at DESC, c.id DESC"
+            case .importance:
+                orderClause = "ORDER BY c.importance DESC, c.created_at DESC, c.id DESC"
+            case .mostAccessed:
+                orderClause = "ORDER BY c.access_count DESC, COALESCE(c.last_accessed_at, 0) DESC, c.created_at DESC, c.id DESC"
+            }
+
+            let sql = """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                d.path AS document_path,
+                d.title AS title,
+                d.modified_at AS modified_at,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            \(whereClause)
+            \(orderClause)
+            LIMIT ?
+            """
+            arguments += StatementArguments([limit])
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+            return rows.map {
+                StoredChunkMetadata(
+                    chunkID: $0["chunk_id"],
+                    content: $0["content"],
+                    documentPath: $0["document_path"],
+                    title: $0["title"],
+                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
+                    memoryType: $0["memory_type"],
+                    memoryTypeSource: $0["memory_type_source"],
+                    memoryTypeConfidence: $0["memory_type_confidence"],
+                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
+                    memoryCategory: $0["memory_category"],
+                    importance: $0["importance"],
+                    accessCount: $0["access_count"],
+                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
+                    source: $0["source"],
+                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
+                )
+            }
+        }
+    }
+
+    public func recordChunkAccesses(_ chunkIDs: [Int64], accessedAt: Date = Date()) throws {
+        guard !chunkIDs.isEmpty else { return }
+
+        try dbQueue.write { db in
+            let sql = """
+            UPDATE chunks
+            SET
+                access_count = access_count + 1,
+                last_accessed_at = ?
+            WHERE id IN (\(Self.placeholders(count: chunkIDs.count)))
+            """
+            var arguments = StatementArguments([accessedAt.timeIntervalSince1970])
+            arguments += StatementArguments(chunkIDs)
+            try db.execute(sql: sql, arguments: arguments)
+        }
+    }
+
     public func lexicalSearch(
         query: String,
         limit: Int,
         allowedChunkIDs: Set<Int64>? = nil,
         allowedMemoryTypes: Set<String>? = nil
     ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -394,7 +682,7 @@ public actor MemoryStorage {
         guard strictPattern != nil || relaxedPattern != nil else { return [] }
 
         return try dbQueue.read { db in
-            let effectiveLimit = max(1, limit)
+            let effectiveLimit = limit
             var mergedByChunkID: [Int64: Double] = [:]
             var seenChunkIDs: Set<Int64> = []
 
@@ -516,7 +804,14 @@ public actor MemoryStorage {
                     d.modified_at AS modified_at,
                     COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                     COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence
+                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                    c.memory_category AS memory_category,
+                    c.importance AS importance,
+                    c.access_count AS access_count,
+                    c.last_accessed_at AS last_accessed_at,
+                    c.source AS source,
+                    c.created_at AS created_at,
+                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
                 FROM context_chunks cc
                 JOIN chunks c ON c.id = cc.chunk_id
                 JOIN documents d ON d.id = c.document_id
@@ -535,7 +830,14 @@ public actor MemoryStorage {
                     modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
                     memoryType: $0["memory_type"],
                     memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"]
+                    memoryTypeConfidence: $0["memory_type_confidence"],
+                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
+                    memoryCategory: $0["memory_category"],
+                    importance: $0["importance"],
+                    accessCount: $0["access_count"],
+                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
+                    source: $0["source"],
+                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
                 )
             }
         }
@@ -661,6 +963,27 @@ public actor MemoryStorage {
 
             try db.create(index: "documents_memory_type", on: "documents", columns: ["memory_type"])
             try db.create(index: "chunks_memory_type_override", on: "chunks", columns: ["memory_type_override"])
+        }
+
+        migrator.registerMigration("v4_chunk_content_tags") { db in
+            try db.alter(table: "chunks") { table in
+                table.add(column: "content_tags_json", .text).notNull().defaults(to: "[]")
+            }
+        }
+
+        migrator.registerMigration("v5_chunk_memory_metadata") { db in
+            try db.alter(table: "chunks") { table in
+                table.add(column: "memory_category", .text).notNull().defaults(to: "observation")
+                table.add(column: "importance", .double).notNull().defaults(to: 0.5)
+                table.add(column: "access_count", .integer).notNull().defaults(to: 0)
+                table.add(column: "last_accessed_at", .double)
+                table.add(column: "source", .text).notNull().defaults(to: "index")
+            }
+
+            try db.create(index: "chunks_memory_category", on: "chunks", columns: ["memory_category"])
+            try db.create(index: "chunks_importance", on: "chunks", columns: ["importance"])
+            try db.create(index: "chunks_access_count", on: "chunks", columns: ["access_count"])
+            try db.create(index: "chunks_created_at", on: "chunks", columns: ["created_at"])
         }
 
         return migrator
@@ -808,5 +1131,27 @@ public actor MemoryStorage {
             data.copyBytes(to: target)
         }
         return vector
+    }
+
+    private static func encodeContentTags(_ tags: [StoredChunkTag]) -> String {
+        guard !tags.isEmpty else { return "[]" }
+        guard
+            let data = try? JSONEncoder().encode(tags),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return encoded
+    }
+
+    private static func decodeContentTags(_ raw: String?) -> [StoredChunkTag] {
+        guard let raw else { return [] }
+        guard let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([StoredChunkTag].self, from: data)) ?? []
+    }
+
+    private static func decodeTimestamp(_ raw: Double?) -> Date? {
+        guard let raw else { return nil }
+        return Date(timeIntervalSince1970: raw)
     }
 }

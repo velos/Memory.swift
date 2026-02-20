@@ -70,6 +70,25 @@ actor ClosureReranker: Reranker {
     }
 }
 
+actor StaticContentTagger: ContentTagger {
+    let identifier = "static-content-tagger"
+    private let mapping: [(needle: String, tags: [ContentTag])]
+
+    init(tagsByNeedle: [String: [ContentTag]]) {
+        self.mapping = tagsByNeedle
+            .map { (needle: $0.key.lowercased(), tags: $0.value) }
+            .sorted { lhs, rhs in lhs.needle.count > rhs.needle.count }
+    }
+
+    func tag(text: String, kind: DocumentKind, sourceURL: URL?) async throws -> [ContentTag] {
+        let haystack = text.lowercased()
+        for entry in mapping where haystack.contains(entry.needle) {
+            return entry.tags
+        }
+        return []
+    }
+}
+
 actor StaticMemoryTypeClassifier: MemoryTypeClassifier {
     let identifier: String
     let assignment: MemoryTypeAssignment?
