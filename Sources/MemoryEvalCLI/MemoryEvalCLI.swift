@@ -325,6 +325,13 @@ private actor RecallDiagnosticsCollector {
 
     private var expansion = StageStats()
     private var rerank = StageStats()
+    private let expansionProviderIdentifier: String
+    private let rerankProviderIdentifier: String
+
+    init(expansionProviderIdentifier: String?, rerankProviderIdentifier: String?) {
+        self.expansionProviderIdentifier = expansionProviderIdentifier ?? "none"
+        self.rerankProviderIdentifier = rerankProviderIdentifier ?? "none"
+    }
 
     func recordExpansionSuccess(requestedLimit: Int, alternateCount: Int) {
         expansion.calls += 1
@@ -337,7 +344,7 @@ private actor RecallDiagnosticsCollector {
         expansion.calls += 1
         expansion.failures += 1
         expansion.totalRequested += max(0, requestedLimit)
-        if isTimeout(error) {
+        if isTimeoutLikeError(error) {
             expansion.timeouts += 1
         }
         expansion.failureReasons[truncate(errorReason(error), maxLength: 120), default: 0] += 1
@@ -354,7 +361,7 @@ private actor RecallDiagnosticsCollector {
         rerank.calls += 1
         rerank.failures += 1
         rerank.totalRequested += max(0, candidateCount)
-        if isTimeout(error) {
+        if isTimeoutLikeError(error) {
             rerank.timeouts += 1
         }
         rerank.failureReasons[truncate(errorReason(error), maxLength: 120), default: 0] += 1
@@ -362,6 +369,7 @@ private actor RecallDiagnosticsCollector {
 
     func summaryLines(suite: SuiteKind) -> [String] {
         [
+            "[\(suiteLabel(suite))][recall-diagnostics][providers] expansion=\(describeProvider(expansionProviderIdentifier)), rerank=\(describeProvider(rerankProviderIdentifier))",
             stageSummaryLine(
                 stage: "expansion",
                 suite: suite,
@@ -425,14 +433,13 @@ private actor RecallDiagnosticsCollector {
         "\(String(describing: type(of: error))): \(error.localizedDescription)"
     }
 
-    private func isTimeout(_ error: Error) -> Bool {
-        let text = errorReason(error).lowercased()
-        return text.contains("timed out") || text.contains("timeout")
-    }
-
     private func truncate(_ text: String, maxLength: Int) -> String {
         guard text.count > maxLength else { return text }
         return String(text.prefix(maxLength - 3)) + "..."
+    }
+
+    private func describeProvider(_ identifier: String) -> String {
+        "\(identifier) (\(recallProviderKind(for: identifier)))"
     }
 }
 
@@ -497,6 +504,11 @@ private actor DiagnosticReranker: Reranker {
     func rerank(query: SearchQuery, candidates: [SearchResult]) async throws -> [RerankAssessment] {
         do {
             let assessments = try await base.rerank(query: query, candidates: candidates)
+            guard !assessments.isEmpty else {
+                let error = MemoryError.search("Reranker returned no assessments")
+                await diagnostics.recordRerankFailure(error: error, candidateCount: candidates.count)
+                throw error
+            }
             await diagnostics.recordRerankSuccess(
                 candidateCount: candidates.count,
                 assessmentCount: assessments.count
@@ -1486,10 +1498,15 @@ private func runRecallSuite(
     if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
         profile: profile,
         configuration: &config,
-        suite: .recall
+        suite: .recall,
+        responseCache: responseCache
     ) {
         print("[recall][rerank] \(rerankerNote)")
         runtimeNotes.append(rerankerNote)
+    }
+    if let providerNote = recallProviderRuntimeNote(profile: profile, configuration: config, suite: .recall) {
+        print("[recall][providers] \(providerNote)")
+        runtimeNotes.append(providerNote)
     }
     try await requireFunctionalContentTaggingIfNeeded(profile: profile, configuration: config, suite: .recall)
     let contentTaggingDiagnostics = installContentTaggingDiagnosticsIfNeeded(
@@ -1767,7 +1784,10 @@ private func installRecallDiagnosticsIfNeeded(
     guard profileUsesAppleRecallCapabilities(profile) else { return nil }
     guard configuration.queryExpander != nil || configuration.reranker != nil else { return nil }
 
-    let diagnostics = RecallDiagnosticsCollector()
+    let diagnostics = RecallDiagnosticsCollector(
+        expansionProviderIdentifier: configuration.queryExpander?.identifier,
+        rerankProviderIdentifier: configuration.reranker?.identifier
+    )
     if let queryExpander = configuration.queryExpander {
         configuration.queryExpander = DiagnosticQueryExpander(
             base: queryExpander,
@@ -1810,7 +1830,8 @@ private func installProviderResponseCachingIfNeeded(
 private func ensureFunctionalRerankerIfNeeded(
     profile: EvalProfile,
     configuration: inout MemoryConfiguration,
-    suite: SuiteKind
+    suite: SuiteKind,
+    responseCache: EvalResponseCache?
 ) async throws -> String? {
     guard suite == .recall else { return nil }
     guard profileUsesAppleRecallCapabilities(profile) else { return nil }
@@ -1863,18 +1884,38 @@ private func ensureFunctionalRerankerIfNeeded(
         expansionLimit: 0
     )
 
-    do {
-        let assessments = try await withTimeout(seconds: 12) {
-            try await reranker.rerank(query: probeQuery, candidates: probeCandidates)
-        }
-        if assessments.isEmpty {
-            throw ValidationError("Apple reranker probe returned no assessments.")
-        }
-        return nil
-    } catch {
-        configuration.reranker = HeuristicOverlapReranker()
-        return "Apple reranker was unavailable or unresponsive (\(error.localizedDescription)). Using heuristic reranker fallback."
+    let probeReranker: any Reranker
+    if let responseCache {
+        probeReranker = CachingReranker(base: reranker, cache: responseCache)
+    } else {
+        probeReranker = reranker
     }
+
+    let probeTimeouts: [Double] = [12, 18]
+    var lastError: Error?
+
+    for timeout in probeTimeouts {
+        do {
+            let assessments = try await withTimeout(seconds: timeout) {
+                try await probeReranker.rerank(query: probeQuery, candidates: probeCandidates)
+            }
+            if assessments.isEmpty {
+                throw ValidationError("Apple reranker probe returned no assessments.")
+            }
+            return nil
+        } catch {
+            lastError = error
+            if !isTimeoutLikeError(error) {
+                break
+            }
+        }
+    }
+
+    let detail = lastError?.localizedDescription ?? "unknown error"
+    if let lastError, isTimeoutLikeError(lastError) {
+        return "Apple reranker preflight timed out after \(probeTimeouts.count) attempts (\(detail)). Keeping Apple reranker enabled; runtime failures will fail open to fused ranking."
+    }
+    return "Apple reranker preflight failed (\(detail)). Keeping Apple reranker enabled; runtime failures will fail open to fused ranking."
 }
 
 private func installContentTaggingDiagnosticsIfNeeded(
@@ -2015,6 +2056,36 @@ private func decodeGeneratedChunkTags(_ raw: String?) -> [GeneratedChunkTag] {
     }
 }
 
+private func recallProviderRuntimeNote(
+    profile: EvalProfile,
+    configuration: MemoryConfiguration,
+    suite: SuiteKind
+) -> String? {
+    guard profileUsesAppleRecallCapabilities(profile) else { return nil }
+
+    let expanderID = configuration.queryExpander?.identifier ?? "none"
+    let rerankerID = configuration.reranker?.identifier ?? "none"
+    return "[\(suiteLabel(suite))] active providers: queryExpander=\(expanderID) (\(recallProviderKind(for: expanderID))), reranker=\(rerankerID) (\(recallProviderKind(for: rerankerID)))"
+}
+
+private func recallProviderKind(for identifier: String) -> String {
+    if identifier == "none" {
+        return "none"
+    }
+    if identifier.contains("apple-intelligence-query-expander") || identifier.contains("apple-intelligence-reranker") {
+        return "apple"
+    }
+    if identifier.contains("heuristic") {
+        return "heuristic"
+    }
+    return "other"
+}
+
+private func isTimeoutLikeError(_ error: Error) -> Bool {
+    let text = "\(String(describing: type(of: error))): \(error.localizedDescription)".lowercased()
+    return text.contains("timed out") || text.contains("timeout")
+}
+
 private func suiteLabel(_ suite: SuiteKind) -> String {
     switch suite {
     case .storage:
@@ -2102,7 +2173,7 @@ private func enableAppleContentTagging(on configuration: inout MemoryConfigurati
 private func enableAppleExpansionCapabilities(on configuration: inout MemoryConfiguration) throws {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 2.5)
+        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 5.0)
         return
     }
     #endif
@@ -2114,8 +2185,8 @@ private func enableAppleExpansionCapabilities(on configuration: inout MemoryConf
 private func enableAppleRecallCapabilities(on configuration: inout MemoryConfiguration) throws {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 2.5)
-        configuration.reranker = AppleIntelligenceReranker(maxCandidates: 24, responseTimeoutSeconds: 10)
+        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 5.0)
+        configuration.reranker = AppleIntelligenceReranker(maxCandidates: 16, responseTimeoutSeconds: 20)
         configuration.positionAwareBlending = PositionAwareBlending(
             topRankFusedWeight: 0.58,
             midRankFusedWeight: 0.42,

@@ -1390,6 +1390,10 @@ public actor MemoryIndex {
             )
         }
 
+        guard !assessmentByChunkID.isEmpty else {
+            throw MemoryError.search("Reranker returned no usable assessments")
+        }
+
         var reranked = rerankable.map { candidate -> SearchResult in
             var updated = candidate
             updated.score.rerank = assessmentByChunkID[candidate.chunkID]?.relevance ?? 0

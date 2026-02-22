@@ -125,7 +125,7 @@ public actor AppleIntelligenceReranker: Reranker {
         options: GenerationOptions = GenerationOptions(
             sampling: .greedy,
             temperature: 0.0,
-            maximumResponseTokens: 1_200
+            maximumResponseTokens: 220
         )
     ) {
         self.identifier = identifier
@@ -135,9 +135,9 @@ public actor AppleIntelligenceReranker: Reranker {
         self.responseTimeoutSeconds = max(1, responseTimeoutSeconds)
         self.sessionInstructions = """
             You are a retrieval reranker.
-            Score each candidate by relevance to the user query from 0.0 to 1.0.
-            1.0 means directly and completely relevant.
-            0.0 means irrelevant.
+            Return only candidate IDs ranked from most relevant to least relevant.
+            Use only IDs from the provided candidate list.
+            Do not include explanations or IDs not present in the candidate list.
             """
     }
 
@@ -146,9 +146,9 @@ public actor AppleIntelligenceReranker: Reranker {
         guard model.isAvailable else { return [] }
 
         let capped = Array(candidates.prefix(maxCandidates))
-        let generatedAssessments: [RerankAssessmentGeneration]
+        let rankedChunkIDs: [String]
         do {
-            generatedAssessments = try await generateAssessments(
+            rankedChunkIDs = try await generateRankedChunkIDs(
                 query: query.text,
                 candidates: capped
             )
@@ -158,34 +158,35 @@ public actor AppleIntelligenceReranker: Reranker {
             }
             let reducedCount = max(8, capped.count / 2)
             let reduced = Array(capped.prefix(reducedCount))
-            generatedAssessments = try await generateAssessments(
+            rankedChunkIDs = try await generateRankedChunkIDs(
                 query: query.text,
                 candidates: reduced
             )
         }
 
         let allowedIDs = Set(capped.map(\.chunkID))
-        var deduped: [Int64: RerankAssessment] = [:]
+        var seen: Set<Int64> = []
+        var deduped: [RerankAssessment] = []
+        deduped.reserveCapacity(rankedChunkIDs.count)
 
-        for generated in generatedAssessments {
-            guard let chunkID = parseChunkID(generated.chunkID) else { continue }
+        for (index, rawChunkID) in rankedChunkIDs.enumerated() {
+            guard let chunkID = parseChunkID(rawChunkID) else { continue }
             guard allowedIDs.contains(chunkID) else { continue }
+            guard !seen.contains(chunkID) else { continue }
+            seen.insert(chunkID)
 
-            let relevance = min(1, max(0, generated.relevance))
-            let candidate = RerankAssessment(
-                chunkID: chunkID,
-                relevance: relevance,
-                rationale: generated.rationale?.trimmingCharacters(in: .whitespacesAndNewlines)
+            deduped.append(
+                RerankAssessment(
+                    chunkID: chunkID,
+                    relevance: rankDecay(position: index, count: rankedChunkIDs.count),
+                    rationale: nil
+                )
             )
-
-            if let existing = deduped[chunkID], existing.relevance >= candidate.relevance {
-                continue
-            }
-
-            deduped[chunkID] = candidate
         }
-
-        return Array(deduped.values)
+        guard !deduped.isEmpty else {
+            throw MemoryError.search("Apple reranker returned no usable assessments")
+        }
+        return deduped
     }
 
     private func makePrompt(query: String, candidates: [SearchResult]) -> String {
@@ -193,7 +194,7 @@ public actor AppleIntelligenceReranker: Reranker {
             let cleanSnippet = result.snippet
                 .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let excerpt = String(cleanSnippet.prefix(180))
+            let excerpt = String(cleanSnippet.prefix(120))
             let sourceName = URL(fileURLWithPath: result.documentPath).lastPathComponent
             return """
             id: \(result.chunkID)
@@ -210,15 +211,15 @@ public actor AppleIntelligenceReranker: Reranker {
         Candidates:
         \(body)
 
-        Score every candidate from 0.0 to 1.0.
-        Higher score means more useful for answering the query.
+        Return candidate IDs ranked best-to-worst for this query.
+        Output only IDs from the candidate list and include each ID at most once.
         """
     }
 
-    private func generateAssessments(
+    private func generateRankedChunkIDs(
         query: String,
         candidates: [SearchResult]
-    ) async throws -> [RerankAssessmentGeneration] {
+    ) async throws -> [String] {
         let prompt = makePrompt(query: query, candidates: candidates)
         return try await withGenerationTimeout(
             seconds: responseTimeoutSeconds,
@@ -229,7 +230,7 @@ public actor AppleIntelligenceReranker: Reranker {
                 generating: RerankGeneration.self,
                 options: options
             )
-            return response.content.assessments
+            return response.content.rankedChunkIDs
         }
     }
 
@@ -239,6 +240,8 @@ public actor AppleIntelligenceReranker: Reranker {
         return message.contains("context window")
             || message.contains("timed out")
             || message.contains("timeout")
+            || message.contains("deserialize")
+            || message.contains("generable")
     }
 
     private func parseChunkID(_ raw: String) -> Int64? {
@@ -247,8 +250,20 @@ public actor AppleIntelligenceReranker: Reranker {
             return decimal
         }
 
+        if let decimalRange = trimmed.range(of: #"-?\d+"#, options: .regularExpression),
+           let decimal = Int64(trimmed[decimalRange]) {
+            return decimal
+        }
+
         if trimmed.hasPrefix("#") {
             let payload = String(trimmed.dropFirst())
+            if let hex = Int64(payload, radix: 16) {
+                return hex
+            }
+        }
+
+        if trimmed.lowercased().hasPrefix("0x") {
+            let payload = String(trimmed.dropFirst(2))
             if let hex = Int64(payload, radix: 16) {
                 return hex
             }
@@ -261,6 +276,12 @@ public actor AppleIntelligenceReranker: Reranker {
         return nil
     }
 
+    private func rankDecay(position: Int, count: Int) -> Double {
+        guard count > 1 else { return 1.0 }
+        let numerator = Double(position)
+        let denominator = Double(max(1, count - 1))
+        return max(0.0, 1.0 - (numerator / denominator))
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -342,6 +363,12 @@ public actor AppleIntelligenceMemoryTypeClassifier: MemoryTypeClassifier {
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 public actor AppleIntelligenceContentTagger: ContentTagger {
+    private enum RelevanceSchemaState {
+        case unknown
+        case supported
+        case unsupported
+    }
+
     public let identifier: String
 
     private let model: SystemLanguageModel
@@ -349,9 +376,13 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
     private let maxInputCharacters: Int
     private let maxTags: Int
     private let confidenceDecayBase: Double
+    private let relevanceBlendWeight: Double
+    private let relevanceNoiseTolerance: Double
     private let minimumConfidence: Double
+    private let relevanceTimeoutSeconds: Double
     private let responseTimeoutSeconds: Double
     private let sessionInstructions: String
+    private var relevanceSchemaState: RelevanceSchemaState = .unknown
 
     public init(
         identifier: String = "apple-intelligence-content-tagger",
@@ -359,7 +390,10 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
         maxInputCharacters: Int = 4_000,
         maxTags: Int = 12,
         confidenceDecayBase: Double = 0.88,
+        relevanceBlendWeight: Double = 0.6,
+        relevanceNoiseTolerance: Double = 0.35,
         minimumConfidence: Double = 0.1,
+        relevanceTimeoutSeconds: Double = 2.5,
         responseTimeoutSeconds: Double = 12,
         options: GenerationOptions = GenerationOptions(
             sampling: .greedy,
@@ -373,12 +407,19 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
         self.maxInputCharacters = max(500, maxInputCharacters)
         self.maxTags = min(24, max(1, maxTags))
         self.confidenceDecayBase = min(0.99, max(0.5, confidenceDecayBase))
+        self.relevanceBlendWeight = min(1, max(0, relevanceBlendWeight))
+        self.relevanceNoiseTolerance = min(1, max(0, relevanceNoiseTolerance))
         self.minimumConfidence = min(1, max(0, minimumConfidence))
         self.responseTimeoutSeconds = max(1, responseTimeoutSeconds)
+        self.relevanceTimeoutSeconds = min(
+            self.responseTimeoutSeconds,
+            max(0.5, relevanceTimeoutSeconds)
+        )
         self.sessionInstructions = """
         Produce concise topical content tags for retrieval.
         Tags must be short noun phrases.
         Return tags in descending order of usefulness.
+        When possible, include an integer relevance score per tag (1 weak to 5 strong).
         Avoid generic tags like "text" or "document".
         """
     }
@@ -402,23 +443,15 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
 
         // Create a fresh session per request so transcript growth does not
         // exhaust the model context window during large indexing runs.
-        let generatedTags = try await withGenerationTimeout(
-            seconds: responseTimeoutSeconds,
-            label: "\(identifier).tag"
-        ) { [model, sessionInstructions, options] in
-            let response = try await LanguageModelSession(model: model, instructions: sessionInstructions).respond(
-                to: prompt,
-                generating: ContentTaggingGeneration.self,
-                options: options
-            )
-            return response.content.tags
-        }
+        let generatedTags = try await generateTags(prompt: prompt)
 
         var seen: Set<String> = []
         var ranked: [ContentTag] = []
+        var lastReliableRelevance: Double?
         ranked.reserveCapacity(min(maxTags, generatedTags.count))
 
-        for rawTag in generatedTags {
+        for generatedTag in generatedTags {
+            let rawTag = generatedTag.name
             let normalized = normalize(rawTag)
             guard !normalized.isEmpty else { continue }
 
@@ -426,7 +459,18 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
             guard seen.insert(key).inserted else { continue }
 
             let rank = ranked.count
-            let confidence = rankDecayConfidence(for: rank)
+            let rankConfidence = rankDecayConfidence(for: rank)
+            let normalizedRelevance = normalizedRelevanceScore(
+                from: generatedTag.relevance,
+                previous: lastReliableRelevance
+            )
+            if let normalizedRelevance {
+                lastReliableRelevance = normalizedRelevance
+            }
+            let confidence = blendConfidence(
+                rankConfidence: rankConfidence,
+                normalizedRelevance: normalizedRelevance
+            )
             ranked.append(ContentTag(name: normalized, confidence: confidence))
             if ranked.count >= maxTags { break }
         }
@@ -449,6 +493,82 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
         let decayed = pow(confidenceDecayBase, Double(clampedRank))
         return max(minimumConfidence, min(1, decayed))
     }
+
+    private func blendConfidence(rankConfidence: Double, normalizedRelevance: Double?) -> Double {
+        guard let normalizedRelevance else { return rankConfidence }
+        let blend = (relevanceBlendWeight * normalizedRelevance) + ((1 - relevanceBlendWeight) * rankConfidence)
+        return max(minimumConfidence, min(1, blend))
+    }
+
+    private func normalizedRelevanceScore(from raw: Int?, previous: Double?) -> Double? {
+        guard let raw else { return nil }
+        guard (1...5).contains(raw) else { return nil }
+
+        let normalized = Double(raw - 1) / 4.0
+        guard normalized.isFinite else { return nil }
+
+        // The model sometimes emits noisy out-of-order scores. Ignore sharp
+        // upward jumps and fall back to rank decay for those tags.
+        if let previous, normalized > previous + relevanceNoiseTolerance {
+            return nil
+        }
+
+        return normalized
+    }
+
+    private func generateTags(prompt: String) async throws -> [GeneratedContentTag] {
+        switch relevanceSchemaState {
+        case .supported:
+            if let tags = try await generateRelevanceAwareTags(prompt: prompt) {
+                return tags
+            }
+            relevanceSchemaState = .unsupported
+            return try await generateLegacyTags(prompt: prompt)
+
+        case .unsupported:
+            return try await generateLegacyTags(prompt: prompt)
+
+        case .unknown:
+            if let tags = try await generateRelevanceAwareTags(prompt: prompt) {
+                relevanceSchemaState = .supported
+                return tags
+            }
+            relevanceSchemaState = .unsupported
+            return try await generateLegacyTags(prompt: prompt)
+        }
+    }
+
+    private func generateRelevanceAwareTags(prompt: String) async throws -> [GeneratedContentTag]? {
+        let relevanceAware = try? await withGenerationTimeout(
+            seconds: relevanceTimeoutSeconds,
+            label: "\(identifier).tag.relevance"
+        ) { [model, sessionInstructions, options] in
+            let response = try await LanguageModelSession(model: model, instructions: sessionInstructions).respond(
+                to: prompt,
+                generating: ContentTaggingGenerationWithRelevance.self,
+                options: options
+            )
+            return response.content.tags.map { GeneratedContentTag(name: $0.name, relevance: $0.relevance) }
+        }
+
+        guard let relevanceAware, !relevanceAware.isEmpty else { return nil }
+        return relevanceAware
+    }
+
+    private func generateLegacyTags(prompt: String) async throws -> [GeneratedContentTag] {
+        let legacy = try await withGenerationTimeout(
+            seconds: responseTimeoutSeconds,
+            label: "\(identifier).tag"
+        ) { [model, sessionInstructions, options] in
+            let response = try await LanguageModelSession(model: model, instructions: sessionInstructions).respond(
+                to: prompt,
+                generating: ContentTaggingGeneration.self,
+                options: options
+            )
+            return response.content.tags
+        }
+        return legacy.map { GeneratedContentTag(name: $0, relevance: nil) }
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -458,17 +578,14 @@ private struct QueryExpansionGeneration {
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Relevance assessments for candidate retrieval chunks.")
+@Generable(description: "Ranked candidate chunk IDs for retrieval.")
 private struct RerankGeneration {
-    var assessments: [RerankAssessmentGeneration]
-}
-
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "A relevance score for one candidate chunk.")
-private struct RerankAssessmentGeneration {
-    var chunkID: String
-    var relevance: Double
-    var rationale: String?
+    @Guide(
+        description: "Candidate chunk IDs in descending relevance order.",
+        .minimumCount(1),
+        .maximumCount(64)
+    )
+    var rankedChunkIDs: [String]
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -476,6 +593,33 @@ private struct RerankAssessmentGeneration {
 private struct MemoryTypeClassificationGeneration {
     var memoryType: String
     var confidence: Double
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@Generable(description: "Content tags for retrieval ranked by usefulness.")
+private struct ContentTaggingGenerationWithRelevance {
+    @Guide(
+        description: "Content tags sorted by descending usefulness.",
+        .minimumCount(1),
+        .maximumCount(24)
+    )
+    var tags: [ContentTaggingTagWithRelevance]
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@Generable(description: "A retrieval tag with optional relevance.")
+private struct ContentTaggingTagWithRelevance {
+    @Guide(description: "Lowercase concise retrieval tag.")
+    var name: String
+
+    @Guide(description: "Optional integer relevance from 1 (weak) to 5 (strong).")
+    var relevance: Int?
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+private struct GeneratedContentTag: Sendable {
+    var name: String
+    var relevance: Int?
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
