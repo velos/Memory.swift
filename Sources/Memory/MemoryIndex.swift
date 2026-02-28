@@ -15,12 +15,13 @@ public actor MemoryIndex {
         "go", "rs", "py", "rb", "php", "cs", "scala", "sh", "zsh", "bash"
     ]
     private let strongLexicalProbeLimit = 20
-    private let strongLexicalMinScore = 0.03
-    private let strongLexicalMinGap = 0.01
+    private let strongLexicalMinScore = 0.10
+    private let strongLexicalMinGap = 0.05
 
     private struct WeightedQuery {
         var text: String
         var weight: Double
+        var expansionType: ExpansionType?
     }
 
     public init(configuration: MemoryConfiguration, fileManager: FileManager = .default) throws {
@@ -145,6 +146,8 @@ public actor MemoryIndex {
             allowedMemoryTypes = nil
         }
 
+        let queryAnalysis = configuration.queryAnalyzer?.analyze(query: normalizedText)
+
         let lexicalProbe = try await runLexicalProbe(
             query: query,
             normalizedText: normalizedText,
@@ -170,7 +173,11 @@ public actor MemoryIndex {
         var lexicalCandidateCount = 0
 
         for (index, expandedQuery) in expandedQueries.enumerated() {
-            if let semanticQueryVectors {
+            let skipSemantic = expandedQuery.expansionType == .lexical
+            let skipLexical = expandedQuery.expansionType == .semantic
+                || expandedQuery.expansionType == .hypotheticalDocument
+
+            if !skipSemantic, let semanticQueryVectors {
                 let semanticHits = try await semanticSearch(
                     queryVector: semanticQueryVectors[index],
                     limit: query.semanticCandidateLimit,
@@ -181,13 +188,13 @@ public actor MemoryIndex {
                 accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
             }
 
-            if query.lexicalCandidateLimit > 0 {
+            if !skipLexical, query.lexicalCandidateLimit > 0 {
                 let lexicalHits: [LexicalHit]
                 if index == 0, let seeded = lexicalProbe.seededHits {
                     lexicalHits = seeded
                 } else {
                     lexicalHits = try await storage.lexicalSearch(
-                        query: expandedQuery.text,
+                        query: ftsPreprocess(expandedQuery.text),
                         limit: query.lexicalCandidateLimit,
                         allowedChunkIDs: allowedChunkIDs,
                         allowedMemoryTypes: allowedMemoryTypes
@@ -195,6 +202,19 @@ public actor MemoryIndex {
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
+            }
+        }
+
+        if let analysis = queryAnalysis, !analysis.entities.isEmpty, query.lexicalCandidateLimit > 0 {
+            for entity in analysis.entities.prefix(3) {
+                let entityHits = try await storage.lexicalSearch(
+                    query: ftsPreprocess(entity),
+                    limit: query.lexicalCandidateLimit / 2,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+                accumulateRRF(for: entityHits, weight: 0.5, into: &lexicalRRF)
+                lexicalCandidateCount += entityHits.count
             }
         }
 
@@ -452,7 +472,7 @@ public actor MemoryIndex {
 
             let embedding: [Float]
             do {
-                embedding = try await configuration.embeddingProvider.embed(text: trimmed)
+                embedding = try await configuration.embeddingProvider.embed(text: trimmed, format: .document(title: nil))
             } catch {
                 throw MemoryError.embedding("Failed to embed memory for ingest: \(error.localizedDescription)")
             }
@@ -910,9 +930,13 @@ public actor MemoryIndex {
         let chunks = configuration.chunker.chunk(text: content, kind: kind, sourceURL: url)
         guard !chunks.isEmpty else { return nil }
 
+        let documentTitle = inferTitle(content: content, fallback: url.deletingPathExtension().lastPathComponent)
         let embeddings: [[Float]]
         do {
-            embeddings = try await configuration.embeddingProvider.embed(texts: chunks.map(\.content))
+            embeddings = try await configuration.embeddingProvider.embed(
+                texts: chunks.map(\.content),
+                format: .document(title: documentTitle)
+            )
         } catch {
             throw MemoryError.embedding("Failed to embed chunks for \(url.path): \(error.localizedDescription)")
         }
@@ -943,7 +967,7 @@ public actor MemoryIndex {
 
         return StoredDocumentInput(
             path: url.path,
-            title: inferTitle(content: content, fallback: url.deletingPathExtension().lastPathComponent),
+            title: documentTitle,
             modifiedAt: modifiedAt,
             checksum: checksum(content),
             memoryType: memoryAssignment.type.rawValue,
@@ -1283,20 +1307,19 @@ public actor MemoryIndex {
         var expansionQuery = query
         expansionQuery.text = normalizedText
 
-        let alternatives: [String]
+        let typedAlternatives: [ExpandedQuery]
         do {
-            alternatives = try await queryExpander.expand(
+            typedAlternatives = try await queryExpander.expandTyped(
                 query: expansionQuery,
                 limit: query.expansionLimit
             )
         } catch {
-            // Keep search functional even when expansion generation fails.
             return expanded
         }
 
         var seen: Set<String> = [normalizedComparisonKey(for: normalizedText)]
-        for alternative in alternatives {
-            let trimmed = alternative.trimmingCharacters(in: .whitespacesAndNewlines)
+        for alternative in typedAlternatives {
+            let trimmed = alternative.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 
             let key = normalizedComparisonKey(for: trimmed)
@@ -1306,7 +1329,8 @@ public actor MemoryIndex {
             expanded.append(
                 WeightedQuery(
                     text: trimmed,
-                    weight: query.expansionQueryWeight
+                    weight: query.expansionQueryWeight,
+                    expansionType: alternative.type
                 )
             )
 
@@ -1329,7 +1353,7 @@ public actor MemoryIndex {
         let texts = queries.map(\.text)
         let vectors: [[Float]]
         do {
-            vectors = try await configuration.embeddingProvider.embed(texts: texts)
+            vectors = try await configuration.embeddingProvider.embed(texts: texts, format: .query)
         } catch {
             throw MemoryError.embedding("Failed to embed query batch: \(error.localizedDescription)")
         }
@@ -1358,8 +1382,9 @@ public actor MemoryIndex {
         }
 
         let probeLimit = max(query.lexicalCandidateLimit, strongLexicalProbeLimit)
+        let ftsQuery = ftsPreprocess(normalizedText)
         let probeHits = try await storage.lexicalSearch(
-            query: normalizedText,
+            query: ftsQuery,
             limit: probeLimit,
             allowedChunkIDs: allowedChunkIDs,
             allowedMemoryTypes: allowedMemoryTypes
@@ -1377,6 +1402,13 @@ public actor MemoryIndex {
 
         let second = hits.dropFirst().first?.score ?? 0
         return top.score >= strongLexicalMinScore && (top.score - second) >= strongLexicalMinGap
+    }
+
+    private func ftsPreprocess(_ text: String) -> String {
+        guard let ftsTokenizer = configuration.ftsTokenizer else { return text }
+        let lemmas = ftsTokenizer.tokenize(text)
+        guard !lemmas.isEmpty else { return text }
+        return lemmas.joined(separator: " ")
     }
 
     private func applyReranker(

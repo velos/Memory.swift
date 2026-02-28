@@ -756,11 +756,9 @@ public actor MemoryStorage {
                     allowedMemoryTypes: allowedMemoryTypes,
                     excludedChunkIDs: nil
                 )
-                for (index, hit) in strictHits.enumerated() {
+                for hit in strictHits {
                     seenChunkIDs.insert(hit.chunkID)
-                    let rank = Double(index + 1)
-                    let score = 1.2 / (60 + rank)
-                    mergedByChunkID[hit.chunkID, default: 0] += score
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.2
                 }
             }
 
@@ -774,11 +772,9 @@ public actor MemoryStorage {
                     excludedChunkIDs: nil
                 )
 
-                for (index, hit) in relaxedHits.enumerated() {
+                for hit in relaxedHits {
                     seenChunkIDs.insert(hit.chunkID)
-                    let rank = Double(index + 1)
-                    let score = 1.0 / (60 + rank)
-                    mergedByChunkID[hit.chunkID, default: 0] += score
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score
                 }
             }
 
@@ -814,7 +810,7 @@ public actor MemoryStorage {
                 return []
             }
 
-            let overfetch = min(max(limit * 6, limit), 5_000)
+            let overfetch = min(max(limit * 6, limit), 4_096)
             let queryBlob = Self.encodeVector(queryVector)
 
             // sqlite-vec can hang if we join directly against the vec virtual table.
@@ -1215,8 +1211,9 @@ public actor MemoryStorage {
         return rows.enumerated().map { index, row in
             let chunkID: Int64 = row["chunk_id"]
             let rank: Double? = row["rank"]
-            let score = -(rank ?? Double(index + 1))
-            return LexicalHit(chunkID: chunkID, score: score)
+            let rawScore = -(rank ?? Double(index + 1))
+            let normalizedScore = abs(rawScore) / (1.0 + abs(rawScore))
+            return LexicalHit(chunkID: chunkID, score: normalizedScore)
         }
     }
 

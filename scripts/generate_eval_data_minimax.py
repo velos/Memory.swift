@@ -44,8 +44,94 @@ MEMORY_TYPES: List[str] = [
     "temporal",
 ]
 
+DIFFICULTY_LEVELS: List[str] = ["easy", "medium", "hard"]
+
+QUERY_STYLE_ROTATION: List[Dict[str, str]] = [
+    {
+        "label": "direct",
+        "guidance": (
+            "Generate direct, straightforward queries that use similar vocabulary "
+            "to the source documents. These should be 'easy' difficulty."
+        ),
+        "default_difficulty": "easy",
+    },
+    {
+        "label": "paraphrased",
+        "guidance": (
+            "Generate paraphrased queries that express the same information need "
+            "but use DIFFERENT vocabulary from the source documents. Avoid copying "
+            "keywords from the document summaries. These should be 'medium' difficulty."
+        ),
+        "default_difficulty": "medium",
+    },
+    {
+        "label": "adversarial",
+        "guidance": (
+            "Generate adversarial queries: near-miss paraphrases that could easily "
+            "match wrong documents, multi-hop queries that require combining information "
+            "from the document, or queries using abstract/conceptual language with ZERO "
+            "shared surface keywords with the target documents. "
+            "These should be 'hard' difficulty."
+        ),
+        "default_difficulty": "hard",
+    },
+]
+
 DEFAULT_BASE_URL = "https://api.minimax.io/anthropic"
 DEFAULT_MODEL = "MiniMax-M2.5"
+
+
+@dataclass
+class DomainProfile:
+    name: str
+    prose_style: str
+    overlap_hints: List[str]
+    storage_style: str
+
+
+DOMAIN_PROFILES: Dict[str, DomainProfile] = {
+    "general": DomainProfile(
+        name="general",
+        prose_style=(
+            "realistic personal knowledge base entries -- notes, decisions, observations, "
+            "and records that a person or AI agent would store across ALL areas of life and work. "
+            "Cover diverse domains: cooking/recipes, travel, health/fitness, personal finance, "
+            "home maintenance, hobbies/crafts, parenting/family, books/movies/media, "
+            "coding/technical projects, work projects/management, learning/courses, "
+            "relationships/social, creative writing/art, legal/contracts, pets/animals, "
+            "gardening, music, sports, and more. "
+            "Each batch should span at LEAST 3 different life domains. "
+            "Do NOT focus exclusively on software engineering or workplace topics."
+        ),
+        overlap_hints=[
+            "schedule", "appointment", "recipe", "travel", "budget",
+            "health", "meeting", "project", "family", "maintenance",
+            "learning", "hobby", "deadline", "purchase", "conversation",
+            "recommendation", "workout", "garden", "pet", "book",
+            "movie", "music", "recipe", "repair", "investment",
+            "course", "birthday", "medication", "contract", "flight",
+            "restaurant", "insurance", "subscription", "goal", "habit",
+        ],
+        storage_style=(
+            "Use natural, realistic personal notes across diverse life domains "
+            "(cooking, travel, health, finance, hobbies, family, work, learning, etc.) "
+            "in markdown-like prose. Do NOT focus exclusively on software engineering."
+        ),
+    ),
+    "technical": DomainProfile(
+        name="technical",
+        prose_style=(
+            "realistic project/workplace/internal-note style prose"
+        ),
+        overlap_hints=[
+            "deployment", "timeline", "incident", "release",
+            "stakeholder", "checklist", "planning", "context",
+        ],
+        storage_style=(
+            "Use natural, realistic notes/docs in markdown-like prose."
+        ),
+    ),
+}
 
 
 def log(message: str) -> None:
@@ -74,6 +160,11 @@ class GenerationConfig:
     max_retries_per_request: int
     request_timeout_seconds: int
     seed: int
+    domain_profile: DomainProfile = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.domain_profile is None:
+            self.domain_profile = DOMAIN_PROFILES["general"]
 
 
 class MiniMaxAnthropicClient:
@@ -311,6 +402,7 @@ def sanitize_recall_query(
     raw: Dict[str, Any],
     *,
     valid_doc_ids: set[str],
+    default_difficulty: str = "medium",
 ) -> Optional[Dict[str, Any]]:
     query = normalize_spaces(str(raw.get("query", "")))
     if len(query) < 8:
@@ -343,9 +435,13 @@ def sanitize_recall_query(
         if filtered:
             memory_types = filtered
 
-    result = {
+    difficulty_raw = str(raw.get("difficulty", default_difficulty)).strip().lower()
+    difficulty = difficulty_raw if difficulty_raw in DIFFICULTY_LEVELS else default_difficulty
+
+    result: Dict[str, Any] = {
         "query": query,
         "relevant_document_ids": relevant,
+        "difficulty": difficulty,
     }
     if memory_types:
         result["memory_types"] = memory_types
@@ -396,7 +492,7 @@ Required output shape:
 
 Rules:
 - Every case MUST be strongly {memory_type} memory type.
-- Use natural, realistic notes/docs in markdown-like prose.
+- {config.domain_profile.storage_style}
 - Keep text between 70 and 180 words.
 - Include 2 to 4 required_spans.
 - Each required span MUST appear verbatim in text (case-sensitive).
@@ -476,16 +572,7 @@ def generate_recall_documents(
         "Return only strict JSON. No markdown. No commentary."
     )
 
-    overlap_hints = [
-        "deployment",
-        "timeline",
-        "incident",
-        "release",
-        "stakeholder",
-        "checklist",
-        "planning",
-        "context",
-    ]
+    overlap_hints = config.domain_profile.overlap_hints
 
     for memory_type in MEMORY_TYPES:
         target = per_type_targets[memory_type]
@@ -514,7 +601,7 @@ Required output shape:
 Rules:
 - Every document MUST primarily represent {memory_type} memory.
 - Keep each text between 90 and 220 words.
-- Use realistic project/workplace/internal-note style prose.
+- Use {config.domain_profile.prose_style}
 - Include at least one lexical term related to "{hint}" to create challenging near-overlap retrieval conditions.
 - Do not include IDs, paths, or memory_type fields.
 """
@@ -612,13 +699,17 @@ def generate_recall_queries(
     )
 
     attempts = 0
-    max_attempts = max(20, config.max_attempts_per_bucket * 2)
+    max_attempts = max(30, config.max_attempts_per_bucket * 3)
     log(f"[queries] target={config.recall_queries}")
     while len(queries) < config.recall_queries and attempts < max_attempts:
         attempts += 1
         needed = config.recall_queries - len(queries)
         batch_size = min(config.queries_batch_size, needed)
         before_count = len(queries)
+
+        style = QUERY_STYLE_ROTATION[(attempts - 1) % len(QUERY_STYLE_ROTATION)]
+        style_guidance = style["guidance"]
+        default_difficulty = style["default_difficulty"]
 
         candidate_count = min(max(batch_size * 6, 40), len(documents))
         candidate_docs = rng.sample(list(documents), k=candidate_count)
@@ -636,25 +727,34 @@ Required output shape:
     {{
       "query": "string",
       "relevant_document_ids": ["doc-0001"],
-      "memory_types": ["procedural"]
+      "memory_types": ["procedural"],
+      "difficulty": "medium"
     }}
   ]
 }}
+
+Style guidance for this batch:
+{style_guidance}
 
 Rules:
 - Each query must have 1 to 3 relevant_document_ids.
 - relevant_document_ids MUST be chosen only from the provided candidate IDs.
 - Query should be realistic user wording, not copied from summaries.
-- Include varied query styles: direct, paraphrased, and slightly ambiguous.
 - Include memory_types for roughly 30-50% of queries (optional otherwise).
 - memory_types values must be from: {", ".join(MEMORY_TYPES)}.
+- difficulty must be one of: easy, medium, hard.
+- "easy" queries share vocabulary with their target documents.
+- "medium" queries paraphrase the information need with different words.
+- "hard" queries use abstract/conceptual language, near-miss phrasing, or require combining information.
 """
         raw = client.create_message(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
-            progress_label=f"[queries] batch {attempts}/{max_attempts} need={needed}",
+            progress_label=(
+                f"[queries:{style['label']}] batch {attempts}/{max_attempts} need={needed}"
+            ),
         )
 
         try:
@@ -664,7 +764,11 @@ Rules:
             continue
 
         for raw_query in raw_queries:
-            sanitized = sanitize_recall_query(raw_query, valid_doc_ids=valid_doc_ids)
+            sanitized = sanitize_recall_query(
+                raw_query,
+                valid_doc_ids=valid_doc_ids,
+                default_difficulty=default_difficulty,
+            )
             if not sanitized:
                 continue
             normalized_query = sanitized["query"].lower()
@@ -677,7 +781,7 @@ Rules:
 
         added = len(queries) - before_count
         log(
-            f"[queries] progress {len(queries)}/{config.recall_queries} "
+            f"[queries:{style['label']}] progress {len(queries)}/{config.recall_queries} "
             f"(+{added}, attempt {attempts}/{max_attempts})"
         )
 
@@ -689,15 +793,63 @@ Rules:
 
     final_queries: List[Dict[str, Any]] = []
     for idx, query in enumerate(queries[: config.recall_queries], start=1):
-        row = {
+        row: Dict[str, Any] = {
             "id": f"q-{idx:04d}",
             "query": query["query"],
             "relevant_document_ids": query["relevant_document_ids"],
+            "difficulty": query.get("difficulty", "medium"),
         }
         if "memory_types" in query:
             row["memory_types"] = query["memory_types"]
         final_queries.append(row)
     return final_queries
+
+
+def validate_query_memory_type_consistency(
+    queries: List[Dict[str, Any]],
+    documents: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Remove or fix queries whose memory_types filter excludes their own relevant documents."""
+    doc_type_map: Dict[str, str] = {}
+    for doc in documents:
+        doc_type_map[doc["id"]] = doc.get("memory_type", "")
+
+    fixed = 0
+    for query in queries:
+        filter_types = query.get("memory_types")
+        if not filter_types:
+            continue
+
+        relevant_ids = query.get("relevant_document_ids", [])
+        relevant_types = {doc_type_map.get(did, "") for did in relevant_ids} - {""}
+
+        if not relevant_types:
+            continue
+
+        if not relevant_types.intersection(set(filter_types)):
+            corrected = sorted(relevant_types)
+            log(
+                f"[validate] {query.get('id', '?')}: memory_types={filter_types} "
+                f"excluded relevant types {sorted(relevant_types)}; "
+                f"corrected to {corrected}"
+            )
+            query["memory_types"] = corrected
+            fixed += 1
+
+    if fixed:
+        log(f"[validate] Fixed {fixed} queries with contradictory memory_types filters.")
+    else:
+        log("[validate] All query memory_types filters are consistent.")
+    return queries
+
+
+def log_difficulty_distribution(queries: List[Dict[str, Any]]) -> None:
+    counts: Dict[str, int] = {}
+    for q in queries:
+        d = q.get("difficulty", "medium")
+        counts[d] = counts.get(d, 0) + 1
+    parts = [f"{level}={counts.get(level, 0)}" for level in DIFFICULTY_LEVELS]
+    log(f"[queries] difficulty distribution: {', '.join(parts)}")
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -706,6 +858,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--env-file", default=".env", help="Path to .env file (default: .env).")
     parser.add_argument("--base-url", default=None, help="Anthropic-compatible base URL.")
     parser.add_argument("--model", default=None, help="Model name (default: MiniMax-M2.5 or MINIMAX_MODEL env).")
+
+    parser.add_argument(
+        "--domain-profile",
+        choices=list(DOMAIN_PROFILES.keys()),
+        default="general",
+        help="Domain profile: 'general' (diverse life domains) or 'technical' (software engineering). Default: general.",
+    )
 
     parser.add_argument("--storage-cases", type=int, default=240, help="Total storage cases (default: 240).")
     parser.add_argument("--recall-documents", type=int, default=400, help="Total recall documents (default: 400).")
@@ -781,6 +940,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     queries_path = dataset_root / "recall_queries.jsonl"
     maybe_fail_if_exists([storage_path, documents_path, queries_path], overwrite=args.overwrite)
 
+    domain_profile = DOMAIN_PROFILES[args.domain_profile]
     cfg = GenerationConfig(
         storage_cases=args.storage_cases,
         recall_documents=args.recall_documents,
@@ -794,6 +954,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_retries_per_request=args.max_retries_per_request,
         request_timeout_seconds=args.request_timeout_seconds,
         seed=args.seed,
+        domain_profile=domain_profile,
     )
 
     rng = random.Random(cfg.seed)
@@ -807,6 +968,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     log(f"Using base URL: {base_url}")
     log(f"Using model: {model}")
+    log(f"Domain profile: {domain_profile.name}")
     log(f"Dataset root: {dataset_root}")
     log(f"Request timeout (seconds): {cfg.request_timeout_seconds}")
     log("Generating storage cases...")
@@ -820,6 +982,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     log("Generating recall queries...")
     recall_queries = generate_recall_queries(client, cfg, rng, recall_documents)
     log(f"Generated {len(recall_queries)} recall queries.")
+
+    log("Validating query memory_types consistency...")
+    recall_queries = validate_query_memory_type_consistency(recall_queries, recall_documents)
+    log_difficulty_distribution(recall_queries)
 
     storage_path.write_text(render_jsonl(storage_cases), encoding="utf-8")
     documents_path.write_text(render_jsonl(recall_documents), encoding="utf-8")

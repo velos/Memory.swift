@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "Memory", targets: ["Memory"]),
         .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
         .library(name: "MemoryAppleIntelligence", targets: ["MemoryAppleIntelligence"]),
+        .library(name: "MemoryCoreMLEmbedding", targets: ["MemoryCoreMLEmbedding"]),
         .executable(name: "memory", targets: ["memory_cli"]),
         .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
@@ -50,6 +51,12 @@ let package = Package(
             dependencies: ["Memory"],
             path: "Sources/MemoryAppleIntelligence"
         ),
+        .target(
+            name: "MemoryCoreMLEmbedding",
+            dependencies: ["Memory"],
+            path: "Sources/MemoryCoreMLEmbedding",
+            resources: [.copy("Resources/vocab.txt")]
+        ),
         .executableTarget(
             name: "memory_cli",
             dependencies: [
@@ -66,6 +73,7 @@ let package = Package(
                 "Memory",
                 "MemoryNaturalLanguage",
                 "MemoryAppleIntelligence",
+                "MemoryCoreMLEmbedding",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
@@ -92,6 +100,11 @@ let package = Package(
             name: "MemoryPerformanceTests",
             dependencies: ["Memory"],
             path: "Tests/MemoryPerformanceTests"
+        ),
+        .testTarget(
+            name: "MemoryCoreMLEmbeddingTests",
+            dependencies: ["MemoryCoreMLEmbedding"],
+            path: "Tests/MemoryCoreMLEmbeddingTests"
         ),
     ]
 )

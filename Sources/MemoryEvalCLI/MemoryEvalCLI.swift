@@ -4,6 +4,7 @@ import Foundation
 import GRDB
 import Memory
 import MemoryAppleIntelligence
+import MemoryCoreMLEmbedding
 import MemoryNaturalLanguage
 
 private let datasetReadmeTemplate = """
@@ -139,6 +140,7 @@ private struct RecallQueryCase: Decodable {
     var query: String
     var relevantDocumentIds: [String]
     var memoryTypes: [String]?
+    var difficulty: String?
 }
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
@@ -151,6 +153,12 @@ enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case expansionRerank = "expansion_rerank"
     case expansionRerankTag = "expansion_rerank_tag"
     case fullApple = "full_apple"
+    case chunker900 = "chunker_900"
+    case normalizedBm25 = "normalized_bm25"
+    case wideCandidates = "wide_candidates"
+    case poolingMean = "pooling_mean"
+    case poolingWeightedMean = "pooling_weighted_mean"
+    case coremlLeafIR = "coreml_leaf_ir"
 }
 
 private struct StorageCaseResult: Codable {
@@ -190,6 +198,32 @@ private struct RecallQueryResult: Codable {
     var recallByK: [Int: Double]
     var mrrByK: [Int: Double]
     var ndcgByK: [Int: Double]
+    var latencyMs: Double?
+    var difficulty: String?
+}
+
+private struct RecallPerTypeMetric: Codable {
+    var memoryType: String
+    var queryCount: Int
+    var hitRate: Double
+    var mrr: Double
+    var ndcg: Double
+}
+
+private struct RecallPerDifficultyMetric: Codable {
+    var difficulty: String
+    var queryCount: Int
+    var hitRate: Double
+    var mrr: Double
+    var ndcg: Double
+}
+
+private struct RecallLatencyStats: Codable {
+    var p50Ms: Double
+    var p95Ms: Double
+    var meanMs: Double
+    var minMs: Double
+    var maxMs: Double
 }
 
 private struct RecallSuiteReport: Codable {
@@ -197,6 +231,9 @@ private struct RecallSuiteReport: Codable {
     var kValues: [Int]
     var metricsByK: [RecallPerKMetric]
     var queryResults: [RecallQueryResult]
+    var perTypeMetrics: [RecallPerTypeMetric]?
+    var perDifficultyMetrics: [RecallPerDifficultyMetric]?
+    var latencyStats: RecallLatencyStats?
 }
 
 private struct RecallSuiteRunOutput {
@@ -1009,8 +1046,12 @@ struct RunCommand: AsyncParsableCommand {
         print("Storage span coverage: \(percent(report.storage.spanCoverage))")
         if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
             print("Recall Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
+            print("Recall Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
             print("Recall MRR@\(maxKMetric.k): \(format(maxKMetric.mrr))")
             print("Recall nDCG@\(maxKMetric.k): \(format(maxKMetric.ndcg))")
+        }
+        if let latencyStats = report.recall.latencyStats {
+            print("Search latency: p50=\(String(format: "%.0f", latencyStats.p50Ms))ms p95=\(String(format: "%.0f", latencyStats.p95Ms))ms mean=\(String(format: "%.0f", latencyStats.meanMs))ms")
         }
         print("JSON report: \(outputURL.path)")
         print("Markdown summary: \(markdownURL.path)")
@@ -1030,6 +1071,12 @@ struct CompareCommand: AsyncParsableCommand {
 
     @Option(name: .long, help: "Optional output markdown path.")
     var output: String?
+
+    @Option(name: .long, help: "Path to a baseline run JSON. Exits with code 1 if any primary metric regresses beyond --regression-threshold.")
+    var baseline: String?
+
+    @Option(name: .long, help: "Maximum allowed regression as a fraction (e.g. 0.02 = 2%). Used with --baseline.")
+    var regressionThreshold: Double = 0.02
 
     mutating func run() async throws {
         guard !runs.isEmpty else {
@@ -1053,6 +1100,28 @@ struct CompareCommand: AsyncParsableCommand {
             try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try markdown.write(to: outputURL, atomically: true, encoding: .utf8)
             print("Wrote comparison: \(outputURL.path)")
+        }
+
+        if let baselinePath = baseline {
+            let expanded = NSString(string: baselinePath).expandingTildeInPath
+            let data = try Data(contentsOf: URL(fileURLWithPath: expanded))
+            let baselineReport = try decoder.decode(EvalRunReport.self, from: data)
+            let regressions = checkForRegressions(
+                baseline: baselineReport,
+                candidates: loaded,
+                threshold: regressionThreshold
+            )
+            if !regressions.isEmpty {
+                print("")
+                print("REGRESSION DETECTED vs baseline (\(baselinePath)):")
+                for regression in regressions {
+                    print("  - \(regression)")
+                }
+                throw ExitCode(1)
+            } else {
+                print("")
+                print("No regressions detected vs baseline (threshold: \(percent(regressionThreshold))).")
+            }
         }
     }
 }
@@ -1579,12 +1648,14 @@ private func runRecallSuite(
             }
         }
 
+        let queryStartTime = Date()
         let recallResponse = try await index.recall(
             mode: .hybrid(query: queryCase.query),
             limit: recallLimit,
             features: recallFeatures(for: config),
             memoryTypes: effectiveMemoryTypes
         )
+        let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
 
         var rankedDocumentIDs: [String] = []
         var seen: Set<String> = []
@@ -1649,7 +1720,9 @@ private func runRecallSuite(
                 hitByK: hitByK,
                 recallByK: recallByK,
                 mrrByK: mrrByK,
-                ndcgByK: ndcgByK
+                ndcgByK: ndcgByK,
+                latencyMs: queryLatencyMs,
+                difficulty: queryCase.difficulty
             )
         )
 
@@ -1686,6 +1759,20 @@ private func runRecallSuite(
         )
     }
 
+    let perTypeMetrics = computePerTypeMetrics(
+        queryResults: queryResults,
+        queries: queries,
+        documents: documents,
+        memoryTypeByDocumentID: memoryTypeByDocumentID,
+        maxK: maxK
+    )
+    let perDifficultyMetrics = computePerDifficultyMetrics(
+        queryResults: queryResults,
+        queries: queries,
+        maxK: maxK
+    )
+    let latencyStats = computeLatencyStats(queryResults: queryResults)
+
     var notes: [String] = runtimeNotes
     if incompatibleFilterQueryCount > 0 {
         notes.append(
@@ -1706,9 +1793,102 @@ private func runRecallSuite(
             totalQueries: totalQueries,
             kValues: kValues,
             metricsByK: metrics,
-            queryResults: queryResults.sorted { $0.id < $1.id }
+            queryResults: queryResults.sorted { $0.id < $1.id },
+            perTypeMetrics: perTypeMetrics.isEmpty ? nil : perTypeMetrics,
+            perDifficultyMetrics: perDifficultyMetrics.isEmpty ? nil : perDifficultyMetrics,
+            latencyStats: latencyStats
         ),
         notes: notes
+    )
+}
+
+private func computePerTypeMetrics(
+    queryResults: [RecallQueryResult],
+    queries: [RecallQueryCase],
+    documents: [RecallDocumentCase],
+    memoryTypeByDocumentID: [String: MemoryType],
+    maxK: Int
+) -> [RecallPerTypeMetric] {
+    let queryById = Dictionary(uniqueKeysWithValues: queries.map { ($0.id, $0) })
+
+    var typeAccumulators: [String: (hit: Double, mrr: Double, ndcg: Double, count: Int)] = [:]
+    for result in queryResults {
+        guard let queryCase = queryById[result.id] else { continue }
+        let relevantTypes = Set(queryCase.relevantDocumentIds.compactMap { memoryTypeByDocumentID[$0]?.rawValue })
+        guard let primaryType = relevantTypes.first else { continue }
+
+        let hit = result.hitByK[maxK] == true ? 1.0 : 0.0
+        let mrr = result.mrrByK[maxK] ?? 0
+        let ndcg = result.ndcgByK[maxK] ?? 0
+
+        var acc = typeAccumulators[primaryType, default: (0, 0, 0, 0)]
+        acc.hit += hit
+        acc.mrr += mrr
+        acc.ndcg += ndcg
+        acc.count += 1
+        typeAccumulators[primaryType] = acc
+    }
+
+    return typeAccumulators.map { type, acc in
+        RecallPerTypeMetric(
+            memoryType: type,
+            queryCount: acc.count,
+            hitRate: acc.count == 0 ? 0 : acc.hit / Double(acc.count),
+            mrr: acc.count == 0 ? 0 : acc.mrr / Double(acc.count),
+            ndcg: acc.count == 0 ? 0 : acc.ndcg / Double(acc.count)
+        )
+    }.sorted { $0.memoryType < $1.memoryType }
+}
+
+private func computePerDifficultyMetrics(
+    queryResults: [RecallQueryResult],
+    queries: [RecallQueryCase],
+    maxK: Int
+) -> [RecallPerDifficultyMetric] {
+    let queryById = Dictionary(uniqueKeysWithValues: queries.map { ($0.id, $0) })
+
+    var accumulators: [String: (hit: Double, mrr: Double, ndcg: Double, count: Int)] = [:]
+    for result in queryResults {
+        let difficulty = queryById[result.id]?.difficulty ?? result.difficulty ?? "unknown"
+        let hit = result.hitByK[maxK] == true ? 1.0 : 0.0
+        let mrr = result.mrrByK[maxK] ?? 0
+        let ndcg = result.ndcgByK[maxK] ?? 0
+
+        var acc = accumulators[difficulty, default: (0, 0, 0, 0)]
+        acc.hit += hit
+        acc.mrr += mrr
+        acc.ndcg += ndcg
+        acc.count += 1
+        accumulators[difficulty] = acc
+    }
+
+    let order = ["easy", "medium", "hard", "unknown"]
+    return accumulators.map { difficulty, acc in
+        RecallPerDifficultyMetric(
+            difficulty: difficulty,
+            queryCount: acc.count,
+            hitRate: acc.count == 0 ? 0 : acc.hit / Double(acc.count),
+            mrr: acc.count == 0 ? 0 : acc.mrr / Double(acc.count),
+            ndcg: acc.count == 0 ? 0 : acc.ndcg / Double(acc.count)
+        )
+    }.sorted { (order.firstIndex(of: $0.difficulty) ?? 99) < (order.firstIndex(of: $1.difficulty) ?? 99) }
+}
+
+private func computeLatencyStats(queryResults: [RecallQueryResult]) -> RecallLatencyStats? {
+    let latencies = queryResults.compactMap(\.latencyMs).sorted()
+    guard !latencies.isEmpty else { return nil }
+
+    let count = latencies.count
+    let mean = latencies.reduce(0, +) / Double(count)
+    let p50Index = min(count - 1, count / 2)
+    let p95Index = min(count - 1, Int(Double(count) * 0.95))
+
+    return RecallLatencyStats(
+        p50Ms: latencies[p50Index],
+        p95Ms: latencies[p95Index],
+        meanMs: mean,
+        minMs: latencies.first ?? 0,
+        maxMs: latencies.last ?? 0
     )
 }
 
@@ -1720,7 +1900,7 @@ private func buildConfiguration(
     var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
     configuration.memoryTyping = MemoryTypingConfiguration(
         mode: .automatic,
-        classifier: HeuristicMemoryTypeClassifier(),
+        classifier: NLEnhancedMemoryTypeClassifier(),
         fallbackType: .factual
     )
 
@@ -1758,9 +1938,67 @@ private func buildConfiguration(
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
         }
+    case .chunker900:
+        configuration.chunker = DefaultChunker(targetTokenCount: 900, overlapTokenCount: 135)
+    case .normalizedBm25:
+        break
+    case .wideCandidates:
+        configuration.semanticCandidateLimit = 1000
+        configuration.lexicalCandidateLimit = 1000
+    case .poolingMean:
+        configuration = MemoryConfiguration.naturalLanguageDefault(
+            databaseURL: databaseURL,
+            poolingStrategy: .mean
+        )
+        configuration.memoryTyping = MemoryTypingConfiguration(
+            mode: .automatic,
+            classifier: NLEnhancedMemoryTypeClassifier(),
+            fallbackType: .factual
+        )
+    case .poolingWeightedMean:
+        configuration = MemoryConfiguration.naturalLanguageDefault(
+            databaseURL: databaseURL,
+            poolingStrategy: .weightedMean
+        )
+        configuration.memoryTyping = MemoryTypingConfiguration(
+            mode: .automatic,
+            classifier: NLEnhancedMemoryTypeClassifier(),
+            fallbackType: .factual
+        )
+    case .coremlLeafIR:
+        let modelURL = locateCoreMLModel()
+        let provider = try CoreMLEmbeddingProvider(modelURL: modelURL)
+        configuration = MemoryConfiguration(
+            databaseURL: databaseURL,
+            embeddingProvider: provider,
+            memoryTyping: MemoryTypingConfiguration(
+                mode: .automatic,
+                classifier: NLEnhancedMemoryTypeClassifier(),
+                fallbackType: .factual
+            ),
+            tokenizer: NLWordTokenizer(),
+            ftsTokenizer: NLLemmatizingTokenizer()
+        )
     }
 
     return configuration
+}
+
+private func locateCoreMLModel() -> URL {
+    let candidates = [
+        "Models/leaf-ir.mlpackage",
+        "../Models/leaf-ir.mlpackage",
+    ]
+    for candidate in candidates {
+        let url = URL(fileURLWithPath: candidate)
+        if FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+    }
+    let cwd = FileManager.default.currentDirectoryPath
+    return URL(fileURLWithPath: cwd)
+        .appendingPathComponent("Models")
+        .appendingPathComponent("leaf-ir.mlpackage")
 }
 
 private func makeAppleFirstMemoryClassifier() throws -> any MemoryTypeClassifier {
@@ -2099,7 +2337,8 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
     switch profile {
     case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple:
         return true
-    case .baseline, .appleTags, .appleStorage, .oracleCeiling:
+    case .baseline, .appleTags, .appleStorage, .oracleCeiling, .chunker900, .normalizedBm25,
+         .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR:
         return false
     }
 }
@@ -2200,6 +2439,49 @@ private func enableAppleRecallCapabilities(on configuration: inout MemoryConfigu
     )
 }
 
+private func checkForRegressions(
+    baseline: EvalRunReport,
+    candidates: [EvalRunReport],
+    threshold: Double
+) -> [String] {
+    var regressions: [String] = []
+
+    for candidate in candidates {
+        let label = "\(candidate.profile.rawValue) @ \(iso8601(candidate.createdAt))"
+
+        let accDelta = candidate.storage.typeAccuracy - baseline.storage.typeAccuracy
+        if accDelta < -threshold {
+            regressions.append("\(label): Storage type accuracy regressed by \(percent(-accDelta)) (baseline \(percent(baseline.storage.typeAccuracy)) -> \(percent(candidate.storage.typeAccuracy)))")
+        }
+
+        let f1Delta = candidate.storage.macroF1 - baseline.storage.macroF1
+        if f1Delta < -threshold {
+            regressions.append("\(label): Storage macro F1 regressed by \(percent(-f1Delta)) (baseline \(percent(baseline.storage.macroF1)) -> \(percent(candidate.storage.macroF1)))")
+        }
+
+        let baseMaxK = baseline.recall.metricsByK.max(by: { $0.k < $1.k })
+        let candMaxK = candidate.recall.metricsByK.max(by: { $0.k < $1.k })
+        if let bm = baseMaxK, let cm = candMaxK {
+            let hitDelta = cm.hitRate - bm.hitRate
+            if hitDelta < -threshold {
+                regressions.append("\(label): Recall Hit@\(cm.k) regressed by \(percent(-hitDelta)) (baseline \(percent(bm.hitRate)) -> \(percent(cm.hitRate)))")
+            }
+
+            let mrrDelta = cm.mrr - bm.mrr
+            if mrrDelta < -threshold {
+                regressions.append("\(label): Recall MRR@\(cm.k) regressed by \(format(-mrrDelta)) (baseline \(format(bm.mrr)) -> \(format(cm.mrr)))")
+            }
+
+            let ndcgDelta = cm.ndcg - bm.ndcg
+            if ndcgDelta < -threshold {
+                regressions.append("\(label): Recall nDCG@\(cm.k) regressed by \(format(-ndcgDelta)) (baseline \(format(bm.ndcg)) -> \(format(cm.ndcg)))")
+            }
+        }
+    }
+
+    return regressions
+}
+
 private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
     let sorted = reports.sorted { $0.createdAt < $1.createdAt }
     var lines: [String] = [
@@ -2264,18 +2546,59 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         )
     }
 
+    if let perTypeMetrics = report.recall.perTypeMetrics, !perTypeMetrics.isEmpty {
+        let maxK = maxKMetric?.k ?? (report.recall.kValues.max() ?? 10)
+        lines.append("")
+        lines.append("### Recall By Memory Type (at k=\(maxK))")
+        lines.append("")
+        lines.append("| Memory Type | Queries | Hit Rate | MRR | nDCG |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for m in perTypeMetrics {
+            lines.append("| \(m.memoryType) | \(m.queryCount) | \(percent(m.hitRate)) | \(format(m.mrr)) | \(format(m.ndcg)) |")
+        }
+    }
+
+    if let perDifficultyMetrics = report.recall.perDifficultyMetrics, !perDifficultyMetrics.isEmpty {
+        let maxK = maxKMetric?.k ?? (report.recall.kValues.max() ?? 10)
+        lines.append("")
+        lines.append("### Recall By Difficulty (at k=\(maxK))")
+        lines.append("")
+        lines.append("| Difficulty | Queries | Hit Rate | MRR | nDCG |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for m in perDifficultyMetrics {
+            lines.append("| \(m.difficulty) | \(m.queryCount) | \(percent(m.hitRate)) | \(format(m.mrr)) | \(format(m.ndcg)) |")
+        }
+    }
+
+    if let latencyStats = report.recall.latencyStats {
+        lines.append("")
+        lines.append("### Search Latency")
+        lines.append("")
+        lines.append("| Stat | Value |")
+        lines.append("|---|---:|")
+        lines.append("| p50 | \(String(format: "%.1f", latencyStats.p50Ms)) ms |")
+        lines.append("| p95 | \(String(format: "%.1f", latencyStats.p95Ms)) ms |")
+        lines.append("| mean | \(String(format: "%.1f", latencyStats.meanMs)) ms |")
+        lines.append("| min | \(String(format: "%.1f", latencyStats.minMs)) ms |")
+        lines.append("| max | \(String(format: "%.1f", latencyStats.maxMs)) ms |")
+    }
+
     let misses = report.recall.queryResults.filter { result in
         let maxK = maxKMetric?.k ?? (report.recall.kValues.max() ?? 10)
         return result.hitByK[maxK] == false
     }
     if !misses.isEmpty {
         lines.append("")
-        lines.append("### Misses At Max K")
+        lines.append("### Error Analysis (\(misses.count) misses at max K)")
         lines.append("")
-        for miss in misses.prefix(10) {
-            lines.append("- `\(miss.id)`: \(miss.query)")
+        for miss in misses.prefix(30) {
+            let diffLabel = miss.difficulty.map { " [\($0)]" } ?? ""
+            lines.append("- `\(miss.id)`\(diffLabel): \(miss.query)")
             lines.append("  - relevant: \(miss.relevantDocumentIds.joined(separator: ", "))")
-            lines.append("  - retrieved: \(miss.retrievedDocumentIds.joined(separator: ", "))")
+            lines.append("  - retrieved top-5: \(miss.retrievedDocumentIds.prefix(5).joined(separator: ", "))")
+        }
+        if misses.count > 30 {
+            lines.append("- ... and \(misses.count - 30) more misses")
         }
     }
 

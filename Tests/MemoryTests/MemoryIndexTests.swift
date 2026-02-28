@@ -152,12 +152,18 @@ struct MemoryIndexTests {
 
         try writeFile(
             docs.appendingPathComponent("runbook.md"),
-            "incident response runbook incident response runbook incident response runbook"
+            "incident response runbook. The incident response runbook covers incident response runbook procedures. Follow the incident response runbook for incident response runbook compliance. incident response runbook steps are critical."
         )
         try writeFile(
             docs.appendingPathComponent("notes.md"),
-            "incident notes and observations from unrelated outages"
+            "general observations and feedback collected during the quarterly planning session"
         )
+        for i in 0..<6 {
+            try writeFile(
+                docs.appendingPathComponent("filler\(i).md"),
+                "unrelated content about topic number \(i) covering various subjects"
+            )
+        }
 
         let expander = RecordingQueryExpander(alternates: ["deployment rollout checklist"])
         let config = MemoryConfiguration(
