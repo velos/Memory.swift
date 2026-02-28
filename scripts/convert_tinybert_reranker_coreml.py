@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert cross-encoder/ms-marco-TinyBERT-L-2-v2 to CoreML with int8 quantization."""
+"""Convert a cross-encoder reranker to CoreML with int8 quantization."""
 
 import os
 import numpy as np
@@ -8,10 +8,10 @@ import torch.nn as nn
 import coremltools as ct
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-MODEL_ID = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+MODEL_ID = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 MAX_SEQ_LEN = 512
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Models")
-OUTPUT_PATH = os.path.join(OUTPUT_DIR, "tinybert-reranker.mlpackage")
+OUTPUT_PATH = os.path.join(OUTPUT_DIR, "minilm-reranker.mlpackage")
 
 
 class RerankerWrapper(nn.Module):
@@ -91,7 +91,7 @@ def main():
     print(f"Max sequence length: {MAX_SEQ_LEN}")
 
     # Save tokenizer for verification script
-    tok_path = os.path.join(OUTPUT_DIR, "tinybert-reranker-tokenizer")
+    tok_path = os.path.join(OUTPUT_DIR, "minilm-reranker-tokenizer")
     tokenizer.save_pretrained(tok_path)
     print(f"Tokenizer saved to: {tok_path}")
 

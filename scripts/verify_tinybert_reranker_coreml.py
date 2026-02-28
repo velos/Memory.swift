@@ -8,9 +8,9 @@ import torch
 import coremltools as ct
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-MODEL_ID = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+MODEL_ID = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 COREML_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "Models", "tinybert-reranker.mlpackage"
+    os.path.dirname(os.path.dirname(__file__)), "Models", "minilm-reranker.mlpackage"
 )
 MAX_SEQ_LEN = 512
 

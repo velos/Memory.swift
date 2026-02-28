@@ -1982,7 +1982,7 @@ private func buildConfiguration(
         )
     case .coremlRerank:
         let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
-        let rerankerModelURL = locateCoreMLModel(name: "tinybert-reranker")
+        let rerankerModelURL = locateCoreMLModel(name: "minilm-reranker")
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         let reranker = try CoreMLReranker(modelURL: rerankerModelURL)
         configuration = MemoryConfiguration(
