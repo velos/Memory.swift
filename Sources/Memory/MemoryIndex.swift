@@ -1423,6 +1423,12 @@ public actor MemoryIndex {
         let rerankable = Array(fusedResults.prefix(effectiveRerankCount))
         let remaining = Array(fusedResults.dropFirst(effectiveRerankCount))
 
+        // Record original RRF rank for each candidate (1-indexed).
+        var originalRankByChunkID: [Int64: Int] = [:]
+        for (index, candidate) in rerankable.enumerated() {
+            originalRankByChunkID[candidate.chunkID] = index + 1
+        }
+
         let assessments = try await reranker.rerank(query: query, candidates: rerankable)
         let allowedIDs = Set(rerankable.map(\.chunkID))
 
@@ -1450,29 +1456,24 @@ public actor MemoryIndex {
             return updated
         }
 
-        reranked.sort { lhs, rhs in
-            if lhs.score.rerank == rhs.score.rerank {
-                if lhs.score.fused == rhs.score.fused {
-                    return lhs.chunkID < rhs.chunkID
-                }
-                return lhs.score.fused > rhs.score.fused
-            }
-            return lhs.score.rerank > rhs.score.rerank
-        }
-
+        // Blend using inverse original rank (1/rrfRank) instead of raw fused score,
+        // so retrieval position and reranker score are on comparable 0-1 scales.
         for index in reranked.indices {
-            let position = index + 1
+            let chunkID = reranked[index].chunkID
+            let rrfRank = originalRankByChunkID[chunkID] ?? (index + 1)
+            let rrfScore = 1.0 / Double(rrfRank)
             reranked[index].score.blended = configuration.positionAwareBlending.blend(
-                fused: reranked[index].score.fused,
+                fused: rrfScore,
                 rerank: reranked[index].score.rerank,
-                position: position
+                position: rrfRank
             )
         }
 
-        let untouched = remaining.map { candidate -> SearchResult in
+        let untouched = remaining.enumerated().map { offset, candidate -> SearchResult in
             var updated = candidate
             updated.score.rerank = 0
-            updated.score.blended = updated.score.fused
+            let tailRank = effectiveRerankCount + offset + 1
+            updated.score.blended = 1.0 / Double(tailRank)
             return updated
         }
 

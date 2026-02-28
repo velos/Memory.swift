@@ -66,6 +66,64 @@ public struct BertTokenizer: Sendable {
         return EncodedInput(inputIDs: inputIDs, attentionMask: attentionMask, tokenTypeIDs: tokenTypeIDs)
     }
 
+    /// Encodes a query-document pair as `[CLS] query [SEP] document [SEP]` with
+    /// token_type_ids = 0 for query segment and 1 for document segment.
+    public func encodePair(query: String, document: String) -> EncodedInput {
+        let cleanedQuery = cleanAndLowercase(query)
+        let cleanedDoc = cleanAndLowercase(document)
+
+        let queryTokens = basicTokenize(cleanedQuery)
+        let docTokens = basicTokenize(cleanedDoc)
+
+        var queryIDs: [Int32] = []
+        var docIDs: [Int32] = []
+
+        // Budget: maxSeqLen - 3 for [CLS], [SEP], [SEP]
+        let totalBudget = maxSequenceLength - 3
+
+        // Tokenize query first
+        for token in queryTokens {
+            let subIDs = wordpieceTokenize(token)
+            if queryIDs.count + subIDs.count > totalBudget { break }
+            queryIDs.append(contentsOf: subIDs)
+        }
+
+        // Remaining budget goes to document
+        let docBudget = totalBudget - queryIDs.count
+        for token in docTokens {
+            let subIDs = wordpieceTokenize(token)
+            if docIDs.count + subIDs.count > docBudget { break }
+            docIDs.append(contentsOf: subIDs)
+        }
+
+        // Build: [CLS] query_tokens [SEP] doc_tokens [SEP] [PAD...]
+        var inputIDs = [Int32]()
+        inputIDs.reserveCapacity(maxSequenceLength)
+        inputIDs.append(clsTokenID)
+        inputIDs.append(contentsOf: queryIDs)
+        inputIDs.append(sepTokenID)
+        let segmentALen = inputIDs.count
+        inputIDs.append(contentsOf: docIDs)
+        inputIDs.append(sepTokenID)
+
+        let tokenCount = inputIDs.count
+        let padCount = maxSequenceLength - tokenCount
+        if padCount > 0 {
+            inputIDs.append(contentsOf: repeatElement(padTokenID, count: padCount))
+        }
+
+        var attentionMask = [Int32](repeating: 1, count: tokenCount)
+        if padCount > 0 {
+            attentionMask.append(contentsOf: repeatElement(0, count: padCount))
+        }
+
+        // token_type_ids: 0 for segment A (query), 1 for segment B (document)
+        var tokenTypeIDs = [Int32](repeating: 0, count: segmentALen)
+        tokenTypeIDs.append(contentsOf: repeatElement(Int32(1), count: maxSequenceLength - segmentALen))
+
+        return EncodedInput(inputIDs: inputIDs, attentionMask: attentionMask, tokenTypeIDs: tokenTypeIDs)
+    }
+
     private func cleanAndLowercase(_ text: String) -> String {
         var result = ""
         result.reserveCapacity(text.count)

@@ -159,6 +159,7 @@ enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case poolingMean = "pooling_mean"
     case poolingWeightedMean = "pooling_weighted_mean"
     case coremlLeafIR = "coreml_leaf_ir"
+    case coremlRerank = "coreml_rerank"
 }
 
 private struct StorageCaseResult: Codable {
@@ -1966,11 +1967,28 @@ private func buildConfiguration(
             fallbackType: .factual
         )
     case .coremlLeafIR:
-        let modelURL = locateCoreMLModel()
+        let modelURL = locateCoreMLModel(name: "leaf-ir")
         let provider = try CoreMLEmbeddingProvider(modelURL: modelURL)
         configuration = MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
+            memoryTyping: MemoryTypingConfiguration(
+                mode: .automatic,
+                classifier: NLEnhancedMemoryTypeClassifier(),
+                fallbackType: .factual
+            ),
+            tokenizer: NLWordTokenizer(),
+            ftsTokenizer: NLLemmatizingTokenizer()
+        )
+    case .coremlRerank:
+        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let rerankerModelURL = locateCoreMLModel(name: "tinybert-reranker")
+        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
+        let reranker = try CoreMLReranker(modelURL: rerankerModelURL)
+        configuration = MemoryConfiguration(
+            databaseURL: databaseURL,
+            embeddingProvider: provider,
+            reranker: reranker,
             memoryTyping: MemoryTypingConfiguration(
                 mode: .automatic,
                 classifier: NLEnhancedMemoryTypeClassifier(),
@@ -1984,10 +2002,11 @@ private func buildConfiguration(
     return configuration
 }
 
-private func locateCoreMLModel() -> URL {
+private func locateCoreMLModel(name: String) -> URL {
+    let filename = "\(name).mlpackage"
     let candidates = [
-        "Models/leaf-ir.mlpackage",
-        "../Models/leaf-ir.mlpackage",
+        "Models/\(filename)",
+        "../Models/\(filename)",
     ]
     for candidate in candidates {
         let url = URL(fileURLWithPath: candidate)
@@ -1998,7 +2017,7 @@ private func locateCoreMLModel() -> URL {
     let cwd = FileManager.default.currentDirectoryPath
     return URL(fileURLWithPath: cwd)
         .appendingPathComponent("Models")
-        .appendingPathComponent("leaf-ir.mlpackage")
+        .appendingPathComponent(filename)
 }
 
 private func makeAppleFirstMemoryClassifier() throws -> any MemoryTypeClassifier {
@@ -2338,7 +2357,7 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
     case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple:
         return true
     case .baseline, .appleTags, .appleStorage, .oracleCeiling, .chunker900, .normalizedBm25,
-         .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR:
+         .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR, .coremlRerank:
         return false
     }
 }
