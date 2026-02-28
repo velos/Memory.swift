@@ -82,4 +82,53 @@ struct MemoryExternalAPITests {
             #expect(first.accessCount >= 1)
         }
     }
+
+    @Test
+    func semanticSearchFindsNewlySavedMemoryWithoutRebuild() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        _ = try await index.save(
+            text: "alpha-only memory marker",
+            category: .fact
+        )
+
+        let firstSemantic = try await index.search(
+            SearchQuery(
+                text: "alpha-only marker",
+                limit: 5,
+                semanticCandidateLimit: 50,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+        #expect(firstSemantic.isEmpty == false)
+
+        _ = try await index.save(
+            text: "zulu-only memory marker",
+            category: .fact
+        )
+
+        let secondSemantic = try await index.search(
+            SearchQuery(
+                text: "zulu-only marker",
+                limit: 5,
+                semanticCandidateLimit: 50,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+        #expect(secondSemantic.contains(where: { $0.content.contains("zulu-only memory marker") }))
+    }
 }

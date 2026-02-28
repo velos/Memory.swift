@@ -145,6 +145,90 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func strongLexicalSignalSkipsQueryExpansion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("runbook.md"),
+            "incident response runbook incident response runbook incident response runbook"
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "incident notes and observations from unrelated outages"
+        )
+
+        let expander = RecordingQueryExpander(alternates: ["deployment rollout checklist"])
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            queryExpander: expander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "incident response runbook",
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let calls = await expander.calls()
+        #expect(calls == 0)
+    }
+
+    @Test
+    func semanticQueryEmbeddingsAreBatchedAcrossExpansions() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deploy.md"),
+            "deployment rollout checklist and service cutover notes"
+        )
+        try writeFile(
+            docs.appendingPathComponent("ops.md"),
+            "incident response timeline and postmortem follow-up items"
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            queryExpander: StaticQueryExpander(alternates: ["deployment rollout", "service cutover"]),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "release process",
+                limit: 3,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [3])
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

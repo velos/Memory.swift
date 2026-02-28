@@ -28,8 +28,17 @@ let package = Package(
             name: "MemoryStorage",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
+                "CSQLiteVec",
             ],
             path: "Sources/MemoryStorage"
+        ),
+        .target(
+            name: "CSQLiteVec",
+            path: "Sources/CSQLiteVec",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("SQLITE_CORE", to: "1"),
+            ]
         ),
         .target(
             name: "MemoryNaturalLanguage",

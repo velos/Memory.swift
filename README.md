@@ -93,7 +93,7 @@ if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.
 ## Notes
 
 - `Memory.swift` is inspired by qmd, but intentionally not qmd-CLI or qmd-data compatible.
-- v1 uses exact cosine search over in-memory vectors; ANN can be added behind a future `VectorIndex` protocol.
+- Semantic search runs via embedded `sqlite-vec` (`vec0`) in SQLite.
 
 Memory type can be manually set in markdown frontmatter:
 

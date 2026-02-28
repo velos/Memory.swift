@@ -8,14 +8,15 @@ public actor MemoryIndex {
     private let storage: MemoryStorage
     private let fileManager: FileManager
 
-    private var embeddingCache: [StoredChunkEmbedding]?
-
     private let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private let codeExtensions: Set<String> = [
         "swift", "m", "mm", "h", "hpp", "c", "cpp", "cc", "cxx",
         "js", "jsx", "ts", "tsx", "java", "kt", "kts",
         "go", "rs", "py", "rb", "php", "cs", "scala", "sh", "zsh", "bash"
     ]
+    private let strongLexicalProbeLimit = 20
+    private let strongLexicalMinScore = 0.03
+    private let strongLexicalMinGap = 0.01
 
     private struct WeightedQuery {
         var text: String
@@ -47,7 +48,6 @@ public actor MemoryIndex {
 
         do {
             try await storage.wipeIndexData()
-            embeddingCache = nil
 
             var totalChunks = 0
             for (index, url) in urls.enumerated() {
@@ -96,7 +96,6 @@ public actor MemoryIndex {
                 events?(.stored(path: url.path))
             }
 
-            embeddingCache = nil
             events?(.completed(processedDocuments: documentURLs.count, totalChunks: totalChunks))
         } catch {
             throw normalizeError(error)
@@ -107,7 +106,6 @@ public actor MemoryIndex {
         do {
             let paths = urls.map(\.path)
             try await storage.removeDocuments(paths: paths)
-            embeddingCache = nil
         } catch {
             throw normalizeError(error)
         }
@@ -147,27 +145,34 @@ public actor MemoryIndex {
             allowedMemoryTypes = nil
         }
 
-        let expandedQueries = try await buildExpandedQueries(query: query, normalizedText: normalizedText)
+        let lexicalProbe = try await runLexicalProbe(
+            query: query,
+            normalizedText: normalizedText,
+            allowedChunkIDs: allowedChunkIDs,
+            allowedMemoryTypes: allowedMemoryTypes
+        )
+        let expandedQueries = try await buildExpandedQueries(
+            query: query,
+            normalizedText: normalizedText,
+            skipExpansion: lexicalProbe.strongSignal
+        )
         events?(.expandedQueries(count: max(0, expandedQueries.count - 1)))
+
+        let semanticQueryVectors = try await embedExpandedQueries(
+            expandedQueries,
+            semanticCandidateLimit: query.semanticCandidateLimit,
+            events: events
+        )
 
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
         var semanticCandidateCount = 0
         var lexicalCandidateCount = 0
 
-        for expandedQuery in expandedQueries {
-            if query.semanticCandidateLimit > 0 {
-                let queryVector: [Float]
-                do {
-                    queryVector = try await configuration.embeddingProvider.embed(text: expandedQuery.text)
-                } catch {
-                    throw MemoryError.embedding("Failed to embed query: \(error.localizedDescription)")
-                }
-
-                events?(.embeddedQuery(dimension: queryVector.count))
-
+        for (index, expandedQuery) in expandedQueries.enumerated() {
+            if let semanticQueryVectors {
                 let semanticHits = try await semanticSearch(
-                    queryVector: queryVector,
+                    queryVector: semanticQueryVectors[index],
                     limit: query.semanticCandidateLimit,
                     allowedChunkIDs: allowedChunkIDs,
                     allowedMemoryTypes: allowedMemoryTypes
@@ -177,12 +182,17 @@ public actor MemoryIndex {
             }
 
             if query.lexicalCandidateLimit > 0 {
-                let lexicalHits = try await storage.lexicalSearch(
-                    query: expandedQuery.text,
-                    limit: query.lexicalCandidateLimit,
-                    allowedChunkIDs: allowedChunkIDs,
-                    allowedMemoryTypes: allowedMemoryTypes
-                )
+                let lexicalHits: [LexicalHit]
+                if index == 0, let seeded = lexicalProbe.seededHits {
+                    lexicalHits = seeded
+                } else {
+                    lexicalHits = try await storage.lexicalSearch(
+                        query: expandedQuery.text,
+                        limit: query.lexicalCandidateLimit,
+                        allowedChunkIDs: allowedChunkIDs,
+                        allowedMemoryTypes: allowedMemoryTypes
+                    )
+                }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
             }
@@ -286,7 +296,6 @@ public actor MemoryIndex {
             guard updated else {
                 throw MemoryError.storage("Document not found at path \(normalizedPath)")
             }
-            embeddingCache = nil
         } catch {
             throw normalizeError(error)
         }
@@ -303,7 +312,6 @@ public actor MemoryIndex {
             guard updated else {
                 throw MemoryError.storage("Chunk not found for id \(chunkID)")
             }
-            embeddingCache = nil
         } catch {
             throw normalizeError(error)
         }
@@ -1151,79 +1159,16 @@ public actor MemoryIndex {
         allowedMemoryTypes: Set<String>?
     ) async throws -> [LexicalHit] {
         guard limit > 0 else { return [] }
-        if queryVector.isEmpty {
-            return []
-        }
-
-        let queryNorm = l2Norm(queryVector)
-        guard queryNorm > 0 else {
-            throw MemoryError.search("Query embedding norm is zero")
-        }
-
-        let embeddings = try await loadEmbeddings()
-        var scored: [LexicalHit] = []
-        scored.reserveCapacity(embeddings.count)
-
-        for embedding in embeddings {
-            if let allowedChunkIDs, !allowedChunkIDs.contains(embedding.chunkID) {
-                continue
-            }
-            if let allowedMemoryTypes, !allowedMemoryTypes.contains(embedding.memoryType) {
-                continue
-            }
-
-            guard embedding.vector.count == queryVector.count else {
-                continue
-            }
-            guard embedding.norm > 0 else {
-                continue
-            }
-
-            let dot = dotProduct(queryVector, embedding.vector)
-            let cosine = Double(dot) / (queryNorm * embedding.norm)
-            if cosine.isFinite {
-                scored.append(LexicalHit(chunkID: embedding.chunkID, score: cosine))
-            }
-        }
-
-        return scored
-            .sorted { lhs, rhs in
-                if lhs.score == rhs.score {
-                    return lhs.chunkID < rhs.chunkID
-                }
-                return lhs.score > rhs.score
-            }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    private func loadEmbeddings() async throws -> [StoredChunkEmbedding] {
-        if let embeddingCache {
-            return embeddingCache
-        }
-
         do {
-            let loaded = try await storage.fetchAllChunkEmbeddings()
-            embeddingCache = loaded
-            return loaded
+            return try await storage.vectorSearch(
+                queryVector: queryVector,
+                limit: limit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes
+            )
         } catch {
             throw normalizeError(error)
         }
-    }
-
-    private func dotProduct(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        if lhs.count == rhs.count {
-            return vDSP.dot(lhs, rhs)
-        }
-
-        let count = min(lhs.count, rhs.count)
-        guard count > 0 else { return 0 }
-
-        var sum: Float = 0
-        for index in 0..<count {
-            sum += lhs[index] * rhs[index]
-        }
-        return sum
     }
 
     private func l2Norm(_ vector: [Float]) -> Double {
@@ -1241,7 +1186,13 @@ public actor MemoryIndex {
         for (index, hit) in hits.enumerated() {
             let rank = Double(index + 1)
             let base = 1.0 / (configuration.fusionK + rank)
-            scores[hit.chunkID, default: 0] += (weight * base)
+            var contribution = weight * base
+            if index == 0 {
+                contribution += weight * 0.0025
+            } else if index <= 2 {
+                contribution += weight * 0.001
+            }
+            scores[hit.chunkID, default: 0] += contribution
         }
     }
 
@@ -1314,11 +1265,16 @@ public actor MemoryIndex {
 
     private func buildExpandedQueries(
         query: SearchQuery,
-        normalizedText: String
+        normalizedText: String,
+        skipExpansion: Bool = false
     ) async throws -> [WeightedQuery] {
         var expanded: [WeightedQuery] = [
             WeightedQuery(text: normalizedText, weight: query.originalQueryWeight),
         ]
+
+        guard !skipExpansion else {
+            return expanded
+        }
 
         guard query.expansionLimit > 0, let queryExpander = configuration.queryExpander else {
             return expanded
@@ -1360,6 +1316,67 @@ public actor MemoryIndex {
         }
 
         return expanded
+    }
+
+    private func embedExpandedQueries(
+        _ queries: [WeightedQuery],
+        semanticCandidateLimit: Int,
+        events: SearchEventHandler?
+    ) async throws -> [[Float]]? {
+        guard semanticCandidateLimit > 0 else { return nil }
+        guard !queries.isEmpty else { return [] }
+
+        let texts = queries.map(\.text)
+        let vectors: [[Float]]
+        do {
+            vectors = try await configuration.embeddingProvider.embed(texts: texts)
+        } catch {
+            throw MemoryError.embedding("Failed to embed query batch: \(error.localizedDescription)")
+        }
+
+        guard vectors.count == texts.count else {
+            throw MemoryError.embedding(
+                "Embedding provider \(configuration.embeddingProvider.identifier) returned \(vectors.count) vectors for \(texts.count) queries"
+            )
+        }
+
+        for vector in vectors {
+            events?(.embeddedQuery(dimension: vector.count))
+        }
+
+        return vectors
+    }
+
+    private func runLexicalProbe(
+        query: SearchQuery,
+        normalizedText: String,
+        allowedChunkIDs: Set<Int64>?,
+        allowedMemoryTypes: Set<String>?
+    ) async throws -> (seededHits: [LexicalHit]?, strongSignal: Bool) {
+        guard query.lexicalCandidateLimit > 0 else {
+            return (seededHits: nil, strongSignal: false)
+        }
+
+        let probeLimit = max(query.lexicalCandidateLimit, strongLexicalProbeLimit)
+        let probeHits = try await storage.lexicalSearch(
+            query: normalizedText,
+            limit: probeLimit,
+            allowedChunkIDs: allowedChunkIDs,
+            allowedMemoryTypes: allowedMemoryTypes
+        )
+        let seededHits = Array(probeHits.prefix(query.lexicalCandidateLimit))
+        let strongSignal = hasStrongLexicalSignal(query: query, hits: probeHits)
+        return (seededHits: seededHits, strongSignal: strongSignal)
+    }
+
+    private func hasStrongLexicalSignal(query: SearchQuery, hits: [LexicalHit]) -> Bool {
+        guard query.expansionLimit > 0, configuration.queryExpander != nil else {
+            return false
+        }
+        guard let top = hits.first else { return false }
+
+        let second = hits.dropFirst().first?.score ?? 0
+        return top.score >= strongLexicalMinScore && (top.score - second) >= strongLexicalMinGap
     }
 
     private func applyReranker(

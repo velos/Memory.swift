@@ -1,4 +1,5 @@
 import Foundation
+import CSQLiteVec
 import GRDB
 
 public struct StoredChunkTag: Sendable, Codable, Hashable {
@@ -222,6 +223,8 @@ public struct LexicalHit: Sendable {
 
 public actor MemoryStorage {
     private let dbQueue: DatabaseQueue
+    private static let vectorTableName = "chunk_vectors_vec"
+    private static let vectorConfigTableName = "vector_index_config"
 
     public init(databaseURL: URL) throws {
         try FileManager.default.createDirectory(
@@ -232,6 +235,7 @@ public actor MemoryStorage {
         var configuration = Configuration()
         configuration.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys = ON")
+            try Self.registerSQLiteVec(on: db)
         }
 
         self.dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
@@ -240,6 +244,8 @@ public actor MemoryStorage {
 
     public func wipeIndexData() throws {
         try dbQueue.write { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
+            try db.execute(sql: "DELETE FROM \(Self.vectorConfigTableName)")
             try db.execute(sql: "DELETE FROM context_chunks")
             try db.execute(sql: "DELETE FROM embeddings")
             try db.execute(sql: "DELETE FROM chunks")
@@ -249,7 +255,28 @@ public actor MemoryStorage {
 
     public func replaceDocument(_ input: StoredDocumentInput) throws {
         try dbQueue.write { db in
+            let existingChunkIDs = try Int64.fetchAll(
+                db,
+                sql: """
+                SELECT c.id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE d.path = ?
+                """,
+                arguments: [input.path]
+            )
+            if !existingChunkIDs.isEmpty {
+                try Self.deleteVectors(in: db, chunkIDs: existingChunkIDs)
+            }
+
             try db.execute(sql: "DELETE FROM documents WHERE path = ?", arguments: [input.path])
+
+            if let firstChunk = input.chunks.first {
+                try Self.ensureVectorIndex(
+                    in: db,
+                    dimension: firstChunk.embedding.count
+                )
+            }
 
             let now = Date().timeIntervalSince1970
             try db.execute(
@@ -321,6 +348,13 @@ public actor MemoryStorage {
                 )
 
                 let chunkID = db.lastInsertedRowID
+                if let configuredDimension = try Self.configuredVectorDimension(in: db),
+                   configuredDimension != chunk.embedding.count {
+                    throw DatabaseError(
+                        message: "Embedding dimension mismatch. Expected \(configuredDimension), got \(chunk.embedding.count)."
+                    )
+                }
+
                 try db.execute(
                     sql: """
                     INSERT INTO embeddings (chunk_id, dim, vector_blob, norm)
@@ -333,6 +367,19 @@ public actor MemoryStorage {
                         chunk.norm,
                     ]
                 )
+
+                if try Self.vectorTableExists(in: db) {
+                    try db.execute(
+                        sql: """
+                        INSERT OR REPLACE INTO \(Self.vectorTableName) (chunk_id, embedding)
+                        VALUES (?, ?)
+                        """,
+                        arguments: [
+                            chunkID,
+                            Self.encodeVector(chunk.embedding),
+                        ]
+                    )
+                }
             }
         }
     }
@@ -341,6 +388,20 @@ public actor MemoryStorage {
         guard !paths.isEmpty else { return }
 
         try dbQueue.write { db in
+            let chunkIDs = try Int64.fetchAll(
+                db,
+                sql: """
+                SELECT c.id
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE d.path IN (\(Self.placeholders(count: paths.count)))
+                """,
+                arguments: StatementArguments(paths)
+            )
+            if !chunkIDs.isEmpty {
+                try Self.deleteVectors(in: db, chunkIDs: chunkIDs)
+            }
+
             let sql = "DELETE FROM documents WHERE path IN (\(Self.placeholders(count: paths.count)))"
             try db.execute(sql: sql, arguments: StatementArguments(paths))
         }
@@ -734,6 +795,102 @@ public actor MemoryStorage {
         }
     }
 
+    public func vectorSearch(
+        queryVector: [Float],
+        limit: Int,
+        allowedChunkIDs: Set<Int64>? = nil,
+        allowedMemoryTypes: Set<String>? = nil
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+        guard !queryVector.isEmpty else { return [] }
+
+        return try dbQueue.read { db in
+            guard try Self.vectorTableExists(in: db) else {
+                return []
+            }
+
+            if let configuredDimension = try Self.configuredVectorDimension(in: db),
+               configuredDimension != queryVector.count {
+                return []
+            }
+
+            let overfetch = min(max(limit * 6, limit), 5_000)
+            let queryBlob = Self.encodeVector(queryVector)
+
+            // sqlite-vec can hang if we join directly against the vec virtual table.
+            // Query vec results first, then hydrate/filter in a second query.
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT chunk_id, distance
+                FROM \(Self.vectorTableName)
+                WHERE embedding MATCH ? AND k = ?
+                ORDER BY distance
+                """,
+                arguments: [queryBlob, overfetch]
+            )
+
+            var candidates: [(chunkID: Int64, distance: Double)] = rows.compactMap { row in
+                let chunkID: Int64 = row["chunk_id"]
+                let distance: Double = row["distance"]
+                guard distance.isFinite else { return nil }
+                return (chunkID, distance)
+            }
+
+            if let allowedChunkIDs {
+                if allowedChunkIDs.isEmpty {
+                    return []
+                }
+                candidates = candidates.filter { allowedChunkIDs.contains($0.chunkID) }
+            }
+
+            if let allowedMemoryTypes {
+                if allowedMemoryTypes.isEmpty {
+                    return []
+                }
+
+                let candidateIDs = candidates.map(\.chunkID)
+                if candidateIDs.isEmpty {
+                    return []
+                }
+
+                let memoryTypeRows = try Row.fetchAll(
+                    db,
+                    sql: """
+                    SELECT
+                        c.id AS chunk_id,
+                        COALESCE(c.memory_type_override, d.memory_type) AS memory_type
+                    FROM chunks c
+                    JOIN documents d ON d.id = c.document_id
+                    WHERE c.id IN (\(Self.placeholders(count: candidateIDs.count)))
+                    """,
+                    arguments: StatementArguments(candidateIDs)
+                )
+
+                let allowedIDs = Set(
+                    memoryTypeRows.compactMap { row -> Int64? in
+                        let memoryType: String = row["memory_type"]
+                        guard allowedMemoryTypes.contains(memoryType) else { return nil }
+                        let chunkID: Int64 = row["chunk_id"]
+                        return chunkID
+                    }
+                )
+
+                candidates = candidates.filter { allowedIDs.contains($0.chunkID) }
+            }
+
+            return candidates
+                .sorted { lhs, rhs in
+                    if lhs.distance == rhs.distance {
+                        return lhs.chunkID < rhs.chunkID
+                    }
+                    return lhs.distance < rhs.distance
+                }
+                .prefix(limit)
+                .map { LexicalHit(chunkID: $0.chunkID, score: -$0.distance) }
+        }
+    }
+
     public func createContext(id: String, name: String) throws -> String {
         try dbQueue.write { db in
             if let existingID = try String.fetchOne(db, sql: "SELECT id FROM contexts WHERE name = ?", arguments: [name]) {
@@ -922,6 +1079,13 @@ public actor MemoryStorage {
                 table.column("norm", .double).notNull()
             }
 
+            try db.create(table: Self.vectorConfigTableName) { table in
+                table.column("id", .integer).notNull().primaryKey()
+                table.column("embedding_dim", .integer).notNull()
+                table.column("created_at", .double).notNull()
+                table.column("updated_at", .double).notNull()
+            }
+
             try db.create(table: "contexts") { table in
                 table.column("id", .text).primaryKey()
                 table.column("name", .text).notNull().unique(onConflict: .abort)
@@ -984,6 +1148,15 @@ public actor MemoryStorage {
             try db.create(index: "chunks_importance", on: "chunks", columns: ["importance"])
             try db.create(index: "chunks_access_count", on: "chunks", columns: ["access_count"])
             try db.create(index: "chunks_created_at", on: "chunks", columns: ["created_at"])
+        }
+
+        migrator.registerMigration("v6_vector_index_config") { db in
+            try db.create(table: Self.vectorConfigTableName, ifNotExists: true) { table in
+                table.column("id", .integer).notNull().primaryKey()
+                table.column("embedding_dim", .integer).notNull()
+                table.column("created_at", .double).notNull()
+                table.column("updated_at", .double).notNull()
+            }
         }
 
         return migrator
@@ -1116,6 +1289,100 @@ public actor MemoryStorage {
         "where", "which", "who", "why", "with", "would", "you", "your"
     ]
 
+    private static func registerSQLiteVec(on db: Database) throws {
+        guard let sqliteConnection = db.sqliteConnection else {
+            throw SQLiteVecInitializationError(code: SQLITE_MISUSE, message: "Missing sqlite connection handle.")
+        }
+
+        var errorMessagePointer: UnsafeMutablePointer<CChar>?
+        let resultCode = sqlite3_vec_init(sqliteConnection, &errorMessagePointer, nil)
+        defer {
+            if let errorMessagePointer {
+                sqlite3_free(errorMessagePointer)
+            }
+        }
+
+        guard resultCode == SQLITE_OK else {
+            let message = errorMessagePointer.map { String(cString: $0) }
+            throw SQLiteVecInitializationError(code: resultCode, message: message)
+        }
+    }
+
+    private static func vectorTableExists(in db: Database) throws -> Bool {
+        try String.fetchOne(
+            db,
+            sql: """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            arguments: [Self.vectorTableName]
+        ) != nil
+    }
+
+    private static func configuredVectorDimension(in db: Database) throws -> Int? {
+        try Int.fetchOne(
+            db,
+            sql: "SELECT embedding_dim FROM \(Self.vectorConfigTableName) WHERE id = 1"
+        )
+    }
+
+    private static func ensureVectorIndex(in db: Database, dimension: Int) throws {
+        guard dimension > 0 else {
+            throw DatabaseError(message: "Embedding dimension must be greater than zero.")
+        }
+
+        let now = Date().timeIntervalSince1970
+        if let existingDimension = try configuredVectorDimension(in: db) {
+            guard existingDimension == dimension else {
+                throw DatabaseError(
+                    message: "Embedding dimension mismatch. Expected \(existingDimension), got \(dimension)."
+                )
+            }
+
+            if try !vectorTableExists(in: db) {
+                try createVectorTable(in: db, dimension: existingDimension)
+            }
+
+            try db.execute(
+                sql: "UPDATE \(Self.vectorConfigTableName) SET updated_at = ? WHERE id = 1",
+                arguments: [now]
+            )
+            return
+        }
+
+        try createVectorTable(in: db, dimension: dimension)
+        try db.execute(
+            sql: """
+            INSERT INTO \(Self.vectorConfigTableName) (id, embedding_dim, created_at, updated_at)
+            VALUES (1, ?, ?, ?)
+            """,
+            arguments: [dimension, now, now]
+        )
+    }
+
+    private static func createVectorTable(in db: Database, dimension: Int) throws {
+        try db.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
+        try db.execute(
+            sql: """
+            CREATE VIRTUAL TABLE \(Self.vectorTableName) USING vec0(
+                chunk_id INTEGER PRIMARY KEY,
+                embedding float[\(dimension)] distance_metric=cosine
+            )
+            """
+        )
+    }
+
+    private static func deleteVectors(in db: Database, chunkIDs: [Int64]) throws {
+        guard !chunkIDs.isEmpty else { return }
+        guard try vectorTableExists(in: db) else { return }
+
+        try db.execute(
+            sql: "DELETE FROM \(Self.vectorTableName) WHERE chunk_id IN (\(Self.placeholders(count: chunkIDs.count)))",
+            arguments: StatementArguments(chunkIDs)
+        )
+    }
+
     private static func encodeVector(_ vector: [Float]) -> Data {
         let copy = vector
         return copy.withUnsafeBytes { Data($0) }
@@ -1153,5 +1420,17 @@ public actor MemoryStorage {
     private static func decodeTimestamp(_ raw: Double?) -> Date? {
         guard let raw else { return nil }
         return Date(timeIntervalSince1970: raw)
+    }
+}
+
+private struct SQLiteVecInitializationError: Error, LocalizedError {
+    let code: Int32
+    let message: String?
+
+    var errorDescription: String? {
+        if let message, !message.isEmpty {
+            return "Failed to initialize sqlite-vec extension (result code: \(code)): \(message)"
+        }
+        return "Failed to initialize sqlite-vec extension (result code: \(code))."
     }
 }
