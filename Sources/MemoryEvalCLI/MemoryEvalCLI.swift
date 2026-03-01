@@ -161,6 +161,7 @@ enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case coremlLeafIR = "coreml_leaf_ir"
     case coremlRerank = "coreml_rerank"
     case coremlColbertRerank = "coreml_colbert_rerank"
+    case leafirAppleRerank = "leafir_apple_rerank"
 }
 
 private struct StorageCaseResult: Codable {
@@ -2015,6 +2016,38 @@ private func buildConfiguration(
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
+    case .leafirAppleRerank:
+        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
+            let reranker = AppleIntelligenceReranker(
+                maxCandidates: 16,
+                responseTimeoutSeconds: 20
+            )
+            configuration = MemoryConfiguration(
+                databaseURL: databaseURL,
+                embeddingProvider: provider,
+                reranker: reranker,
+                memoryTyping: MemoryTypingConfiguration(
+                    mode: .automatic,
+                    classifier: NLEnhancedMemoryTypeClassifier(),
+                    fallbackType: .factual
+                ),
+                tokenizer: NLWordTokenizer(),
+                positionAwareBlending: PositionAwareBlending(
+                    topRankFusedWeight: 0.58,
+                    midRankFusedWeight: 0.42,
+                    tailRankFusedWeight: 0.28
+                ),
+                ftsTokenizer: NLLemmatizingTokenizer()
+            )
+        } else {
+            throw ValidationError("Apple Intelligence is unavailable. The leafir_apple_rerank profile requires it.")
+        }
+        #else
+        throw ValidationError("Apple Intelligence is unavailable. The leafir_apple_rerank profile requires FoundationModels.")
+        #endif
     }
 
     return configuration
@@ -2372,7 +2405,8 @@ private func suiteLabel(_ suite: SuiteKind) -> String {
 
 private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool {
     switch profile {
-    case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple:
+    case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple,
+         .leafirAppleRerank:
         return true
     case .baseline, .appleTags, .appleStorage, .oracleCeiling, .chunker900, .normalizedBm25,
          .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR, .coremlRerank,

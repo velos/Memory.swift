@@ -194,7 +194,7 @@ public actor AppleIntelligenceReranker: Reranker {
             let cleanSnippet = result.snippet
                 .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let excerpt = String(cleanSnippet.prefix(120))
+            let excerpt = String(cleanSnippet.prefix(300))
             let sourceName = URL(fileURLWithPath: result.documentPath).lastPathComponent
             return """
             id: \(result.chunkID)
