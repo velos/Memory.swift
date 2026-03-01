@@ -9,5 +9,5 @@ DerivedData/
 .netrc
 Evals/**/runs/
 Evals/**/cache/
-Evals/*.sqlite
+Evals/**/*.sqlite
 .env

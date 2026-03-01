@@ -25,7 +25,7 @@ fi
 MODE="$1"
 shift
 
-DATASET_ROOT="${DATASET_ROOT:-./Evals}"
+DATASET_ROOT="${DATASET_ROOT:-./Evals/general}"
 NO_PROVIDER_CACHE_FLAG="--no-cache"
 INDEX_CACHE_FLAG="--no-index-cache"
 
