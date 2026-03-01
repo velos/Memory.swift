@@ -160,6 +160,8 @@ enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case poolingWeightedMean = "pooling_weighted_mean"
     case coremlLeafIR = "coreml_leaf_ir"
     case coremlRerank = "coreml_rerank"
+    case coremlRerankMiniLMInt8 = "coreml_rerank_minilm_int8"
+    case coremlRerankMiniLMPal4 = "coreml_rerank_minilm_pal4"
     case coremlColbertRerank = "coreml_colbert_rerank"
     case leafirAppleRerank = "leafir_apple_rerank"
 }
@@ -1999,6 +2001,46 @@ private func buildConfiguration(
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
+    case .coremlRerankMiniLMInt8:
+        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-int8")
+        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
+        let reranker = try CoreMLReranker(
+            modelURL: rerankerModelURL,
+            identifier: "coreml-minilm-l6-reranker-int8"
+        )
+        configuration = MemoryConfiguration(
+            databaseURL: databaseURL,
+            embeddingProvider: provider,
+            reranker: reranker,
+            memoryTyping: MemoryTypingConfiguration(
+                mode: .automatic,
+                classifier: NLEnhancedMemoryTypeClassifier(),
+                fallbackType: .factual
+            ),
+            tokenizer: NLWordTokenizer(),
+            ftsTokenizer: NLLemmatizingTokenizer()
+        )
+    case .coremlRerankMiniLMPal4:
+        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-pal4")
+        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
+        let reranker = try CoreMLReranker(
+            modelURL: rerankerModelURL,
+            identifier: "coreml-minilm-l6-reranker-pal4"
+        )
+        configuration = MemoryConfiguration(
+            databaseURL: databaseURL,
+            embeddingProvider: provider,
+            reranker: reranker,
+            memoryTyping: MemoryTypingConfiguration(
+                mode: .automatic,
+                classifier: NLEnhancedMemoryTypeClassifier(),
+                fallbackType: .factual
+            ),
+            tokenizer: NLWordTokenizer(),
+            ftsTokenizer: NLLemmatizingTokenizer()
+        )
     case .coremlColbertRerank:
         let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
         let rerankerModelURL = locateCoreMLModel(name: "colbert-17m")
@@ -2410,6 +2452,7 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
         return true
     case .baseline, .appleTags, .appleStorage, .oracleCeiling, .chunker900, .normalizedBm25,
          .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR, .coremlRerank,
+         .coremlRerankMiniLMInt8, .coremlRerankMiniLMPal4,
          .coremlColbertRerank:
         return false
     }

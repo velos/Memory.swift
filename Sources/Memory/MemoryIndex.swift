@@ -570,7 +570,7 @@ public actor MemoryIndex {
 
             let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
             let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
-            let rerankLimit = features.contains(.rerank) ? max(10, min(24, effectiveLimit * 2)) : 0
+            let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
             let expansionLimit = features.contains(.expansion) ? 2 : 0
 
             let searchResults = try await search(

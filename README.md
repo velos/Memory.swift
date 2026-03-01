@@ -17,6 +17,8 @@ Development of `Memory.swift` was fully built using the Codex agent harness and 
 - Persistent contexts for reusable chunk sets
 - Typed memory classification (`factual`, `procedural`, `episodic`, `semantic`, `emotional`, `social`, `contextual`, `temporal`)
 - Default embedding backend with `NLContextualEmbedding`
+- CoreML embedding with LEAF-IR (384-dim, 23M params) and TinyBERT cross-encoder reranking (4.3 MB)
+- Wider rerank candidate pool (40 minimum) for effective reranking
 - Optional Apple Intelligence query expansion and reranking on supported OS versions
 
 ## Targets
@@ -24,6 +26,7 @@ Development of `Memory.swift` was fully built using the Codex agent harness and 
 - `Memory` (core APIs and retrieval engine)
 - `MemoryStorage` (GRDB schema + storage)
 - `MemoryNaturalLanguage` (default embedding provider)
+- `MemoryCoreMLEmbedding` (CoreML LEAF-IR embeddings + TinyBERT reranker)
 - `MemoryAppleIntelligence` (optional Apple Intelligence expansion + reranking providers)
 
 ## Quick Start (Natural Language backend)
@@ -39,6 +42,28 @@ let index = try MemoryIndex(configuration: config)
 
 try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))
+```
+
+## Quick Start (CoreML LEAF-IR + TinyBERT reranker)
+
+```swift
+import Foundation
+import Memory
+import MemoryCoreMLEmbedding
+
+let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
+let embeddingModel = URL(fileURLWithPath: "Models/leaf-ir.mlpackage")
+let rerankerModel = URL(fileURLWithPath: "Models/tinybert-reranker.mlpackage")
+
+let embedder = try CoreMLEmbeddingProvider(modelURL: embeddingModel)
+let reranker = try CoreMLReranker(modelURL: rerankerModel)
+
+let config = MemoryConfiguration(
+    databaseURL: dbURL,
+    embeddingProvider: embedder,
+    reranker: reranker
+)
+let index = try MemoryIndex(configuration: config)
 ```
 
 ## Tool-Oriented API (for agent harnesses)
