@@ -55,7 +55,10 @@ let package = Package(
             name: "MemoryCoreMLEmbedding",
             dependencies: ["Memory"],
             path: "Sources/MemoryCoreMLEmbedding",
-            resources: [.copy("Resources/vocab.txt")]
+            resources: [
+                .copy("Resources/vocab.txt"),
+                .copy("Resources/tokenizer.json"),
+            ]
         ),
         .executableTarget(
             name: "memory_cli",
