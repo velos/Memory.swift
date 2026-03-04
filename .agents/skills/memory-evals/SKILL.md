@@ -31,10 +31,11 @@ swift run memory_eval compare --baseline ./Evals/general/runs/<baseline>.json ./
 
 ## Datasets
 
-There are two dataset roots:
+There are multiple dataset roots:
 
 - `./Evals` — original technical/software-engineering-focused dataset (500 recall queries)
 - `./Evals/general` — diverse general-purpose dataset spanning cooking, travel, health, finance, hobbies, family, work, learning, etc. (250 recall queries)
+- `./Evals/longmemeval` — conversational long-memory benchmark converted from LongMemEval-cleaned (typically 500 recall queries)
 
 Use `./Evals/general` by default unless specifically asked for the technical dataset.
 
@@ -44,6 +45,11 @@ Each dataset root contains:
 To regenerate the general dataset:
 ```bash
 python3 scripts/generate_eval_data_minimax.py --domain-profile general --output-dir ./Evals/general
+```
+
+To generate LongMemEval dataset files:
+```bash
+python3 scripts/convert_longmemeval_to_eval.py --split oracle --output-dir ./Evals/longmemeval
 ```
 
 ## Workflow

@@ -224,6 +224,20 @@ Compare run outputs:
 swift run memory_eval compare ./Evals/runs/*.json
 ```
 
+Convert LongMemEval-cleaned into eval format:
+
+```bash
+python3 scripts/convert_longmemeval_to_eval.py \
+  --split oracle \
+  --output-dir ./Evals/longmemeval
+```
+
+Run evals on LongMemEval:
+
+```bash
+swift run memory_eval run --profile baseline --dataset-root ./Evals/longmemeval
+```
+
 Eval caching defaults:
 - Provider responses: `./Evals/cache/provider/eval_provider_cache.sqlite` (disable with `--no-cache`)
 - Built suite indexes: `./Evals/cache/index/...` (disable with `--no-index-cache`)

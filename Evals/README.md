@@ -118,6 +118,14 @@ Compare runs:
 swift run memory_eval compare ./Evals/runs/*.json
 ```
 
+Convert LongMemEval-cleaned into this format:
+
+```bash
+python3 scripts/convert_longmemeval_to_eval.py \
+  --split oracle \
+  --output-dir ./Evals/longmemeval
+```
+
 ## How To Fill Better Data
 
 - Keep each `storage_cases` item focused on one dominant memory type.
