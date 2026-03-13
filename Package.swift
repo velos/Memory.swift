@@ -11,7 +11,9 @@ let package = Package(
         .library(name: "Memory", targets: ["Memory"]),
         .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
         .library(name: "MemoryAppleIntelligence", targets: ["MemoryAppleIntelligence"]),
+        .library(name: "MemoryCoreMLEmbedding", targets: ["MemoryCoreMLEmbedding"]),
         .executable(name: "memory", targets: ["memory_cli"]),
+        .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -27,8 +29,17 @@ let package = Package(
             name: "MemoryStorage",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
+                "CSQLiteVec",
             ],
             path: "Sources/MemoryStorage"
+        ),
+        .target(
+            name: "CSQLiteVec",
+            path: "Sources/CSQLiteVec",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("SQLITE_CORE", to: "1"),
+            ]
         ),
         .target(
             name: "MemoryNaturalLanguage",
@@ -40,6 +51,15 @@ let package = Package(
             dependencies: ["Memory"],
             path: "Sources/MemoryAppleIntelligence"
         ),
+        .target(
+            name: "MemoryCoreMLEmbedding",
+            dependencies: ["Memory"],
+            path: "Sources/MemoryCoreMLEmbedding",
+            resources: [
+                .copy("Resources/vocab.txt"),
+                .copy("Resources/tokenizer.json"),
+            ]
+        ),
         .executableTarget(
             name: "memory_cli",
             dependencies: [
@@ -50,9 +70,25 @@ let package = Package(
             ],
             path: "Sources/MemoryCLI"
         ),
+        .executableTarget(
+            name: "memory_eval",
+            dependencies: [
+                "Memory",
+                "MemoryNaturalLanguage",
+                "MemoryAppleIntelligence",
+                "MemoryCoreMLEmbedding",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/MemoryEvalCLI"
+        ),
         .testTarget(
             name: "MemoryTests",
-            dependencies: ["Memory"],
+            dependencies: [
+                "Memory",
+                "MemoryStorage",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Tests/MemoryTests"
         ),
         .testTarget(
@@ -67,6 +103,11 @@ let package = Package(
             name: "MemoryPerformanceTests",
             dependencies: ["Memory"],
             path: "Tests/MemoryPerformanceTests"
+        ),
+        .testTarget(
+            name: "MemoryCoreMLEmbeddingTests",
+            dependencies: ["MemoryCoreMLEmbedding"],
+            path: "Tests/MemoryCoreMLEmbeddingTests"
         ),
     ]
 )

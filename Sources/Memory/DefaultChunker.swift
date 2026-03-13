@@ -6,8 +6,8 @@ public struct DefaultChunker: Chunker, Sendable {
     public var tokenizer: any Tokenizer
 
     public init(
-        targetTokenCount: Int = 600,
-        overlapTokenCount: Int = 80,
+        targetTokenCount: Int = 900,
+        overlapTokenCount: Int = 135,
         tokenizer: any Tokenizer = DefaultTokenizer()
     ) {
         self.targetTokenCount = max(50, targetTokenCount)
@@ -16,42 +16,52 @@ public struct DefaultChunker: Chunker, Sendable {
     }
 
     public func chunk(text: String, kind: DocumentKind, sourceURL: URL?) -> [Chunk] {
-        let units = splitIntoUnits(text: text, kind: kind)
-        guard !units.isEmpty else { return [] }
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
         let targetChars = targetTokenCount * 4
         let overlapChars = overlapTokenCount * 4
+        let windowChars = targetChars / 4
+
+        let breakPoints = detectBreakPoints(normalized, kind: kind)
+        let codeFences = findCodeFences(normalized)
 
         var chunks: [Chunk] = []
-        var buffer = ""
+        var position = 0
+        let length = normalized.count
 
-        for unit in units {
-            if buffer.isEmpty {
-                buffer = unit
-                continue
-            }
-
-            if buffer.count + unit.count + 1 <= targetChars {
-                buffer += "\n" + unit
-                continue
-            }
-
-            appendChunk(from: buffer, to: &chunks)
-
-            if overlapChars > 0 {
-                let overlap = String(buffer.suffix(overlapChars))
-                if overlap.isEmpty {
-                    buffer = unit
-                } else {
-                    buffer = overlap + "\n" + unit
+        while position < length {
+            let remaining = length - position
+            if remaining <= targetChars + windowChars / 2 {
+                let content = String(normalized.dropFirst(position))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !content.isEmpty {
+                    appendChunk(from: content, to: &chunks)
                 }
-            } else {
-                buffer = unit
+                break
             }
-        }
 
-        if !buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            appendChunk(from: buffer, to: &chunks)
+            let cutPosition = findBestBreak(
+                in: breakPoints,
+                codeFences: codeFences,
+                after: position,
+                target: position + targetChars,
+                window: windowChars
+            )
+
+            let end = cutPosition ?? (position + targetChars)
+            let safeEnd = min(end, length)
+            let content = String(normalized.dropFirst(position).prefix(safeEnd - position))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty {
+                appendChunk(from: content, to: &chunks)
+            }
+
+            if overlapChars > 0, safeEnd > overlapChars {
+                position = safeEnd - overlapChars
+            } else {
+                position = safeEnd
+            }
         }
 
         return chunks
@@ -70,99 +80,136 @@ public struct DefaultChunker: Chunker, Sendable {
         )
     }
 
-    private func splitIntoUnits(text: String, kind: DocumentKind) -> [String] {
-        switch kind {
-        case .markdown:
-            markdownUnits(text)
-        case .code:
-            codeUnits(text)
-        case .plainText:
-            paragraphUnits(text)
-        }
+    private struct BreakPoint {
+        var position: Int
+        var score: Int
     }
 
-    private func paragraphUnits(_ text: String) -> [String] {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+    private struct CodeFenceRegion {
+        var start: Int
+        var end: Int
     }
 
-    private func markdownUnits(_ text: String) -> [String] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
+    private func detectBreakPoints(_ text: String, kind: DocumentKind) -> [BreakPoint] {
+        let lines = text.components(separatedBy: "\n")
+        var breakPoints: [BreakPoint] = []
+        var charOffset = 0
 
-        var units: [String] = []
-        var current: [String] = []
-
-        for line in lines {
+        for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let isHeading = trimmed.hasPrefix("#")
-            let isSeparator = trimmed.isEmpty
 
-            if isHeading {
-                if !current.isEmpty {
-                    units.append(current.joined(separator: "\n"))
-                    current.removeAll(keepingCapacity: true)
-                }
-                current.append(line)
-            } else if isSeparator {
-                if !current.isEmpty {
-                    units.append(current.joined(separator: "\n"))
-                    current.removeAll(keepingCapacity: true)
-                }
-            } else {
-                current.append(line)
+            let score = breakScore(for: trimmed, kind: kind)
+            if score > 0 {
+                breakPoints.append(BreakPoint(position: charOffset, score: score))
+            }
+
+            charOffset += line.count
+            if index < lines.count - 1 {
+                charOffset += 1
             }
         }
 
-        if !current.isEmpty {
-            units.append(current.joined(separator: "\n"))
-        }
-
-        return units.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return breakPoints
     }
 
-    private func codeUnits(_ text: String) -> [String] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
+    private func breakScore(for line: String, kind: DocumentKind) -> Int {
+        if line.hasPrefix("# ") { return 100 }
+        if line.hasPrefix("## ") { return 90 }
+        if line.hasPrefix("### ") { return 80 }
+        if line.hasPrefix("#### ") { return 70 }
+        if line.hasPrefix("##### ") { return 60 }
+        if line.hasPrefix("###### ") { return 50 }
 
-        var units: [String] = []
-        var current: [String] = []
+        if line.hasPrefix("```") { return 80 }
 
-        func flushCurrent() {
-            let block = current.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !block.isEmpty {
-                units.append(block)
-            }
-            current.removeAll(keepingCapacity: true)
+        if line == "---" || line == "***" || line == "___" { return 60 }
+
+        if line.isEmpty { return 20 }
+
+        if kind == .code && isCodeBoundary(line) { return 70 }
+
+        if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") { return 5 }
+        if let first = line.first, first.isNumber,
+           line.contains(where: { $0 == "." || $0 == ")" }),
+           line.dropFirst().prefix(3).contains(where: { $0 == "." || $0 == ")" }) {
+            return 5
         }
 
-        for line in lines {
+        return 0
+    }
+
+    private func findCodeFences(_ text: String) -> [CodeFenceRegion] {
+        let lines = text.components(separatedBy: "\n")
+        var regions: [CodeFenceRegion] = []
+        var fenceStart: Int?
+        var charOffset = 0
+
+        for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let startsDeclaration = isCodeBoundary(trimmed)
-
-            if startsDeclaration && !current.isEmpty {
-                flushCurrent()
+            if trimmed.hasPrefix("```") {
+                if let start = fenceStart {
+                    regions.append(CodeFenceRegion(start: start, end: charOffset + line.count))
+                    fenceStart = nil
+                } else {
+                    fenceStart = charOffset
+                }
             }
-            current.append(line)
+            charOffset += line.count
+            if index < lines.count - 1 {
+                charOffset += 1
+            }
         }
 
-        flushCurrent()
+        return regions
+    }
 
-        if units.isEmpty {
-            return paragraphUnits(text)
+    private func findBestBreak(
+        in breakPoints: [BreakPoint],
+        codeFences: [CodeFenceRegion],
+        after start: Int,
+        target: Int,
+        window: Int
+    ) -> Int? {
+        let windowStart = max(start + 1, target - window)
+        let windowEnd = target
+
+        var bestPosition: Int?
+        var bestScore: Double = -1
+
+        for bp in breakPoints {
+            guard bp.position >= windowStart, bp.position <= windowEnd else { continue }
+
+            if isInsideCodeFence(bp.position, fences: codeFences) { continue }
+
+            let distance = Double(target - bp.position)
+            let windowSize = Double(window)
+            let distanceRatio = distance / windowSize
+            let decay = 1.0 - (distanceRatio * distanceRatio * 0.7)
+            let finalScore = Double(bp.score) * decay
+
+            if finalScore > bestScore {
+                bestScore = finalScore
+                bestPosition = bp.position
+            }
         }
 
-        return units
+        return bestPosition
+    }
+
+    private func isInsideCodeFence(_ position: Int, fences: [CodeFenceRegion]) -> Bool {
+        for fence in fences {
+            if position > fence.start, position < fence.end {
+                return true
+            }
+        }
+        return false
     }
 
     private func isCodeBoundary(_ line: String) -> Bool {
         let prefixes = [
             "func ", "class ", "struct ", "enum ", "protocol ", "extension ",
             "actor ", "public func", "private func", "internal func",
-            "let ", "var ", "import ", "def ", "interface "
+            "let ", "var ", "import ", "def ", "interface ",
         ]
         return prefixes.contains { line.hasPrefix($0) }
     }

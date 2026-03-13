@@ -145,6 +145,96 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func strongLexicalSignalSkipsQueryExpansion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("runbook.md"),
+            "incident response runbook. The incident response runbook covers incident response runbook procedures. Follow the incident response runbook for incident response runbook compliance. incident response runbook steps are critical."
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "general observations and feedback collected during the quarterly planning session"
+        )
+        for i in 0..<6 {
+            try writeFile(
+                docs.appendingPathComponent("filler\(i).md"),
+                "unrelated content about topic number \(i) covering various subjects"
+            )
+        }
+
+        let expander = RecordingQueryExpander(alternates: ["deployment rollout checklist"])
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            queryExpander: expander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "incident response runbook",
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let calls = await expander.calls()
+        #expect(calls == 0)
+    }
+
+    @Test
+    func semanticQueryEmbeddingsAreBatchedAcrossExpansions() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deploy.md"),
+            "deployment rollout checklist and service cutover notes"
+        )
+        try writeFile(
+            docs.appendingPathComponent("ops.md"),
+            "incident response timeline and postmortem follow-up items"
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            queryExpander: StaticQueryExpander(alternates: ["deployment rollout", "service cutover"]),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "release process",
+                limit: 3,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [3])
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -179,5 +269,90 @@ struct MemoryIndexTests {
         #expect(results.first?.documentPath.contains("b.md") == true)
         #expect(results.first?.score.rerank ?? 0 > 0.9)
         #expect(results.first?.score.blended ?? 0 > results.first?.score.fused ?? 0)
+    }
+
+    @Test
+    func contentTagBonusCanLiftTaggedDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("a-garden.md"), "tomatoes and compost planning notes")
+        try writeFile(docs.appendingPathComponent("z-deploy.md"), "deployment runbook and service cutover checklist")
+
+        let tagger = StaticContentTagger(
+            tagsByNeedle: [
+                "ship safely": [ContentTag(name: "deployment", confidence: 0.95)],
+                "deployment runbook": [ContentTag(name: "deployment", confidence: 0.90)],
+                "tomatoes": [ContentTag(name: "gardening", confidence: 0.90)],
+            ]
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            contentTagger: tagger,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "ship safely",
+                limit: 2,
+                rerankLimit: 0,
+                expansionLimit: 0
+            )
+        )
+
+        #expect(results.count == 2)
+        #expect(results.first?.documentPath.contains("z-deploy.md") == true)
+        #expect(results.first?.score.tag ?? 0 > 0)
+    }
+
+    @Test
+    func rerankerCanLiftRelevantResultBeyondInitialTopWindow() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<70 {
+            try writeFile(
+                docs.appendingPathComponent(String(format: "doc-%03d.md", index)),
+                "alpha planning roadmap notes"
+            )
+        }
+        try writeFile(
+            docs.appendingPathComponent("zzz-target.md"),
+            "alpha planning roadmap notes"
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            reranker: ClosureReranker(scoreForCandidate: { result in
+                result.documentPath.contains("zzz-target.md") ? 1.0 : 0.1
+            }),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha planning",
+                limit: 5,
+                rerankLimit: 80,
+                expansionLimit: 0
+            )
+        )
+
+        #expect(results.isEmpty == false)
+        #expect(results.first?.documentPath.contains("zzz-target.md") == true)
     }
 }

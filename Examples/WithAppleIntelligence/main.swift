@@ -14,6 +14,12 @@ struct AppleIntelligenceExample {
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
             config.queryExpander = AppleIntelligenceQueryExpander()
             config.reranker = AppleIntelligenceReranker()
+            config.memoryTyping.classifier = FallbackMemoryTypeClassifier(
+                primary: AppleIntelligenceMemoryTypeClassifier(),
+                fallback: HeuristicMemoryTypeClassifier()
+            )
+        } else {
+            config.memoryTyping.classifier = HeuristicMemoryTypeClassifier()
         }
 
         let index = try MemoryIndex(configuration: config)
