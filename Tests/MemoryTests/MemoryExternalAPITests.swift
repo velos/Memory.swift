@@ -131,4 +131,118 @@ struct MemoryExternalAPITests {
         )
         #expect(secondSemantic.contains(where: { $0.content.contains("zulu-only memory marker") }))
     }
+
+    @Test
+    func memorySearchAndMemoryGetSupportAgentStyleLookup() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+        let profilePath = docs.appendingPathComponent("profile.md")
+
+        try writeFile(
+            profilePath,
+            """
+            # Profile
+            Name: Casey
+            Favorite tea: jasmine green tea
+            Timezone: PST
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "General notes about travel plans and weekend activities."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "What tea does Casey prefer?",
+            limit: 5,
+            includeLineRanges: true
+        )
+
+        #expect(refs.isEmpty == false)
+        let profileRef = try #require(refs.first(where: { $0.documentPath.hasSuffix("profile.md") }))
+        #expect(profileRef.lineRange != nil)
+
+        let focused = try await index.memoryGet(reference: profileRef)
+        #expect(focused.documentPath == profilePath.path)
+        #expect(focused.source == .fileSystem)
+        #expect(focused.lineRange == profileRef.lineRange)
+        #expect(focused.content.contains("Favorite tea: jasmine green tea"))
+
+        let sliced = try await index.memoryGet(path: "profile.md", lineRange: MemoryLineRange(start: 3, end: 3))
+
+        #expect(sliced.documentPath == profilePath.path)
+        #expect(sliced.source == .fileSystem)
+        #expect(sliced.content.contains("Favorite tea: jasmine green tea"))
+    }
+
+    @Test
+    func memoryGetFallsBackToIndexedContentForIngestedMemory() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let saved = try await index.save(
+            text: "I prefer concise progress updates after lunch.",
+            category: .preference
+        )
+
+        let fetched = try await index.memoryGet(path: saved.documentPath)
+        #expect(fetched.source == .indexed)
+        #expect(fetched.content.contains("prefer concise progress updates"))
+        #expect(fetched.lineRange == MemoryLineRange(start: 1, end: 1))
+    }
+
+    @Test
+    func memorySearchCanDedupeToOneResultPerDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let repeated = Array(repeating: "incident response runbook playbook", count: 80).joined(separator: " ")
+        try writeFile(docs.appendingPathComponent("runbook.md"), repeated)
+        try writeFile(docs.appendingPathComponent("unrelated.md"), "gardening soil sunlight watering schedule")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                chunker: DefaultChunker(targetTokenCount: 20, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let nonDeduped = try await index.memorySearch(
+            query: "incident response runbook",
+            limit: 5,
+            dedupeDocuments: false,
+            includeLineRanges: false
+        )
+        let deduped = try await index.memorySearch(
+            query: "incident response runbook",
+            limit: 5,
+            dedupeDocuments: true,
+            includeLineRanges: false
+        )
+
+        #expect(nonDeduped.count > 1)
+        #expect(nonDeduped.map(\.documentPath).count > Set(nonDeduped.map(\.documentPath)).count)
+        #expect(deduped.map(\.documentPath).count == Set(deduped.map(\.documentPath)).count)
+        #expect(deduped.contains(where: { $0.documentPath.hasSuffix("runbook.md") }))
+    }
 }

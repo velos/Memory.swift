@@ -305,6 +305,46 @@ public struct MemoryRecallResponse: Sendable, Codable, Hashable {
     }
 }
 
+public enum MemoryDocumentSource: String, Sendable, Codable, Hashable {
+    case fileSystem = "file_system"
+    case indexed
+}
+
+public struct MemoryLineRange: Sendable, Codable, Hashable {
+    public let start: Int
+    public let end: Int
+
+    public init(start: Int, end: Int) {
+        self.start = max(1, min(start, end))
+        self.end = max(1, max(start, end))
+    }
+
+    public var closedRange: ClosedRange<Int> {
+        start...end
+    }
+}
+
+public struct MemorySearchReference: Sendable, Codable, Hashable {
+    public let chunkID: Int64
+    public let documentPath: String
+    public let title: String?
+    public let snippet: String
+    public let lineRange: MemoryLineRange?
+    public let source: MemoryDocumentSource
+    public let memoryType: MemoryType
+    public let memoryTypeSource: MemoryTypeSource
+    public let memoryTypeConfidence: Double?
+    public let score: SearchScoreBreakdown
+}
+
+public struct MemoryGetResponse: Sendable, Codable, Hashable {
+    public let documentPath: String
+    public let source: MemoryDocumentSource
+    public let totalLineCount: Int
+    public let lineRange: MemoryLineRange
+    public let content: String
+}
+
 public enum DocumentKind: String, Sendable {
     case markdown
     case code

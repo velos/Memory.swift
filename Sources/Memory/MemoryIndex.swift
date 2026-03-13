@@ -646,6 +646,165 @@ public actor MemoryIndex {
         }
     }
 
+    public func memorySearch(
+        query: String,
+        limit: Int = 10,
+        features: RecallFeatures = .hybridDefault,
+        conversationContext: [ConversationMessage] = [],
+        memoryTypes: Set<MemoryType>? = nil,
+        dedupeDocuments: Bool = true,
+        includeLineRanges: Bool = true,
+        events: SearchEventHandler? = nil
+    ) async throws -> [MemorySearchReference] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        let effectiveLimit = max(1, limit)
+        var queryText = normalizedQuery
+        var plannedMemoryTypes = memoryTypes
+
+        if features.contains(.planner), let planner = configuration.recallPlanner {
+            do {
+                if let plan = try await planner.plan(
+                    query: normalizedQuery,
+                    conversationContext: conversationContext,
+                    features: features
+                ) {
+                    let plannedQuery = plan.query.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !plannedQuery.isEmpty {
+                        queryText = plannedQuery
+                    }
+                    if let candidateTypes = plan.memoryTypes {
+                        plannedMemoryTypes = candidateTypes
+                    }
+                }
+            } catch {
+                // Planner failures should not break retrieval.
+            }
+        }
+
+        let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
+        let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
+        let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
+        let expansionLimit = features.contains(.expansion) ? 2 : 0
+        let searchLimit = dedupeDocuments
+            ? min(400, max(effectiveLimit * 6, effectiveLimit))
+            : effectiveLimit
+
+        let searchResults = try await search(
+            SearchQuery(
+                text: queryText,
+                limit: searchLimit,
+                semanticCandidateLimit: semanticLimit,
+                lexicalCandidateLimit: lexicalLimit,
+                rerankLimit: rerankLimit,
+                expansionLimit: expansionLimit,
+                memoryTypes: plannedMemoryTypes,
+                includeTagScoring: features.contains(.tags)
+            ),
+            events: events
+        )
+
+        var references: [MemorySearchReference] = []
+        references.reserveCapacity(effectiveLimit)
+
+        var seenDocumentKeys: Set<String> = []
+        var documentTextCache: [String: String] = [:]
+
+        for result in searchResults {
+            if dedupeDocuments {
+                let key = normalizedComparisonKey(for: result.documentPath)
+                guard seenDocumentKeys.insert(key).inserted else { continue }
+            }
+
+            let source = resolveDocumentSource(for: result.documentPath)
+            let lineRange: MemoryLineRange?
+            if includeLineRanges {
+                let documentText: String?
+                if let cached = documentTextCache[result.documentPath] {
+                    documentText = cached
+                } else {
+                    let loaded = await loadDocumentTextIfAvailable(for: result.documentPath)
+                    documentText = loaded
+                    if let loaded {
+                        documentTextCache[result.documentPath] = loaded
+                    }
+                }
+
+                if let documentText {
+                    lineRange = inferLineRange(
+                        in: documentText,
+                        chunkText: result.content,
+                        snippet: result.snippet
+                    )
+                } else {
+                    lineRange = nil
+                }
+            } else {
+                lineRange = nil
+            }
+
+            references.append(
+                MemorySearchReference(
+                    chunkID: result.chunkID,
+                    documentPath: result.documentPath,
+                    title: result.title,
+                    snippet: result.snippet,
+                    lineRange: lineRange,
+                    source: source,
+                    memoryType: result.memoryType,
+                    memoryTypeSource: result.memoryTypeSource,
+                    memoryTypeConfidence: result.memoryTypeConfidence,
+                    score: result.score
+                )
+            )
+
+            if references.count >= effectiveLimit {
+                break
+            }
+        }
+
+        if !references.isEmpty {
+            do {
+                try await storage.recordChunkAccesses(references.map(\.chunkID))
+            } catch {
+                throw normalizeError(error)
+            }
+        }
+
+        return references
+    }
+
+    public func memoryGet(
+        path: String,
+        lineRange: MemoryLineRange? = nil
+    ) async throws -> MemoryGetResponse {
+        let resolvedPath = try await resolveDocumentPath(path)
+        let loaded = try await loadDocumentText(for: resolvedPath)
+        let lines = {
+            let split = splitLines(from: loaded.content)
+            return split.isEmpty ? [""] : split
+        }()
+        let totalLineCount = max(1, lines.count)
+        let clampedRange = clampLineRange(lineRange, totalLineCount: totalLineCount)
+
+        let lowerIndex = max(0, clampedRange.start - 1)
+        let upperIndex = max(lowerIndex, clampedRange.end - 1)
+        let selected = Array(lines[lowerIndex...upperIndex]).joined(separator: "\n")
+
+        return MemoryGetResponse(
+            documentPath: resolvedPath,
+            source: loaded.source,
+            totalLineCount: totalLineCount,
+            lineRange: clampedRange,
+            content: selected
+        )
+    }
+
+    public func memoryGet(reference: MemorySearchReference) async throws -> MemoryGetResponse {
+        try await memoryGet(path: reference.documentPath, lineRange: reference.lineRange)
+    }
+
     private func makeIngestPath(text: String, category: MemoryCategory) -> String {
         let key = "\(category.rawValue)\n\(text)"
         let digest = SHA256.hash(data: Data(key.utf8))
@@ -1422,6 +1581,7 @@ public actor MemoryIndex {
         let effectiveRerankCount = min(max(1, rerankCount), fusedResults.count)
         let rerankable = Array(fusedResults.prefix(effectiveRerankCount))
         let remaining = Array(fusedResults.dropFirst(effectiveRerankCount))
+        let maxFusedScore = max(0, fusedResults.first?.score.fused ?? 0)
 
         // Record original RRF rank for each candidate (1-indexed).
         var originalRankByChunkID: [Int64: Int] = [:]
@@ -1456,24 +1616,23 @@ public actor MemoryIndex {
             return updated
         }
 
-        // Blend using inverse original rank (1/rrfRank) instead of raw fused score,
-        // so retrieval position and reranker score are on comparable 0-1 scales.
+        // Normalize fused scores into a 0-1 band so reranker scores can meaningfully
+        // reorder the window without discarding the original retrieval signal.
         for index in reranked.indices {
             let chunkID = reranked[index].chunkID
             let rrfRank = originalRankByChunkID[chunkID] ?? (index + 1)
-            let rrfScore = 1.0 / Double(rrfRank)
+            let fusedScore = normalizedFusedScore(reranked[index].score.fused, maxFusedScore: maxFusedScore)
             reranked[index].score.blended = configuration.positionAwareBlending.blend(
-                fused: rrfScore,
+                fused: fusedScore,
                 rerank: reranked[index].score.rerank,
                 position: rrfRank
             )
         }
 
-        let untouched = remaining.enumerated().map { offset, candidate -> SearchResult in
+        let untouched = remaining.map { candidate -> SearchResult in
             var updated = candidate
             updated.score.rerank = 0
-            let tailRank = effectiveRerankCount + offset + 1
-            updated.score.blended = 1.0 / Double(tailRank)
+            updated.score.blended = normalizedFusedScore(updated.score.fused, maxFusedScore: maxFusedScore)
             return updated
         }
 
@@ -1489,6 +1648,11 @@ public actor MemoryIndex {
     private func effectiveRerankCount(query: SearchQuery, fusedCount: Int) -> Int {
         guard query.rerankLimit > 0, fusedCount > 0 else { return 0 }
         return min(fusedCount, query.rerankLimit)
+    }
+
+    private func normalizedFusedScore(_ fused: Double, maxFusedScore: Double) -> Double {
+        guard maxFusedScore > 0 else { return min(1, max(0, fused)) }
+        return min(1, max(0, fused / maxFusedScore))
     }
 
     private func fusionWeights(for queryText: String) -> (semantic: Double, lexical: Double, recency: Double) {
@@ -1640,6 +1804,204 @@ public actor MemoryIndex {
             return typed
         }
         return MemoryError.storage(error.localizedDescription)
+    }
+
+    private func resolveDocumentPath(_ inputPath: String) async throws -> String {
+        let trimmed = inputPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw MemoryError.configuration("Document path must not be empty")
+        }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let standardizedFilePath: String?
+        if expanded.hasPrefix("/") {
+            standardizedFilePath = URL(fileURLWithPath: expanded).standardizedFileURL.path
+            if let standardizedFilePath, fileManager.fileExists(atPath: standardizedFilePath) {
+                return standardizedFilePath
+            }
+        } else {
+            standardizedFilePath = nil
+        }
+
+        let indexedPaths: [String]
+        do {
+            indexedPaths = try await storage.listDocumentPaths()
+        } catch {
+            throw normalizeError(error)
+        }
+
+        let exactCandidates = [trimmed, expanded, standardizedFilePath].compactMap { candidate in
+            candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        for candidate in exactCandidates where !candidate.isEmpty {
+            if indexedPaths.contains(candidate) {
+                return candidate
+            }
+        }
+
+        for candidate in exactCandidates where !candidate.isEmpty {
+            let normalizedCandidate = normalizedComparisonKey(for: candidate)
+            if let match = indexedPaths.first(where: { normalizedComparisonKey(for: $0) == normalizedCandidate }) {
+                return match
+            }
+        }
+
+        var suffixMatches: [String] = []
+        for rawSuffix in exactCandidates where !rawSuffix.isEmpty {
+            let suffix = normalizePathSuffix(rawSuffix)
+            guard !suffix.isEmpty else { continue }
+
+            let matches = indexedPaths.filter { candidate in
+                let normalizedCandidate = candidate.replacingOccurrences(of: "\\", with: "/")
+                return normalizedCandidate == suffix || normalizedCandidate.hasSuffix("/\(suffix)")
+            }
+
+            if !matches.isEmpty {
+                suffixMatches = matches
+                break
+            }
+        }
+
+        let uniqueMatches = Array(Set(suffixMatches)).sorted()
+        if uniqueMatches.count == 1, let match = uniqueMatches.first {
+            return match
+        }
+
+        if uniqueMatches.count > 1 {
+            let rendered = uniqueMatches.prefix(3).joined(separator: ", ")
+            throw MemoryError.search("Ambiguous document path '\(trimmed)'; matches: \(rendered)")
+        }
+
+        throw MemoryError.search("Document not found for path '\(trimmed)'")
+    }
+
+    private func resolveDocumentSource(for path: String) -> MemoryDocumentSource {
+        if path.hasPrefix("memory://") {
+            return .indexed
+        }
+        return fileManager.fileExists(atPath: path) ? .fileSystem : .indexed
+    }
+
+    private func loadDocumentText(for path: String) async throws -> (content: String, source: MemoryDocumentSource) {
+        let source = resolveDocumentSource(for: path)
+
+        if source == .fileSystem, let content = try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8) {
+            return (content: content, source: .fileSystem)
+        }
+
+        do {
+            let chunkMetadata = try await storage.fetchChunkMetadataForDocument(path: path)
+            guard !chunkMetadata.isEmpty else {
+                throw MemoryError.search("Document not found at path '\(path)'")
+            }
+            let reconstructed = chunkMetadata
+                .map(\.content)
+                .joined(separator: "\n\n")
+            return (content: reconstructed, source: .indexed)
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
+    private func loadDocumentTextIfAvailable(for path: String) async -> String? {
+        do {
+            let loaded = try await loadDocumentText(for: path)
+            return loaded.content
+        } catch {
+            return nil
+        }
+    }
+
+    private func normalizePathSuffix(_ rawPath: String) -> String {
+        var normalized = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "/")
+
+        if normalized.hasPrefix("./") {
+            normalized.removeFirst(2)
+        }
+
+        while normalized.hasPrefix("/") {
+            normalized.removeFirst()
+        }
+
+        return normalized
+    }
+
+    private func normalizeLineEndings(in text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private func splitLines(from text: String) -> [String] {
+        let normalized = normalizeLineEndings(in: text)
+        return normalized
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+    }
+
+    private func clampLineRange(_ requested: MemoryLineRange?, totalLineCount: Int) -> MemoryLineRange {
+        let safeTotal = max(1, totalLineCount)
+        guard let requested else {
+            return MemoryLineRange(start: 1, end: safeTotal)
+        }
+
+        let clampedStart = min(max(1, requested.start), safeTotal)
+        let clampedEnd = min(max(clampedStart, requested.end), safeTotal)
+        return MemoryLineRange(start: clampedStart, end: clampedEnd)
+    }
+
+    private func inferLineRange(in documentText: String, chunkText: String, snippet: String) -> MemoryLineRange? {
+        let normalizedDocument = normalizeLineEndings(in: documentText)
+        guard !normalizedDocument.isEmpty else { return nil }
+
+        var candidates: [String] = []
+        candidates.reserveCapacity(4)
+
+        let normalizedChunk = normalizeLineEndings(in: chunkText).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedChunk.isEmpty {
+            candidates.append(normalizedChunk)
+            candidates.append(String(normalizedChunk.prefix(180)))
+        }
+
+        let normalizedSnippet = normalizeLineEndings(in: snippet).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedSnippet.isEmpty {
+            candidates.append(normalizedSnippet)
+        }
+
+        for candidate in candidates {
+            guard candidate.count >= 8 else { continue }
+
+            if let range = normalizedDocument.range(of: candidate) {
+                return lineRange(in: normalizedDocument, for: range)
+            }
+            if let range = normalizedDocument.range(of: candidate, options: [.caseInsensitive, .diacriticInsensitive]) {
+                return lineRange(in: normalizedDocument, for: range)
+            }
+        }
+
+        return nil
+    }
+
+    private func lineRange(in text: String, for characterRange: Range<String.Index>) -> MemoryLineRange {
+        let startLine = lineNumber(at: characterRange.lowerBound, in: text)
+        let endCharacterIndex: String.Index
+        if characterRange.isEmpty {
+            endCharacterIndex = characterRange.lowerBound
+        } else {
+            endCharacterIndex = text.index(before: characterRange.upperBound)
+        }
+        let endLine = lineNumber(at: endCharacterIndex, in: text)
+        return MemoryLineRange(start: startLine, end: max(startLine, endLine))
+    }
+
+    private func lineNumber(at index: String.Index, in text: String) -> Int {
+        var line = 1
+        for character in text[..<index] where character == "\n" {
+            line += 1
+        }
+        return line
     }
 }
 
