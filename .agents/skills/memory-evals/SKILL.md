@@ -44,12 +44,12 @@ Each dataset root contains:
 
 To regenerate the general dataset:
 ```bash
-python3 scripts/generate_eval_data_minimax.py --domain-profile general --output-dir ./Evals/general
+python3 Scripts/generate_eval_data_minimax.py --domain-profile general --output-dir ./Evals/general
 ```
 
 To generate LongMemEval dataset files:
 ```bash
-python3 scripts/convert_longmemeval_to_eval.py --split oracle --output-dir ./Evals/longmemeval
+python3 Scripts/convert_longmemeval_to_eval.py --split oracle --output-dir ./Evals/longmemeval
 ```
 
 ## Workflow
@@ -103,8 +103,8 @@ Apple Intelligence profiles (require macOS 26+ / iOS 26+):
 
 The `coreml_leaf_ir` profile uses the MongoDB LEAF-IR model converted to CoreML:
 - Model path: `Models/leaf-ir.mlpackage` (tracked via Git LFS)
-- Conversion script: `scripts/convert_leaf_ir_coreml.py`
-- Verification script: `scripts/verify_leaf_ir_coreml.py`
+- Conversion script: `Scripts/convert_leaf_ir_coreml.py`
+- Verification script: `Scripts/verify_leaf_ir_coreml.py`
 - The model is compiled from `.mlpackage` at runtime (first run may be slower)
 - Embedding dimension: 384, max sequence length: 512
 

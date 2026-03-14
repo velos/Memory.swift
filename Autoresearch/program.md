@@ -6,7 +6,7 @@ The outer agent for this workflow is OpenCode. The repo itself is not the agent.
 
 ## Monorepo note
 
-This project lives inside the `Memory.swift` repo. Always stage only `tools/autoresearch/` paths unless you are explicitly changing `Memory.swift` runtime code as part of the experiment system. Never use blind `git add -A`.
+This project lives inside the `Memory.swift` repo. Always stage only `Autoresearch/` paths unless you are explicitly changing `Memory.swift` runtime code as part of the experiment system. Never use blind `git add -A`.
 
 ## Setup
 
@@ -20,7 +20,7 @@ To start a new run:
    - `program.md`
 3. Run `uv run prepare.py` once if the cache is missing.
 4. Confirm that:
-   - you are inside `tools/autoresearch/`
+   - you are inside `Autoresearch/`
    - the local `memory_eval` binary was built from the parent `Memory.swift` checkout
    - the parent repo contains `Evals/` and `Models/`
    - `typing_train.jsonl`, `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/datasets/`
@@ -98,7 +98,7 @@ Loop forever:
 
 1. Inspect the current git state.
 2. Edit only `train.py`.
-3. `git add tools/autoresearch/train.py && git commit -m "experiment: <description>"`
+3. `git add Autoresearch/train.py && git commit -m "experiment: <description>"`
 4. Run `uv run train.py > run.log 2>&1`
 5. If the run crashes, inspect the stack trace with `tail -n 80 run.log`, fix the issue in `train.py`, and retry.
 6. If the run succeeds, append the result to `results.tsv`.

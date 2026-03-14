@@ -235,13 +235,13 @@ swift run memory search "API" --all --files --min-score 0.3
 Generate datasets with MiniMax (Anthropic-compatible API):
 
 ```bash
-python3 scripts/generate_eval_data_minimax.py --dataset-root ./Evals --env-file .env --overwrite
+python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals --env-file .env --overwrite
 ```
 
 Generate datasets with Codex (`gpt-5.2`) in atomic batches:
 
 ```bash
-python3 scripts/generate_eval_data_codex.py \
+python3 Scripts/generate_eval_data_codex.py \
   --dataset-root ./Evals \
   --model gpt-5.2 \
   --storage-batch-size 6 \
@@ -295,7 +295,7 @@ swift run memory_eval compare ./Evals/runs/*.json
 Convert LongMemEval-cleaned into eval format:
 
 ```bash
-python3 scripts/convert_longmemeval_to_eval.py \
+python3 Scripts/convert_longmemeval_to_eval.py \
   --split oracle \
   --output-dir ./Evals/longmemeval
 ```
@@ -309,3 +309,16 @@ swift run memory_eval run --profile baseline --dataset-root ./Evals/longmemeval
 Eval caching defaults:
 - Provider responses: `./Evals/cache/provider/eval_provider_cache.sqlite` (disable with `--no-cache`)
 - Built suite indexes: `./Evals/cache/index/...` (disable with `--no-index-cache`)
+
+## Autoresearch
+
+The in-repo autonomous optimization loop for CoreML retrieval models lives in `./Autoresearch`.
+
+```bash
+cd Autoresearch
+uv sync
+uv run prepare.py
+uv run train.py
+```
+
+See `./Autoresearch/README.md` and `./Autoresearch/program.md` for the workflow and guardrails.

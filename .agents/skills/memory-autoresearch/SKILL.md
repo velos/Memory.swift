@@ -1,17 +1,17 @@
 ---
 name: memory-autoresearch
-description: Explain and operate the `Memory.swift` autoresearch loop in `tools/autoresearch`. Use when asked what the autoresearch tooling is, how the optimization loop works, how to bootstrap it, how to kick off a run, or how to inspect its outputs and status.
+description: Explain and operate the `Memory.swift` autoresearch loop in `Autoresearch`. Use when asked what the autoresearch tooling is, how the optimization loop works, how to bootstrap it, how to kick off a run, or how to inspect its outputs and status.
 ---
 
 # Memory Autoresearch
 
 Understand the in-repo autoresearch tool before running anything. Start by reading:
 
-- `tools/autoresearch/README.md`
-- `tools/autoresearch/program.md`
-- `tools/autoresearch/train.py`
+- `Autoresearch/README.md`
+- `Autoresearch/program.md`
+- `Autoresearch/train.py`
 
-Read `tools/autoresearch/prepare.py` only if you need to confirm bootstrap behavior or cache outputs.
+Read `Autoresearch/prepare.py` only if you need to confirm bootstrap behavior or cache outputs.
 
 ## What It Is
 
@@ -25,13 +25,13 @@ Explain the tool as:
 
 Mention these paths when useful:
 
-- tool root: `tools/autoresearch`
+- tool root: `Autoresearch`
 - cache root: `~/.cache/memory-swift-autoresearch/`
-- experiment ledger: `tools/autoresearch/results.tsv`
+- experiment ledger: `Autoresearch/results.tsv`
 
 ## Kick Off
 
-When the user wants to start the loop, run from `tools/autoresearch`:
+When the user wants to start the loop, run from `Autoresearch`:
 
 ```bash
 uv sync
@@ -46,7 +46,7 @@ uv run train.py > run.log 2>&1
 tail -n 80 run.log
 ```
 
-Before running `train.py`, check `ACTIVE_COMPONENT` and any mutable knobs in `tools/autoresearch/train.py`.
+Before running `train.py`, check `ACTIVE_COMPONENT` and any mutable knobs in `Autoresearch/train.py`.
 
 ## What To Report
 
@@ -63,7 +63,7 @@ After a run, report:
 - `average_loss`
 - `status`
 
-Also mention whether a row was appended to `tools/autoresearch/results.tsv`.
+Also mention whether a row was appended to `Autoresearch/results.tsv`.
 
 ## Workflow Notes
 

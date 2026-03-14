@@ -37,7 +37,7 @@ Requirements:
 - [uv](https://docs.astral.sh/uv/)
 
 ```bash
-cd tools/autoresearch
+cd Autoresearch
 
 # install dependencies
 uv sync
