@@ -1,6 +1,6 @@
 import Foundation
 import CSQLiteVec
-import GRDB
+import SQLiteSupport
 
 public struct StoredChunkTag: Sendable, Codable, Hashable {
     public var name: String
@@ -222,9 +222,22 @@ public struct LexicalHit: Sendable {
 }
 
 public actor MemoryStorage {
-    private let dbQueue: DatabaseQueue
+    private let database: SQLiteDatabase
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
+    private static let schemaMetadataTableName = "memory_schema_metadata"
+    private static let schemaVersion = 1
+    private static let legacyTableNames: Set<String> = [
+        "grdb_migrations",
+        "documents",
+        "chunks",
+        "embeddings",
+        "contexts",
+        "context_chunks",
+        "chunks_fts",
+        vectorConfigTableName,
+        vectorTableName,
+    ]
 
     public init(databaseURL: URL) throws {
         try FileManager.default.createDirectory(
@@ -232,54 +245,47 @@ public actor MemoryStorage {
             withIntermediateDirectories: true
         )
 
-        var configuration = Configuration()
-        configuration.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA foreign_keys = ON")
-            try Self.registerSQLiteVec(on: db)
-        }
-
-        self.dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
-        try Self.makeMigrator().migrate(dbQueue)
+        self.database = try Self.openDatabase(at: databaseURL)
     }
 
     public func wipeIndexData() throws {
-        try dbQueue.write { db in
-            try db.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
-            try db.execute(sql: "DELETE FROM \(Self.vectorConfigTableName)")
-            try db.execute(sql: "DELETE FROM context_chunks")
-            try db.execute(sql: "DELETE FROM embeddings")
-            try db.execute(sql: "DELETE FROM chunks")
-            try db.execute(sql: "DELETE FROM documents")
+        try database.transaction {
+            try database.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
+            try database.execute(sql: "DELETE FROM \(Self.vectorConfigTableName)")
+            try database.execute(sql: "DELETE FROM context_chunks")
+            try database.execute(sql: "DELETE FROM embeddings")
+            try database.execute(sql: "DELETE FROM chunks")
+            try database.execute(sql: "DELETE FROM documents")
         }
     }
 
     public func replaceDocument(_ input: StoredDocumentInput) throws {
-        try dbQueue.write { db in
-            let existingChunkIDs = try Int64.fetchAll(
-                db,
+        try database.transaction {
+            let existingChunkIDs = try database.fetchAll(
                 sql: """
                 SELECT c.id
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE d.path = ?
                 """,
-                arguments: [input.path]
+                arguments: [input.path],
+                as: Int64.self
             )
             if !existingChunkIDs.isEmpty {
-                try Self.deleteVectors(in: db, chunkIDs: existingChunkIDs)
+                try Self.deleteVectors(in: database, chunkIDs: existingChunkIDs)
             }
 
-            try db.execute(sql: "DELETE FROM documents WHERE path = ?", arguments: [input.path])
+            try database.execute(sql: "DELETE FROM documents WHERE path = ?", arguments: [input.path])
 
             if let firstChunk = input.chunks.first {
                 try Self.ensureVectorIndex(
-                    in: db,
+                    in: database,
                     dimension: firstChunk.embedding.count
                 )
             }
 
             let now = Date().timeIntervalSince1970
-            try db.execute(
+            try database.execute(
                 sql: """
                 INSERT INTO documents (
                     path,
@@ -307,9 +313,9 @@ public actor MemoryStorage {
                 ]
             )
 
-            let documentID = db.lastInsertedRowID
+            let documentID = database.lastInsertRowID
             for chunk in input.chunks {
-                try db.execute(
+                try database.execute(
                     sql: """
                     INSERT INTO chunks (
                         document_id,
@@ -347,15 +353,15 @@ public actor MemoryStorage {
                     ]
                 )
 
-                let chunkID = db.lastInsertedRowID
-                if let configuredDimension = try Self.configuredVectorDimension(in: db),
+                let chunkID = database.lastInsertRowID
+                if let configuredDimension = try Self.configuredVectorDimension(in: database),
                    configuredDimension != chunk.embedding.count {
-                    throw DatabaseError(
+                    throw SQLiteError(
                         message: "Embedding dimension mismatch. Expected \(configuredDimension), got \(chunk.embedding.count)."
                     )
                 }
 
-                try db.execute(
+                try database.execute(
                     sql: """
                     INSERT INTO embeddings (chunk_id, dim, vector_blob, norm)
                     VALUES (?, ?, ?, ?)
@@ -368,8 +374,8 @@ public actor MemoryStorage {
                     ]
                 )
 
-                if try Self.vectorTableExists(in: db) {
-                    try db.execute(
+                if try Self.vectorTableExists(in: database) {
+                    try database.execute(
                         sql: """
                         INSERT OR REPLACE INTO \(Self.vectorTableName) (chunk_id, embedding)
                         VALUES (?, ?)
@@ -387,91 +393,87 @@ public actor MemoryStorage {
     public func removeDocuments(paths: [String]) throws {
         guard !paths.isEmpty else { return }
 
-        try dbQueue.write { db in
-            let chunkIDs = try Int64.fetchAll(
-                db,
+        try database.transaction {
+            let chunkIDs = try database.fetchAll(
                 sql: """
                 SELECT c.id
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
-                WHERE d.path IN (\(Self.placeholders(count: paths.count)))
+                WHERE d.path IN (\(SQLiteDatabase.placeholders(count: paths.count)))
                 """,
-                arguments: StatementArguments(paths)
+                arguments: paths,
+                as: Int64.self
             )
             if !chunkIDs.isEmpty {
-                try Self.deleteVectors(in: db, chunkIDs: chunkIDs)
+                try Self.deleteVectors(in: database, chunkIDs: chunkIDs)
             }
 
-            let sql = "DELETE FROM documents WHERE path IN (\(Self.placeholders(count: paths.count)))"
-            try db.execute(sql: sql, arguments: StatementArguments(paths))
+            let sql = "DELETE FROM documents WHERE path IN (\(SQLiteDatabase.placeholders(count: paths.count)))"
+            try database.execute(sql: sql, arguments: paths)
         }
     }
 
     public func fetchAllChunkEmbeddings() throws -> [StoredChunkEmbedding] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                SELECT
-                    c.id AS chunk_id,
-                    c.content AS content,
-                    d.path AS document_path,
-                    d.title AS title,
-                    d.modified_at AS modified_at,
-                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                    c.memory_category AS memory_category,
-                    c.importance AS importance,
-                    c.access_count AS access_count,
-                    c.last_accessed_at AS last_accessed_at,
-                    c.source AS source,
-                    c.created_at AS created_at,
-                    COALESCE(c.content_tags_json, '[]') AS content_tags_json,
-                    e.vector_blob AS vector_blob,
-                    e.norm AS norm
-                FROM chunks c
-                JOIN documents d ON d.id = c.document_id
-                JOIN embeddings e ON e.chunk_id = c.id
-                """
-            )
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                d.path AS document_path,
+                d.title AS title,
+                d.modified_at AS modified_at,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json,
+                e.vector_blob AS vector_blob,
+                e.norm AS norm
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            JOIN embeddings e ON e.chunk_id = c.id
+            """
+        )
 
-            return rows.compactMap { row in
-                guard
-                    let data: Data = row["vector_blob"],
-                    let vector = Self.decodeVector(data)
-                else {
-                    return nil
-                }
-
-                return StoredChunkEmbedding(
-                    chunkID: row["chunk_id"],
-                    vector: vector,
-                    norm: row["norm"],
-                    content: row["content"],
-                    documentPath: row["document_path"],
-                    title: row["title"],
-                    modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
-                    memoryType: row["memory_type"],
-                    memoryTypeSource: row["memory_type_source"],
-                    memoryTypeConfidence: row["memory_type_confidence"],
-                    contentTags: Self.decodeContentTags(row["content_tags_json"]),
-                    memoryCategory: row["memory_category"],
-                    importance: row["importance"],
-                    accessCount: row["access_count"],
-                    lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
-                    source: row["source"],
-                    createdAt: Date(timeIntervalSince1970: row["created_at"])
-                )
-            }
-        }
+        return rows.compactMap(Self.makeChunkEmbedding(from:))
     }
 
     public func fetchChunkMetadata(chunkIDs: [Int64]) throws -> [StoredChunkMetadata] {
         guard !chunkIDs.isEmpty else { return [] }
 
-        return try dbQueue.read { db in
-            let sql = """
+        let sql = """
+        SELECT
+            c.id AS chunk_id,
+            c.content AS content,
+            d.path AS document_path,
+            d.title AS title,
+            d.modified_at AS modified_at,
+            COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+            COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+            COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+            c.memory_category AS memory_category,
+            c.importance AS importance,
+            c.access_count AS access_count,
+            c.last_accessed_at AS last_accessed_at,
+            c.source AS source,
+            c.created_at AS created_at,
+            COALESCE(c.content_tags_json, '[]') AS content_tags_json
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))
+        """
+
+        return try database.fetchAll(sql: sql, arguments: chunkIDs).map(Self.makeChunkMetadata(from:))
+    }
+
+    public func fetchChunkMetadata(chunkID: Int64) throws -> StoredChunkMetadata? {
+        let row = try database.fetchOne(
+            sql: """
             SELECT
                 c.id AS chunk_id,
                 c.content AS content,
@@ -490,139 +492,47 @@ public actor MemoryStorage {
                 COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
-            WHERE c.id IN (\(Self.placeholders(count: chunkIDs.count)))
-            """
+            WHERE c.id = ?
+            """,
+            arguments: [chunkID]
+        )
 
-            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(chunkIDs))
-            return rows.map {
-                StoredChunkMetadata(
-                    chunkID: $0["chunk_id"],
-                    content: $0["content"],
-                    documentPath: $0["document_path"],
-                    title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
-                    memoryType: $0["memory_type"],
-                    memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"],
-                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
-                    memoryCategory: $0["memory_category"],
-                    importance: $0["importance"],
-                    accessCount: $0["access_count"],
-                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
-                    source: $0["source"],
-                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
-                )
-            }
-        }
-    }
-
-    public func fetchChunkMetadata(chunkID: Int64) throws -> StoredChunkMetadata? {
-        try dbQueue.read { db in
-            let row = try Row.fetchOne(
-                db,
-                sql: """
-                SELECT
-                    c.id AS chunk_id,
-                    c.content AS content,
-                    d.path AS document_path,
-                    d.title AS title,
-                    d.modified_at AS modified_at,
-                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                    c.memory_category AS memory_category,
-                    c.importance AS importance,
-                    c.access_count AS access_count,
-                    c.last_accessed_at AS last_accessed_at,
-                    c.source AS source,
-                    c.created_at AS created_at,
-                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
-                FROM chunks c
-                JOIN documents d ON d.id = c.document_id
-                WHERE c.id = ?
-                """,
-                arguments: [chunkID]
-            )
-
-            guard let row else { return nil }
-            return StoredChunkMetadata(
-                chunkID: row["chunk_id"],
-                content: row["content"],
-                documentPath: row["document_path"],
-                title: row["title"],
-                modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
-                memoryType: row["memory_type"],
-                memoryTypeSource: row["memory_type_source"],
-                memoryTypeConfidence: row["memory_type_confidence"],
-                contentTags: Self.decodeContentTags(row["content_tags_json"]),
-                memoryCategory: row["memory_category"],
-                importance: row["importance"],
-                accessCount: row["access_count"],
-                lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
-                source: row["source"],
-                createdAt: Date(timeIntervalSince1970: row["created_at"])
-            )
-        }
+        return row.map(Self.makeChunkMetadata(from:))
     }
 
     public func listDocumentPaths() throws -> [String] {
-        try dbQueue.read { db in
-            try String.fetchAll(
-                db,
-                sql: "SELECT path FROM documents ORDER BY path ASC"
-            )
-        }
+        try database.fetchAll(
+            sql: "SELECT path FROM documents ORDER BY path ASC",
+            as: String.self
+        )
     }
 
     public func fetchChunkMetadataForDocument(path: String) throws -> [StoredChunkMetadata] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                SELECT
-                    c.id AS chunk_id,
-                    c.content AS content,
-                    d.path AS document_path,
-                    d.title AS title,
-                    d.modified_at AS modified_at,
-                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                    c.memory_category AS memory_category,
-                    c.importance AS importance,
-                    c.access_count AS access_count,
-                    c.last_accessed_at AS last_accessed_at,
-                    c.source AS source,
-                    c.created_at AS created_at,
-                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
-                FROM documents d
-                JOIN chunks c ON c.document_id = d.id
-                WHERE d.path = ?
-                ORDER BY c.ordinal ASC
-                """,
-                arguments: [path]
-            )
-
-            return rows.map {
-                StoredChunkMetadata(
-                    chunkID: $0["chunk_id"],
-                    content: $0["content"],
-                    documentPath: $0["document_path"],
-                    title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
-                    memoryType: $0["memory_type"],
-                    memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"],
-                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
-                    memoryCategory: $0["memory_category"],
-                    importance: $0["importance"],
-                    accessCount: $0["access_count"],
-                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
-                    source: $0["source"],
-                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
-                )
-            }
-        }
+        try database.fetchAll(
+            sql: """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                d.path AS document_path,
+                d.title AS title,
+                d.modified_at AS modified_at,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM documents d
+            JOIN chunks c ON c.document_id = d.id
+            WHERE d.path = ?
+            ORDER BY c.ordinal ASC
+            """,
+            arguments: [path]
+        ).map(Self.makeChunkMetadata(from:))
     }
 
     public func listMemoryMetadata(
@@ -633,98 +543,77 @@ public actor MemoryStorage {
     ) throws -> [StoredChunkMetadata] {
         guard limit > 0 else { return [] }
 
-        return try dbQueue.read { db in
-            var arguments = StatementArguments()
-            var filters: [String] = []
+        var arguments: [Any?] = []
+        var filters: [String] = []
 
-            if let memoryCategory {
-                let trimmed = memoryCategory.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if !trimmed.isEmpty {
-                    filters.append("c.memory_category = ?")
-                    arguments += StatementArguments([trimmed])
-                }
-            }
-
-            if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
-                let orderedTypes = allowedMemoryTypes.sorted()
-                filters.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))")
-                arguments += StatementArguments(orderedTypes)
-            }
-
-            let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
-
-            let orderClause: String
-            switch sort {
-            case .recent:
-                orderClause = "ORDER BY c.created_at DESC, c.id DESC"
-            case .importance:
-                orderClause = "ORDER BY c.importance DESC, c.created_at DESC, c.id DESC"
-            case .mostAccessed:
-                orderClause = "ORDER BY c.access_count DESC, COALESCE(c.last_accessed_at, 0) DESC, c.created_at DESC, c.id DESC"
-            }
-
-            let sql = """
-            SELECT
-                c.id AS chunk_id,
-                c.content AS content,
-                d.path AS document_path,
-                d.title AS title,
-                d.modified_at AS modified_at,
-                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                c.memory_category AS memory_category,
-                c.importance AS importance,
-                c.access_count AS access_count,
-                c.last_accessed_at AS last_accessed_at,
-                c.source AS source,
-                c.created_at AS created_at,
-                COALESCE(c.content_tags_json, '[]') AS content_tags_json
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            \(whereClause)
-            \(orderClause)
-            LIMIT ?
-            """
-            arguments += StatementArguments([limit])
-
-            let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
-            return rows.map {
-                StoredChunkMetadata(
-                    chunkID: $0["chunk_id"],
-                    content: $0["content"],
-                    documentPath: $0["document_path"],
-                    title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
-                    memoryType: $0["memory_type"],
-                    memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"],
-                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
-                    memoryCategory: $0["memory_category"],
-                    importance: $0["importance"],
-                    accessCount: $0["access_count"],
-                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
-                    source: $0["source"],
-                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
-                )
+        if let memoryCategory {
+            let trimmed = memoryCategory.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !trimmed.isEmpty {
+                filters.append("c.memory_category = ?")
+                arguments.append(trimmed)
             }
         }
+
+        if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
+            let orderedTypes = allowedMemoryTypes.sorted()
+            filters.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(SQLiteDatabase.placeholders(count: orderedTypes.count)))")
+            arguments.append(contentsOf: orderedTypes)
+        }
+
+        let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
+
+        let orderClause: String
+        switch sort {
+        case .recent:
+            orderClause = "ORDER BY c.created_at DESC, c.id DESC"
+        case .importance:
+            orderClause = "ORDER BY c.importance DESC, c.created_at DESC, c.id DESC"
+        case .mostAccessed:
+            orderClause = "ORDER BY c.access_count DESC, COALESCE(c.last_accessed_at, 0) DESC, c.created_at DESC, c.id DESC"
+        }
+
+        let sql = """
+        SELECT
+            c.id AS chunk_id,
+            c.content AS content,
+            d.path AS document_path,
+            d.title AS title,
+            d.modified_at AS modified_at,
+            COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+            COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+            COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+            c.memory_category AS memory_category,
+            c.importance AS importance,
+            c.access_count AS access_count,
+            c.last_accessed_at AS last_accessed_at,
+            c.source AS source,
+            c.created_at AS created_at,
+            COALESCE(c.content_tags_json, '[]') AS content_tags_json
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        \(whereClause)
+        \(orderClause)
+        LIMIT ?
+        """
+        arguments.append(limit)
+
+        return try database.fetchAll(sql: sql, arguments: arguments).map(Self.makeChunkMetadata(from:))
     }
 
     public func recordChunkAccesses(_ chunkIDs: [Int64], accessedAt: Date = Date()) throws {
         guard !chunkIDs.isEmpty else { return }
 
-        try dbQueue.write { db in
+        try database.transaction {
             let sql = """
             UPDATE chunks
             SET
                 access_count = access_count + 1,
                 last_accessed_at = ?
-            WHERE id IN (\(Self.placeholders(count: chunkIDs.count)))
+            WHERE id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))
             """
-            var arguments = StatementArguments([accessedAt.timeIntervalSince1970])
-            arguments += StatementArguments(chunkIDs)
-            try db.execute(sql: sql, arguments: arguments)
+            var arguments: [Any?] = [accessedAt.timeIntervalSince1970]
+            arguments.append(contentsOf: chunkIDs)
+            try database.execute(sql: sql, arguments: arguments)
         }
     }
 
@@ -742,53 +631,51 @@ public actor MemoryStorage {
         let relaxedPattern = Self.makeRelaxedFTSQuery(from: trimmed)
         guard strictPattern != nil || relaxedPattern != nil else { return [] }
 
-        return try dbQueue.read { db in
-            let effectiveLimit = limit
-            var mergedByChunkID: [Int64: Double] = [:]
-            var seenChunkIDs: Set<Int64> = []
+        let effectiveLimit = limit
+        var mergedByChunkID: [Int64: Double] = [:]
+        var seenChunkIDs: Set<Int64> = []
 
-            if let strictPattern {
-                let strictHits = try Self.runLexicalSearchQuery(
-                    in: db,
-                    pattern: strictPattern,
-                    limit: effectiveLimit,
-                    allowedChunkIDs: allowedChunkIDs,
-                    allowedMemoryTypes: allowedMemoryTypes,
-                    excludedChunkIDs: nil
-                )
-                for hit in strictHits {
-                    seenChunkIDs.insert(hit.chunkID)
-                    mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.2
-                }
+        if let strictPattern {
+            let strictHits = try Self.runLexicalSearchQuery(
+                in: database,
+                pattern: strictPattern,
+                limit: effectiveLimit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes,
+                excludedChunkIDs: nil
+            )
+            for hit in strictHits {
+                seenChunkIDs.insert(hit.chunkID)
+                mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.2
             }
-
-            if let relaxedPattern {
-                let relaxedHits = try Self.runLexicalSearchQuery(
-                    in: db,
-                    pattern: relaxedPattern,
-                    limit: effectiveLimit,
-                    allowedChunkIDs: allowedChunkIDs,
-                    allowedMemoryTypes: allowedMemoryTypes,
-                    excludedChunkIDs: nil
-                )
-
-                for hit in relaxedHits {
-                    seenChunkIDs.insert(hit.chunkID)
-                    mergedByChunkID[hit.chunkID, default: 0] += hit.score
-                }
-            }
-
-            return seenChunkIDs
-                .map { LexicalHit(chunkID: $0, score: mergedByChunkID[$0, default: 0]) }
-                .sorted { lhs, rhs in
-                    if lhs.score == rhs.score {
-                        return lhs.chunkID < rhs.chunkID
-                    }
-                    return lhs.score > rhs.score
-                }
-                .prefix(effectiveLimit)
-                .map { $0 }
         }
+
+        if let relaxedPattern {
+            let relaxedHits = try Self.runLexicalSearchQuery(
+                in: database,
+                pattern: relaxedPattern,
+                limit: effectiveLimit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes,
+                excludedChunkIDs: nil
+            )
+
+            for hit in relaxedHits {
+                seenChunkIDs.insert(hit.chunkID)
+                mergedByChunkID[hit.chunkID, default: 0] += hit.score
+            }
+        }
+
+        return seenChunkIDs
+            .map { LexicalHit(chunkID: $0, score: mergedByChunkID[$0, default: 0]) }
+            .sorted { lhs, rhs in
+                if lhs.score == rhs.score {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.score > rhs.score
+            }
+            .prefix(effectiveLimit)
+            .map { $0 }
     }
 
     public func vectorSearch(
@@ -800,101 +687,101 @@ public actor MemoryStorage {
         guard limit > 0 else { return [] }
         guard !queryVector.isEmpty else { return [] }
 
-        return try dbQueue.read { db in
-            guard try Self.vectorTableExists(in: db) else {
+        guard try Self.vectorTableExists(in: database) else {
+            return []
+        }
+
+        if let configuredDimension = try Self.configuredVectorDimension(in: database),
+           configuredDimension != queryVector.count {
+            return []
+        }
+
+        let overfetch = min(max(limit * 6, limit), 4_096)
+        let queryBlob = Self.encodeVector(queryVector)
+
+        // sqlite-vec can hang if we join directly against the vec virtual table.
+        // Query vec results first, then hydrate/filter in a second query.
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT chunk_id, distance
+            FROM \(Self.vectorTableName)
+            WHERE embedding MATCH ? AND k = ?
+            ORDER BY distance
+            """,
+            arguments: [queryBlob, overfetch]
+        )
+
+        var candidates: [(chunkID: Int64, distance: Double)] = rows.compactMap { row in
+            let chunkID: Int64 = row["chunk_id"]
+            let distance: Double = row["distance"]
+            guard distance.isFinite else { return nil }
+            return (chunkID, distance)
+        }
+
+        if let allowedChunkIDs {
+            if allowedChunkIDs.isEmpty {
+                return []
+            }
+            candidates = candidates.filter { allowedChunkIDs.contains($0.chunkID) }
+        }
+
+        if let allowedMemoryTypes {
+            if allowedMemoryTypes.isEmpty {
                 return []
             }
 
-            if let configuredDimension = try Self.configuredVectorDimension(in: db),
-               configuredDimension != queryVector.count {
+            let candidateIDs = candidates.map(\.chunkID)
+            if candidateIDs.isEmpty {
                 return []
             }
 
-            let overfetch = min(max(limit * 6, limit), 4_096)
-            let queryBlob = Self.encodeVector(queryVector)
-
-            // sqlite-vec can hang if we join directly against the vec virtual table.
-            // Query vec results first, then hydrate/filter in a second query.
-            let rows = try Row.fetchAll(
-                db,
+            let memoryTypeRows = try database.fetchAll(
                 sql: """
-                SELECT chunk_id, distance
-                FROM \(Self.vectorTableName)
-                WHERE embedding MATCH ? AND k = ?
-                ORDER BY distance
+                SELECT
+                    c.id AS chunk_id,
+                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type
+                FROM chunks c
+                JOIN documents d ON d.id = c.document_id
+                WHERE c.id IN (\(SQLiteDatabase.placeholders(count: candidateIDs.count)))
                 """,
-                arguments: [queryBlob, overfetch]
+                arguments: candidateIDs
             )
 
-            var candidates: [(chunkID: Int64, distance: Double)] = rows.compactMap { row in
-                let chunkID: Int64 = row["chunk_id"]
-                let distance: Double = row["distance"]
-                guard distance.isFinite else { return nil }
-                return (chunkID, distance)
-            }
-
-            if let allowedChunkIDs {
-                if allowedChunkIDs.isEmpty {
-                    return []
+            let allowedIDs = Set(
+                memoryTypeRows.compactMap { row -> Int64? in
+                    let memoryType: String = row["memory_type"]
+                    guard allowedMemoryTypes.contains(memoryType) else { return nil }
+                    let chunkID: Int64 = row["chunk_id"]
+                    return chunkID
                 }
-                candidates = candidates.filter { allowedChunkIDs.contains($0.chunkID) }
-            }
+            )
 
-            if let allowedMemoryTypes {
-                if allowedMemoryTypes.isEmpty {
-                    return []
-                }
-
-                let candidateIDs = candidates.map(\.chunkID)
-                if candidateIDs.isEmpty {
-                    return []
-                }
-
-                let memoryTypeRows = try Row.fetchAll(
-                    db,
-                    sql: """
-                    SELECT
-                        c.id AS chunk_id,
-                        COALESCE(c.memory_type_override, d.memory_type) AS memory_type
-                    FROM chunks c
-                    JOIN documents d ON d.id = c.document_id
-                    WHERE c.id IN (\(Self.placeholders(count: candidateIDs.count)))
-                    """,
-                    arguments: StatementArguments(candidateIDs)
-                )
-
-                let allowedIDs = Set(
-                    memoryTypeRows.compactMap { row -> Int64? in
-                        let memoryType: String = row["memory_type"]
-                        guard allowedMemoryTypes.contains(memoryType) else { return nil }
-                        let chunkID: Int64 = row["chunk_id"]
-                        return chunkID
-                    }
-                )
-
-                candidates = candidates.filter { allowedIDs.contains($0.chunkID) }
-            }
-
-            return candidates
-                .sorted { lhs, rhs in
-                    if lhs.distance == rhs.distance {
-                        return lhs.chunkID < rhs.chunkID
-                    }
-                    return lhs.distance < rhs.distance
-                }
-                .prefix(limit)
-                .map { LexicalHit(chunkID: $0.chunkID, score: -$0.distance) }
+            candidates = candidates.filter { allowedIDs.contains($0.chunkID) }
         }
+
+        return candidates
+            .sorted { lhs, rhs in
+                if lhs.distance == rhs.distance {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.distance < rhs.distance
+            }
+            .prefix(limit)
+            .map { LexicalHit(chunkID: $0.chunkID, score: -$0.distance) }
     }
 
     public func createContext(id: String, name: String) throws -> String {
-        try dbQueue.write { db in
-            if let existingID = try String.fetchOne(db, sql: "SELECT id FROM contexts WHERE name = ?", arguments: [name]) {
+        try database.transaction {
+            if let existingID = try database.fetchOne(
+                sql: "SELECT id FROM contexts WHERE name = ?",
+                arguments: [name],
+                as: String.self
+            ) {
                 return existingID
             }
 
             let now = Date().timeIntervalSince1970
-            try db.execute(
+            try database.execute(
                 sql: "INSERT INTO contexts (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 arguments: [id, name, now, now]
             )
@@ -905,10 +792,10 @@ public actor MemoryStorage {
     public func addContextChunks(contextID: String, chunkIDs: [Int64]) throws {
         guard !chunkIDs.isEmpty else { return }
 
-        try dbQueue.write { db in
+        try database.transaction {
             let now = Date().timeIntervalSince1970
             for chunkID in chunkIDs {
-                try db.execute(
+                try database.execute(
                     sql: """
                     INSERT OR REPLACE INTO context_chunks (context_id, chunk_id, added_at)
                     VALUES (?, ?, ?)
@@ -917,7 +804,7 @@ public actor MemoryStorage {
                 )
             }
 
-            try db.execute(
+            try database.execute(
                 sql: "UPDATE contexts SET updated_at = ? WHERE id = ?",
                 arguments: [now, contextID]
             )
@@ -925,9 +812,9 @@ public actor MemoryStorage {
     }
 
     public func clearContext(contextID: String) throws {
-        try dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM context_chunks WHERE context_id = ?", arguments: [contextID])
-            try db.execute(
+        try database.transaction {
+            try database.execute(sql: "DELETE FROM context_chunks WHERE context_id = ?", arguments: [contextID])
+            try database.execute(
                 sql: "UPDATE contexts SET updated_at = ? WHERE id = ?",
                 arguments: [Date().timeIntervalSince1970, contextID]
             )
@@ -935,65 +822,40 @@ public actor MemoryStorage {
     }
 
     public func fetchContextChunkIDs(contextID: String) throws -> [Int64] {
-        try dbQueue.read { db in
-            try Int64.fetchAll(
-                db,
-                sql: "SELECT chunk_id FROM context_chunks WHERE context_id = ?",
-                arguments: [contextID]
-            )
-        }
+        try database.fetchAll(
+            sql: "SELECT chunk_id FROM context_chunks WHERE context_id = ?",
+            arguments: [contextID],
+            as: Int64.self
+        )
     }
 
     public func listContextChunks(contextID: String) throws -> [StoredChunkMetadata] {
-        try dbQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                SELECT
-                    c.id AS chunk_id,
-                    c.content AS content,
-                    d.path AS document_path,
-                    d.title AS title,
-                    d.modified_at AS modified_at,
-                    COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-                    COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-                    COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                    c.memory_category AS memory_category,
-                    c.importance AS importance,
-                    c.access_count AS access_count,
-                    c.last_accessed_at AS last_accessed_at,
-                    c.source AS source,
-                    c.created_at AS created_at,
-                    COALESCE(c.content_tags_json, '[]') AS content_tags_json
-                FROM context_chunks cc
-                JOIN chunks c ON c.id = cc.chunk_id
-                JOIN documents d ON d.id = c.document_id
-                WHERE cc.context_id = ?
-                ORDER BY cc.added_at DESC
-                """,
-                arguments: [contextID]
-            )
-
-            return rows.map {
-                StoredChunkMetadata(
-                    chunkID: $0["chunk_id"],
-                    content: $0["content"],
-                    documentPath: $0["document_path"],
-                    title: $0["title"],
-                    modifiedAt: Date(timeIntervalSince1970: $0["modified_at"]),
-                    memoryType: $0["memory_type"],
-                    memoryTypeSource: $0["memory_type_source"],
-                    memoryTypeConfidence: $0["memory_type_confidence"],
-                    contentTags: Self.decodeContentTags($0["content_tags_json"]),
-                    memoryCategory: $0["memory_category"],
-                    importance: $0["importance"],
-                    accessCount: $0["access_count"],
-                    lastAccessedAt: Self.decodeTimestamp($0["last_accessed_at"]),
-                    source: $0["source"],
-                    createdAt: Date(timeIntervalSince1970: $0["created_at"])
-                )
-            }
-        }
+        try database.fetchAll(
+            sql: """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                d.path AS document_path,
+                d.title AS title,
+                d.modified_at AS modified_at,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM context_chunks cc
+            JOIN chunks c ON c.id = cc.chunk_id
+            JOIN documents d ON d.id = c.document_id
+            WHERE cc.context_id = ?
+            ORDER BY cc.added_at DESC
+            """,
+            arguments: [contextID]
+        ).map(Self.makeChunkMetadata(from:))
     }
 
     @discardableResult
@@ -1003,9 +865,9 @@ public actor MemoryStorage {
         source: String,
         confidence: Double?
     ) throws -> Bool {
-        try dbQueue.write { db in
+        try database.transaction {
             let now = Date().timeIntervalSince1970
-            try db.execute(
+            try database.execute(
                 sql: """
                 UPDATE documents
                 SET memory_type = ?, memory_type_source = ?, memory_type_confidence = ?, updated_at = ?
@@ -1013,7 +875,7 @@ public actor MemoryStorage {
                 """,
                 arguments: [type, source, confidence, now, path]
             )
-            return db.changesCount > 0
+            return database.changesCount > 0
         }
     }
 
@@ -1024,8 +886,8 @@ public actor MemoryStorage {
         source: String?,
         confidence: Double?
     ) throws -> Bool {
-        try dbQueue.write { db in
-            try db.execute(
+        try database.transaction {
+            try database.execute(
                 sql: """
                 UPDATE chunks
                 SET
@@ -1036,134 +898,239 @@ public actor MemoryStorage {
                 """,
                 arguments: [type, source, confidence, chunkID]
             )
-            return db.changesCount > 0
+            return database.changesCount > 0
         }
     }
 
-    private static func makeMigrator() -> DatabaseMigrator {
-        var migrator = DatabaseMigrator()
+    private static func openDatabase(at databaseURL: URL) throws -> SQLiteDatabase {
+        let database = try SQLiteDatabase(path: databaseURL.path)
 
-        migrator.registerMigration("v1_initial") { db in
-            try db.create(table: "documents") { table in
-                table.autoIncrementedPrimaryKey("id")
-                table.column("path", .text).notNull().unique(onConflict: .replace)
-                table.column("title", .text)
-                table.column("modified_at", .double).notNull()
-                table.column("checksum", .text).notNull()
-                table.column("created_at", .double).notNull()
-                table.column("updated_at", .double).notNull()
+        do {
+            try configure(database)
+
+            if try shouldResetLegacyDatabase(database) {
+                try database.close()
+                try deleteDatabaseFiles(at: databaseURL)
+
+                let recreated = try SQLiteDatabase(path: databaseURL.path)
+                do {
+                    try configure(recreated)
+                    try bootstrapSchemaIfNeeded(recreated)
+                    return recreated
+                } catch {
+                    try? recreated.close()
+                    throw error
+                }
             }
 
-            try db.create(table: "chunks") { table in
-                table.autoIncrementedPrimaryKey("id")
-                table.column("document_id", .integer).notNull()
-                    .indexed()
-                    .references("documents", onDelete: .cascade)
-                table.column("ordinal", .integer).notNull()
-                table.column("content", .text).notNull()
-                table.column("token_count", .integer).notNull()
-                table.column("created_at", .double).notNull()
-            }
-
-            try db.create(index: "chunks_document_ordinal", on: "chunks", columns: ["document_id", "ordinal"])
-
-            try db.create(table: "embeddings") { table in
-                table.column("chunk_id", .integer).primaryKey(onConflict: .replace)
-                    .references("chunks", onDelete: .cascade)
-                table.column("dim", .integer).notNull()
-                table.column("vector_blob", .blob).notNull()
-                table.column("norm", .double).notNull()
-            }
-
-            try db.create(table: Self.vectorConfigTableName) { table in
-                table.column("id", .integer).notNull().primaryKey()
-                table.column("embedding_dim", .integer).notNull()
-                table.column("created_at", .double).notNull()
-                table.column("updated_at", .double).notNull()
-            }
-
-            try db.create(table: "contexts") { table in
-                table.column("id", .text).primaryKey()
-                table.column("name", .text).notNull().unique(onConflict: .abort)
-                table.column("created_at", .double).notNull()
-                table.column("updated_at", .double).notNull()
-            }
-
-            try db.create(table: "context_chunks") { table in
-                table.column("context_id", .text).notNull()
-                    .references("contexts", onDelete: .cascade)
-                table.column("chunk_id", .integer).notNull()
-                    .references("chunks", onDelete: .cascade)
-                table.column("added_at", .double).notNull()
-                table.primaryKey(["context_id", "chunk_id"], onConflict: .replace)
-            }
-
-            try db.create(index: "context_chunks_context_chunk", on: "context_chunks", columns: ["context_id", "chunk_id"])
+            try bootstrapSchemaIfNeeded(database)
+            return database
+        } catch {
+            try? database.close()
+            throw error
         }
-
-        migrator.registerMigration("v2_chunks_fts5") { db in
-            try db.create(virtualTable: "chunks_fts", using: FTS5()) { table in
-                table.synchronize(withTable: "chunks")
-                table.column("content")
-            }
-        }
-
-        migrator.registerMigration("v3_memory_types") { db in
-            try db.alter(table: "documents") { table in
-                table.add(column: "memory_type", .text).notNull().defaults(to: "factual")
-                table.add(column: "memory_type_source", .text).notNull().defaults(to: "fallback")
-                table.add(column: "memory_type_confidence", .double)
-            }
-
-            try db.alter(table: "chunks") { table in
-                table.add(column: "memory_type_override", .text)
-                table.add(column: "memory_type_override_source", .text)
-                table.add(column: "memory_type_override_confidence", .double)
-            }
-
-            try db.create(index: "documents_memory_type", on: "documents", columns: ["memory_type"])
-            try db.create(index: "chunks_memory_type_override", on: "chunks", columns: ["memory_type_override"])
-        }
-
-        migrator.registerMigration("v4_chunk_content_tags") { db in
-            try db.alter(table: "chunks") { table in
-                table.add(column: "content_tags_json", .text).notNull().defaults(to: "[]")
-            }
-        }
-
-        migrator.registerMigration("v5_chunk_memory_metadata") { db in
-            try db.alter(table: "chunks") { table in
-                table.add(column: "memory_category", .text).notNull().defaults(to: "observation")
-                table.add(column: "importance", .double).notNull().defaults(to: 0.5)
-                table.add(column: "access_count", .integer).notNull().defaults(to: 0)
-                table.add(column: "last_accessed_at", .double)
-                table.add(column: "source", .text).notNull().defaults(to: "index")
-            }
-
-            try db.create(index: "chunks_memory_category", on: "chunks", columns: ["memory_category"])
-            try db.create(index: "chunks_importance", on: "chunks", columns: ["importance"])
-            try db.create(index: "chunks_access_count", on: "chunks", columns: ["access_count"])
-            try db.create(index: "chunks_created_at", on: "chunks", columns: ["created_at"])
-        }
-
-        migrator.registerMigration("v6_vector_index_config") { db in
-            try db.create(table: Self.vectorConfigTableName, ifNotExists: true) { table in
-                table.column("id", .integer).notNull().primaryKey()
-                table.column("embedding_dim", .integer).notNull()
-                table.column("created_at", .double).notNull()
-                table.column("updated_at", .double).notNull()
-            }
-        }
-
-        return migrator
     }
 
-    private static func placeholders(count: Int) -> String {
-        String(repeating: "?,", count: max(1, count)).dropLast().description
+    private static func configure(_ database: SQLiteDatabase) throws {
+        try database.execute(sql: "PRAGMA foreign_keys = ON")
+        try registerSQLiteVec(on: database)
+    }
+
+    private static func shouldResetLegacyDatabase(_ database: SQLiteDatabase) throws -> Bool {
+        if try tableExists(Self.schemaMetadataTableName, in: database) {
+            return false
+        }
+
+        let tableNames = Set(
+            try database.fetchAll(
+                sql: """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """,
+                as: String.self
+            )
+        )
+
+        return !tableNames.isDisjoint(with: Self.legacyTableNames)
+    }
+
+    private static func deleteDatabaseFiles(at databaseURL: URL) throws {
+        let fileManager = FileManager.default
+        let paths = [
+            databaseURL.path,
+            databaseURL.path + "-wal",
+            databaseURL.path + "-shm",
+        ]
+
+        for path in paths where fileManager.fileExists(atPath: path) {
+            try fileManager.removeItem(atPath: path)
+        }
+    }
+
+    private static func bootstrapSchemaIfNeeded(_ database: SQLiteDatabase) throws {
+        if try tableExists(Self.schemaMetadataTableName, in: database) {
+            let version = try database.fetchOne(
+                sql: "SELECT version FROM \(Self.schemaMetadataTableName) LIMIT 1",
+                as: Int.self
+            )
+            guard version == Self.schemaVersion else {
+                let description = version.map(String.init) ?? "missing"
+                throw SQLiteError(message: "Unsupported schema version \(description).")
+            }
+            return
+        }
+
+        try database.transaction {
+            try createLatestSchema(in: database)
+        }
+    }
+
+    private static func createLatestSchema(in database: SQLiteDatabase) throws {
+        try database.execute(
+            sql: """
+            CREATE TABLE \(Self.schemaMetadataTableName) (
+                version INTEGER NOT NULL
+            )
+            """
+        )
+
+        try database.execute(
+            sql: """
+            CREATE TABLE documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE ON CONFLICT REPLACE,
+                title TEXT,
+                modified_at REAL NOT NULL,
+                checksum TEXT NOT NULL,
+                memory_type TEXT NOT NULL DEFAULT 'factual',
+                memory_type_source TEXT NOT NULL DEFAULT 'fallback',
+                memory_type_confidence REAL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+
+        try database.execute(
+            sql: """
+            CREATE TABLE chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                ordinal INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                memory_type_override TEXT,
+                memory_type_override_source TEXT,
+                memory_type_override_confidence REAL,
+                memory_category TEXT NOT NULL DEFAULT 'observation',
+                importance REAL NOT NULL DEFAULT 0.5,
+                access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed_at REAL,
+                source TEXT NOT NULL DEFAULT 'index',
+                content_tags_json TEXT NOT NULL DEFAULT '[]',
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX chunks_document_ordinal ON chunks(document_id, ordinal)")
+
+        try database.execute(
+            sql: """
+            CREATE TABLE embeddings (
+                chunk_id INTEGER PRIMARY KEY ON CONFLICT REPLACE REFERENCES chunks(id) ON DELETE CASCADE,
+                dim INTEGER NOT NULL,
+                vector_blob BLOB NOT NULL,
+                norm REAL NOT NULL
+            )
+            """
+        )
+
+        try database.execute(
+            sql: """
+            CREATE TABLE \(Self.vectorConfigTableName) (
+                id INTEGER NOT NULL PRIMARY KEY,
+                embedding_dim INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+
+        try database.execute(
+            sql: """
+            CREATE TABLE contexts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE ON CONFLICT ABORT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+
+        try database.execute(
+            sql: """
+            CREATE TABLE context_chunks (
+                context_id TEXT NOT NULL REFERENCES contexts(id) ON DELETE CASCADE,
+                chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+                added_at REAL NOT NULL,
+                PRIMARY KEY (context_id, chunk_id) ON CONFLICT REPLACE
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX context_chunks_context_chunk ON context_chunks(context_id, chunk_id)")
+
+        try database.execute(
+            sql: """
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                content,
+                content = 'chunks',
+                content_rowid = 'id'
+            )
+            """
+        )
+        try database.execute(
+            sql: """
+            CREATE TRIGGER chunks_fts_ai AFTER INSERT ON chunks BEGIN
+                INSERT INTO chunks_fts(rowid, content)
+                VALUES (new.id, new.content);
+            END
+            """
+        )
+        try database.execute(
+            sql: """
+            CREATE TRIGGER chunks_fts_ad AFTER DELETE ON chunks BEGIN
+                INSERT INTO chunks_fts(chunks_fts, rowid, content)
+                VALUES ('delete', old.id, old.content);
+            END
+            """
+        )
+        try database.execute(
+            sql: """
+            CREATE TRIGGER chunks_fts_au AFTER UPDATE ON chunks BEGIN
+                INSERT INTO chunks_fts(chunks_fts, rowid, content)
+                VALUES ('delete', old.id, old.content);
+                INSERT INTO chunks_fts(rowid, content)
+                VALUES (new.id, new.content);
+            END
+            """
+        )
+
+        try database.execute(sql: "CREATE INDEX documents_memory_type ON documents(memory_type)")
+        try database.execute(sql: "CREATE INDEX chunks_memory_type_override ON chunks(memory_type_override)")
+        try database.execute(sql: "CREATE INDEX chunks_memory_category ON chunks(memory_category)")
+        try database.execute(sql: "CREATE INDEX chunks_importance ON chunks(importance)")
+        try database.execute(sql: "CREATE INDEX chunks_access_count ON chunks(access_count)")
+        try database.execute(sql: "CREATE INDEX chunks_created_at ON chunks(created_at)")
+
+        try database.execute(
+            sql: "INSERT INTO \(Self.schemaMetadataTableName) (version) VALUES (?)",
+            arguments: [Self.schemaVersion]
+        )
     }
 
     private static func runLexicalSearchQuery(
-        in db: Database,
+        in database: SQLiteDatabase,
         pattern: String,
         limit: Int,
         allowedChunkIDs: Set<Int64>?,
@@ -1172,7 +1139,7 @@ public actor MemoryStorage {
     ) throws -> [LexicalHit] {
         guard limit > 0 else { return [] }
 
-        var arguments = StatementArguments([pattern])
+        var arguments: [Any?] = [pattern]
         var sql = """
         SELECT rowid AS chunk_id, rank AS rank
         FROM chunks_fts
@@ -1181,14 +1148,14 @@ public actor MemoryStorage {
 
         if let allowedChunkIDs, !allowedChunkIDs.isEmpty {
             let orderedAllowed = allowedChunkIDs.sorted()
-            sql += " AND rowid IN (\(Self.placeholders(count: orderedAllowed.count)))"
-            arguments += StatementArguments(orderedAllowed)
+            sql += " AND rowid IN (\(SQLiteDatabase.placeholders(count: orderedAllowed.count)))"
+            arguments.append(contentsOf: orderedAllowed)
         }
 
         if let excludedChunkIDs, !excludedChunkIDs.isEmpty {
             let orderedExcluded = excludedChunkIDs.sorted()
-            sql += " AND rowid NOT IN (\(Self.placeholders(count: orderedExcluded.count)))"
-            arguments += StatementArguments(orderedExcluded)
+            sql += " AND rowid NOT IN (\(SQLiteDatabase.placeholders(count: orderedExcluded.count)))"
+            arguments.append(contentsOf: orderedExcluded)
         }
 
         if let allowedMemoryTypes, !allowedMemoryTypes.isEmpty {
@@ -1198,16 +1165,16 @@ public actor MemoryStorage {
                 SELECT c.id
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
-                WHERE COALESCE(c.memory_type_override, d.memory_type) IN (\(Self.placeholders(count: orderedTypes.count)))
+                WHERE COALESCE(c.memory_type_override, d.memory_type) IN (\(SQLiteDatabase.placeholders(count: orderedTypes.count)))
              )
             """
-            arguments += StatementArguments(orderedTypes)
+            arguments.append(contentsOf: orderedTypes)
         }
 
         sql += " ORDER BY rank LIMIT ?"
-        arguments += StatementArguments([limit])
+        arguments.append(limit)
 
-        let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+        let rows = try database.fetchAll(sql: sql, arguments: arguments)
         return rows.enumerated().map { index, row in
             let chunkID: Int64 = row["chunk_id"]
             let rank: Double? = row["rank"]
@@ -1286,8 +1253,8 @@ public actor MemoryStorage {
         "where", "which", "who", "why", "with", "would", "you", "your"
     ]
 
-    private static func registerSQLiteVec(on db: Database) throws {
-        guard let sqliteConnection = db.sqliteConnection else {
+    private static func registerSQLiteVec(on database: SQLiteDatabase) throws {
+        guard let sqliteConnection = database.sqliteHandle else {
             throw SQLiteVecInitializationError(code: SQLITE_MISUSE, message: "Missing sqlite connection handle.")
         }
 
@@ -1305,51 +1272,56 @@ public actor MemoryStorage {
         }
     }
 
-    private static func vectorTableExists(in db: Database) throws -> Bool {
-        try String.fetchOne(
-            db,
+    private static func tableExists(_ name: String, in database: SQLiteDatabase) throws -> Bool {
+        try database.fetchOne(
             sql: """
             SELECT name
             FROM sqlite_master
             WHERE type = 'table' AND name = ?
             """,
-            arguments: [Self.vectorTableName]
+            arguments: [name],
+            as: String.self
         ) != nil
     }
 
-    private static func configuredVectorDimension(in db: Database) throws -> Int? {
-        try Int.fetchOne(
-            db,
+    private static func vectorTableExists(in database: SQLiteDatabase) throws -> Bool {
+        try tableExists(Self.vectorTableName, in: database)
+    }
+
+    private static func configuredVectorDimension(in database: SQLiteDatabase) throws -> Int? {
+        try database.fetchOne(
             sql: "SELECT embedding_dim FROM \(Self.vectorConfigTableName) WHERE id = 1"
+            ,
+            as: Int.self
         )
     }
 
-    private static func ensureVectorIndex(in db: Database, dimension: Int) throws {
+    private static func ensureVectorIndex(in database: SQLiteDatabase, dimension: Int) throws {
         guard dimension > 0 else {
-            throw DatabaseError(message: "Embedding dimension must be greater than zero.")
+            throw SQLiteError(message: "Embedding dimension must be greater than zero.")
         }
 
         let now = Date().timeIntervalSince1970
-        if let existingDimension = try configuredVectorDimension(in: db) {
+        if let existingDimension = try configuredVectorDimension(in: database) {
             guard existingDimension == dimension else {
-                throw DatabaseError(
+                throw SQLiteError(
                     message: "Embedding dimension mismatch. Expected \(existingDimension), got \(dimension)."
                 )
             }
 
-            if try !vectorTableExists(in: db) {
-                try createVectorTable(in: db, dimension: existingDimension)
+            if try !vectorTableExists(in: database) {
+                try createVectorTable(in: database, dimension: existingDimension)
             }
 
-            try db.execute(
+            try database.execute(
                 sql: "UPDATE \(Self.vectorConfigTableName) SET updated_at = ? WHERE id = 1",
                 arguments: [now]
             )
             return
         }
 
-        try createVectorTable(in: db, dimension: dimension)
-        try db.execute(
+        try createVectorTable(in: database, dimension: dimension)
+        try database.execute(
             sql: """
             INSERT INTO \(Self.vectorConfigTableName) (id, embedding_dim, created_at, updated_at)
             VALUES (1, ?, ?, ?)
@@ -1358,9 +1330,9 @@ public actor MemoryStorage {
         )
     }
 
-    private static func createVectorTable(in db: Database, dimension: Int) throws {
-        try db.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
-        try db.execute(
+    private static func createVectorTable(in database: SQLiteDatabase, dimension: Int) throws {
+        try database.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
+        try database.execute(
             sql: """
             CREATE VIRTUAL TABLE \(Self.vectorTableName) USING vec0(
                 chunk_id INTEGER PRIMARY KEY,
@@ -1370,13 +1342,62 @@ public actor MemoryStorage {
         )
     }
 
-    private static func deleteVectors(in db: Database, chunkIDs: [Int64]) throws {
+    private static func deleteVectors(in database: SQLiteDatabase, chunkIDs: [Int64]) throws {
         guard !chunkIDs.isEmpty else { return }
-        guard try vectorTableExists(in: db) else { return }
+        guard try vectorTableExists(in: database) else { return }
 
-        try db.execute(
-            sql: "DELETE FROM \(Self.vectorTableName) WHERE chunk_id IN (\(Self.placeholders(count: chunkIDs.count)))",
-            arguments: StatementArguments(chunkIDs)
+        try database.execute(
+            sql: "DELETE FROM \(Self.vectorTableName) WHERE chunk_id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))",
+            arguments: chunkIDs
+        )
+    }
+
+    private static func makeChunkEmbedding(from row: SQLiteRow) -> StoredChunkEmbedding? {
+        guard
+            let data: Data = row["vector_blob"],
+            let vector = Self.decodeVector(data)
+        else {
+            return nil
+        }
+
+        return StoredChunkEmbedding(
+            chunkID: row["chunk_id"],
+            vector: vector,
+            norm: row["norm"],
+            content: row["content"],
+            documentPath: row["document_path"],
+            title: row["title"],
+            modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+            memoryType: row["memory_type"],
+            memoryTypeSource: row["memory_type_source"],
+            memoryTypeConfidence: row["memory_type_confidence"],
+            contentTags: Self.decodeContentTags(row["content_tags_json"]),
+            memoryCategory: row["memory_category"],
+            importance: row["importance"],
+            accessCount: row["access_count"],
+            lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
+            source: row["source"],
+            createdAt: Date(timeIntervalSince1970: row["created_at"])
+        )
+    }
+
+    private static func makeChunkMetadata(from row: SQLiteRow) -> StoredChunkMetadata {
+        StoredChunkMetadata(
+            chunkID: row["chunk_id"],
+            content: row["content"],
+            documentPath: row["document_path"],
+            title: row["title"],
+            modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+            memoryType: row["memory_type"],
+            memoryTypeSource: row["memory_type_source"],
+            memoryTypeConfidence: row["memory_type_confidence"],
+            contentTags: Self.decodeContentTags(row["content_tags_json"]),
+            memoryCategory: row["memory_category"],
+            importance: row["importance"],
+            accessCount: row["access_count"],
+            lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
+            source: row["source"],
+            createdAt: Date(timeIntervalSince1970: row["created_at"])
         )
     }
 

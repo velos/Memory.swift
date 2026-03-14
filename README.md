@@ -15,7 +15,7 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 ## Features
 
 - Hybrid retrieval: semantic + BM25 + recency
-- Persistent SQLite index via GRDB
+- Persistent SQLite index via SQLite and `sqlite-vec`
 - Persistent contexts for reusable chunk sets
 - Typed memory classification (`factual`, `procedural`, `episodic`, `semantic`, `emotional`, `social`, `contextual`, `temporal`)
 - Default embedding backend with `NLContextualEmbedding`
