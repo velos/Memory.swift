@@ -1,11 +1,11 @@
 import ArgumentParser
 import CryptoKit
 import Foundation
-import GRDB
 import Memory
 import MemoryAppleIntelligence
 import MemoryCoreMLEmbedding
 import MemoryNaturalLanguage
+import SQLiteSupport
 
 private let datasetReadmeTemplate = """
 # Memory Eval Datasets
@@ -565,38 +565,36 @@ private actor DiagnosticReranker: Reranker {
     }
 }
 
-private actor EvalResponseCache {
+actor EvalResponseCache {
     private struct CacheStats {
         var hits = 0
         var misses = 0
         var writes = 0
     }
 
-    private let dbQueue: DatabaseQueue
+    private let database: SQLiteDatabase
     private var statsByNamespace: [String: CacheStats] = [:]
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(databaseURL: URL) throws {
-        dbQueue = try DatabaseQueue(path: databaseURL.path)
-        try dbQueue.write { db in
-            try db.execute(
-                sql: """
-                CREATE TABLE IF NOT EXISTS eval_provider_cache (
-                    cache_key TEXT PRIMARY KEY,
-                    namespace TEXT NOT NULL,
-                    value_blob BLOB NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-                """
+        database = try SQLiteDatabase(path: databaseURL.path)
+        try database.execute(
+            sql: """
+            CREATE TABLE IF NOT EXISTS eval_provider_cache (
+                cache_key TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                value_blob BLOB NOT NULL,
+                updated_at REAL NOT NULL
             )
-            try db.execute(
-                sql: """
-                CREATE INDEX IF NOT EXISTS eval_provider_cache_namespace_idx
-                ON eval_provider_cache(namespace)
-                """
-            )
-        }
+            """
+        )
+        try database.execute(
+            sql: """
+            CREATE INDEX IF NOT EXISTS eval_provider_cache_namespace_idx
+            ON eval_provider_cache(namespace)
+            """
+        )
     }
 
     func load<T: Decodable>(
@@ -605,14 +603,11 @@ private actor EvalResponseCache {
         as type: T.Type
     ) throws -> T? {
         let cacheKey = makeCacheKey(namespace: namespace, components: keyComponents)
-        let payload: Data? = try dbQueue.read { db in
-            let row = try Row.fetchOne(
-                db,
-                sql: "SELECT value_blob FROM eval_provider_cache WHERE cache_key = ?",
-                arguments: [cacheKey]
-            )
-            return row?["value_blob"]
-        }
+        let row = try database.fetchOne(
+            sql: "SELECT value_blob FROM eval_provider_cache WHERE cache_key = ?",
+            arguments: [cacheKey]
+        )
+        let payload: Data? = row?["value_blob"]
 
         if let payload {
             statsByNamespace[namespace, default: CacheStats()].hits += 1
@@ -632,24 +627,22 @@ private actor EvalResponseCache {
         let payload = try encoder.encode(value)
         let updatedAt = Date().timeIntervalSince1970
 
-        try dbQueue.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO eval_provider_cache (cache_key, namespace, value_blob, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(cache_key) DO UPDATE SET
-                    namespace = excluded.namespace,
-                    value_blob = excluded.value_blob,
-                    updated_at = excluded.updated_at
-                """,
-                arguments: [cacheKey, namespace, payload, updatedAt]
-            )
-        }
+        try database.execute(
+            sql: """
+            INSERT INTO eval_provider_cache (cache_key, namespace, value_blob, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                namespace = excluded.namespace,
+                value_blob = excluded.value_blob,
+                updated_at = excluded.updated_at
+            """,
+            arguments: [cacheKey, namespace, payload, updatedAt]
+        )
 
         statsByNamespace[namespace, default: CacheStats()].writes += 1
     }
 
-    func drainSummaryLines(suite: SuiteKind) -> [String] {
+    fileprivate func drainSummaryLines(suite: SuiteKind) -> [String] {
         guard !statsByNamespace.isEmpty else {
             return ["[\(suiteLabel(suite))][cache] no cache traffic."]
         }
@@ -1397,7 +1390,7 @@ private func runStorageSuite(
         }
     }
 
-    let dbQueue = try DatabaseQueue(path: dbURL.path)
+    let database = try SQLiteDatabase(path: dbURL.path)
 
     var results: [StorageCaseResult] = []
     var confusion: [String: [String: Int]] = [:]
@@ -1413,23 +1406,20 @@ private func runStorageSuite(
         }
 
         let expectedType = try parseMemoryType(entry.expectedMemoryType, context: "storage case \(entry.id)")
-        let dbRows: [Row] = try dbQueue.read { db in
-            try Row.fetchAll(
-                db,
-                sql: """
-                SELECT
-                    d.memory_type AS memory_type,
-                    d.memory_type_source AS memory_type_source,
-                    d.memory_type_confidence AS memory_type_confidence,
-                    c.content AS content
-                FROM documents d
-                JOIN chunks c ON c.document_id = d.id
-                WHERE d.path = ?
-                ORDER BY c.ordinal ASC
-                """,
-                arguments: [documentURL.path]
-            )
-        }
+        let dbRows = try database.fetchAll(
+            sql: """
+            SELECT
+                d.memory_type AS memory_type,
+                d.memory_type_source AS memory_type_source,
+                d.memory_type_confidence AS memory_type_confidence,
+                c.content AS content
+            FROM documents d
+            JOIN chunks c ON c.document_id = d.id
+            WHERE d.path = ?
+            ORDER BY c.ordinal ASC
+            """,
+            arguments: [documentURL.path]
+        )
 
         guard !dbRows.isEmpty else {
             throw EvalError.invalidDataset("No indexed chunks found for storage case '\(entry.id)' (\(documentURL.path)).")
@@ -1450,7 +1440,7 @@ private func runStorageSuite(
 
         confusion[expectedType.rawValue, default: [:]][predictedType.rawValue, default: 0] += 1
 
-        let chunkContents = dbRows.map { (row: Row) -> String in row["content"] }
+        let chunkContents = dbRows.map { (row: SQLiteRow) -> String in row["content"] }
         let normalizedContents = chunkContents.map(normalizeForMatch)
         let spans = entry.requiredSpans.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let missing = spans.filter { span in
@@ -2414,27 +2404,24 @@ private func withTimeout<T: Sendable>(
 }
 
 private func loadContentTagGenerationStats(databaseURL: URL) throws -> ContentTagGenerationStats {
-    let dbQueue = try DatabaseQueue(path: databaseURL.path)
+    let database = try SQLiteDatabase(path: databaseURL.path)
+    let rows = try database.fetchAll(sql: "SELECT content_tags_json FROM chunks")
+    var taggedChunkCount = 0
+    var totalTagCount = 0
 
-    return try dbQueue.read { db in
-        let rows = try Row.fetchAll(db, sql: "SELECT content_tags_json FROM chunks")
-        var taggedChunkCount = 0
-        var totalTagCount = 0
-
-        for row in rows {
-            let raw: String? = row["content_tags_json"]
-            let tags = decodeGeneratedChunkTags(raw)
-            guard !tags.isEmpty else { continue }
-            taggedChunkCount += 1
-            totalTagCount += tags.count
-        }
-
-        return ContentTagGenerationStats(
-            chunkCount: rows.count,
-            taggedChunkCount: taggedChunkCount,
-            totalTagCount: totalTagCount
-        )
+    for row in rows {
+        let raw: String? = row["content_tags_json"]
+        let tags = decodeGeneratedChunkTags(raw)
+        guard !tags.isEmpty else { continue }
+        taggedChunkCount += 1
+        totalTagCount += tags.count
     }
+
+    return ContentTagGenerationStats(
+        chunkCount: rows.count,
+        taggedChunkCount: taggedChunkCount,
+        totalTagCount: totalTagCount
+    )
 }
 
 private func decodeGeneratedChunkTags(_ raw: String?) -> [GeneratedChunkTag] {

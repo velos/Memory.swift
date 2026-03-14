@@ -16,10 +16,16 @@ let package = Package(
         .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
     ],
     targets: [
+        .target(
+            name: "SQLiteSupport",
+            path: "Sources/SQLiteSupport",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
+        ),
         .target(
             name: "Memory",
             dependencies: ["MemoryStorage"],
@@ -28,7 +34,7 @@ let package = Package(
         .target(
             name: "MemoryStorage",
             dependencies: [
-                .product(name: "GRDB", package: "GRDB.swift"),
+                "SQLiteSupport",
                 "CSQLiteVec",
             ],
             path: "Sources/MemoryStorage"
@@ -77,8 +83,8 @@ let package = Package(
                 "MemoryNaturalLanguage",
                 "MemoryAppleIntelligence",
                 "MemoryCoreMLEmbedding",
+                "SQLiteSupport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/MemoryEvalCLI"
         ),
@@ -87,7 +93,7 @@ let package = Package(
             dependencies: [
                 "Memory",
                 "MemoryStorage",
-                .product(name: "GRDB", package: "GRDB.swift"),
+                "SQLiteSupport",
             ],
             path: "Tests/MemoryTests"
         ),
@@ -108,6 +114,11 @@ let package = Package(
             name: "MemoryCoreMLEmbeddingTests",
             dependencies: ["MemoryCoreMLEmbedding"],
             path: "Tests/MemoryCoreMLEmbeddingTests"
+        ),
+        .testTarget(
+            name: "MemoryEvalCLITests",
+            dependencies: ["memory_eval"],
+            path: "Tests/MemoryEvalCLITests"
         ),
     ]
 )
