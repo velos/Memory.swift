@@ -32,7 +32,7 @@ To start a new run:
 
 You may edit only `train.py`.
 
-Do not edit:
+Do not edit during normal experiment iteration:
 
 - `prepare.py`
 - `memory_autoresearch/`
@@ -43,7 +43,7 @@ Do not add ad-hoc dependencies during the loop. All required dependencies belong
 
 ## Goal
 
-Maximize `memory_score` while staying under the hard keep gates for model size and latency.
+Maximize aggregate `memory_score` while keeping `general` and `longmemeval` healthy and staying under the component gates for model size and latency.
 
 Every run trains only one component:
 
@@ -69,6 +69,7 @@ training_seconds:  300.0
 num_steps:         91
 average_loss:      0.412345
 status:            keep
+decision_reason:   quick pass: general_delta=0.0123, longmemeval_delta=0.0011
 ```
 
 Read the summary directly from `run.log`:
@@ -111,8 +112,9 @@ Keep only if all of the following are true:
 
 - `memory_score` improves by at least `0.003`, or ties within `0.001` while improving model size or latency
 - the hard component gate passes
-- the quick eval passes
-- the full eval does not regress
+- `general` does not regress in quick or full eval
+- `longmemeval` does not materially regress in quick or full eval
+- quick/full latency stays within the configured primary-dataset tolerances
 
 If a quick eval wins but the full eval regresses, log `discard_full` and revert.
 

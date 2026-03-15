@@ -4,6 +4,8 @@ This folder drives `memory_eval`, the CLI harness for measuring:
 - Storage quality (classification + chunk content coverage)
 - Recall quality (ranking relevance metrics)
 
+Each dataset folder can also include a `manifest.json` describing provenance, whether the data is synthetic, intended benchmark weight, and known limitations.
+
 ## Files
 
 ### `storage_cases.jsonl`
@@ -74,13 +76,20 @@ Generate datasets with MiniMax M2.5 via Anthropic-compatible API:
 # ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
 # MINIMAX_MODEL=MiniMax-M2.5
 
-python3 scripts/generate_eval_data_minimax.py --dataset-root ./Evals --env-file .env --overwrite
+python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals/general --dataset-mode general --env-file .env --overwrite
+python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals/tech --dataset-mode tech --env-file .env --overwrite
 ```
+
+Useful MiniMax modes:
+- `general`: full synthetic mixed-domain dataset generation.
+- `tech`: full synthetic software-engineering dataset generation with stricter topical validation.
+- `longmemeval-typed-queries`: add `memory_types` and `difficulty` labels to an existing converted LongMemEval dataset.
+- `adversarial-augment`: append hard retrieval queries to an existing dataset.
 
 Generate datasets with Codex (ChatGPT-authenticated) using small atomic batches:
 
 ```bash
-python3 scripts/generate_eval_data_codex.py \
+python3 Scripts/generate_eval_data_codex.py \
   --dataset-root ./Evals \
   --model gpt-5.2 \
   --storage-batch-size 6 \
@@ -121,7 +130,7 @@ swift run memory_eval compare ./Evals/runs/*.json
 Convert LongMemEval-cleaned into this format:
 
 ```bash
-python3 scripts/convert_longmemeval_to_eval.py \
+python3 Scripts/convert_longmemeval_to_eval.py \
   --split oracle \
   --output-dir ./Evals/longmemeval
 ```

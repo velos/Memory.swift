@@ -1,0 +1,22 @@
+{
+  "dataset": "nfcorpus",
+  "provenance": "external_beir_plus_derived_storage_cases",
+  "synthetic_status": "hybrid",
+  "primary_use": "stress",
+  "typing_coverage": {
+    "storage_cases": {
+      "typed": 300,
+      "total": 300
+    },
+    "recall_queries": {
+      "typed": 0,
+      "total": 323
+    }
+  },
+  "known_limits": [
+    "Strong retrieval stress corpus with high relevant-doc fanout, but factual-only.",
+    "Storage cases are derived overlays rather than native product examples.",
+    "Use for stress reporting, not for product optimization decisions."
+  ],
+  "recommended_weight": "stress"
+}

@@ -7,7 +7,8 @@ This tool keeps the original autoresearch process and changes the purpose:
 - one fixed bootstrapper: `prepare.py`
 - one mutable experiment surface: `train.py`
 - one fixed train budget: 5 minutes
-- one keep/revert score: `memory_score`
+- one aggregate keep/revert score: `memory_score`
+- per-dataset reporting for `general`, `longmemeval`, and `tech`
 - git-based experiment logging in `results.tsv`
 
 The intended outer agent is OpenCode or another coding agent that can read `program.md`, modify only `train.py`, run the experiment, and keep or revert based on the printed summary.
@@ -71,6 +72,7 @@ training_seconds
 num_steps
 average_loss
 status
+decision_reason
 ```
 
 `train.py` always trains only one component per run. The other components stay frozen at their current baseline artifacts while the candidate is evaluated.
@@ -83,8 +85,8 @@ status
 - eval source of truth: the current `Memory.swift` checkout built locally
 - datasets:
   - train: `general`, `tech`, `scifact`, `nfcorpus`
-  - quick eval: held-out slice from `general` and `tech`
-  - full eval: `longmemeval` plus remaining held-out `general` and `tech`
+  - quick eval: held-out slice from `general` and `longmemeval`
+  - full eval: remaining held-out `general` and `longmemeval`, plus `tech`
 
 ## Notes
 

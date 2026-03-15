@@ -184,6 +184,15 @@ private struct StorageCaseResult: Codable {
     var chunkCount: Int
 }
 
+private struct StorageStageLatencyStats: Codable {
+    var typingMs: RecallLatencyStats?
+    var chunkingMs: RecallLatencyStats?
+    var taggingMs: RecallLatencyStats?
+    var embeddingMs: RecallLatencyStats?
+    var indexWriteMs: RecallLatencyStats?
+    var totalMs: RecallLatencyStats?
+}
+
 private struct StorageSuiteReport: Codable {
     var totalCases: Int
     var typeAccuracy: Double
@@ -192,6 +201,7 @@ private struct StorageSuiteReport: Codable {
     var fallbackRate: Double
     var confusionMatrix: [String: [String: Int]]
     var caseResults: [StorageCaseResult]
+    var stageLatencyStats: StorageStageLatencyStats?
 }
 
 private struct RecallPerKMetric: Codable {
@@ -212,6 +222,8 @@ private struct RecallQueryResult: Codable {
     var mrrByK: [Int: Double]
     var ndcgByK: [Int: Double]
     var latencyMs: Double?
+    var stageTimings: RecallQueryStageTimings?
+    var candidateCounts: RecallQueryCandidateCounts?
     var difficulty: String?
 }
 
@@ -239,6 +251,109 @@ private struct RecallLatencyStats: Codable {
     var maxMs: Double
 }
 
+private struct RecallQueryStageTimings: Codable {
+    var analysisMs: Double?
+    var expansionMs: Double?
+    var queryEmbeddingMs: Double?
+    var semanticSearchMs: Double?
+    var lexicalSearchMs: Double?
+    var fusionMs: Double?
+    var rerankMs: Double?
+    var totalMs: Double?
+}
+
+private struct RecallQueryCandidateCounts: Codable {
+    var expandedQueries: Int?
+    var semanticCandidates: Int?
+    var lexicalCandidates: Int?
+    var fusedCandidates: Int?
+    var rerankedCandidates: Int?
+}
+
+private struct RecallStageLatencyStats: Codable {
+    var analysisMs: RecallLatencyStats?
+    var expansionMs: RecallLatencyStats?
+    var queryEmbeddingMs: RecallLatencyStats?
+    var semanticSearchMs: RecallLatencyStats?
+    var lexicalSearchMs: RecallLatencyStats?
+    var fusionMs: RecallLatencyStats?
+    var rerankMs: RecallLatencyStats?
+    var totalMs: RecallLatencyStats?
+}
+
+private struct RecallCountStats: Codable {
+    var p50: Double
+    var p95: Double
+    var mean: Double
+    var min: Int
+    var max: Int
+}
+
+private struct RecallCandidateCountStats: Codable {
+    var expandedQueries: RecallCountStats?
+    var semanticCandidates: RecallCountStats?
+    var lexicalCandidates: RecallCountStats?
+    var fusedCandidates: RecallCountStats?
+    var rerankedCandidates: RecallCountStats?
+}
+
+private extension StorageStageLatencyStats {
+    var hasData: Bool {
+        typingMs != nil
+            || chunkingMs != nil
+            || taggingMs != nil
+            || embeddingMs != nil
+            || indexWriteMs != nil
+            || totalMs != nil
+    }
+}
+
+private extension RecallQueryStageTimings {
+    var hasData: Bool {
+        analysisMs != nil
+            || expansionMs != nil
+            || queryEmbeddingMs != nil
+            || semanticSearchMs != nil
+            || lexicalSearchMs != nil
+            || fusionMs != nil
+            || rerankMs != nil
+            || totalMs != nil
+    }
+}
+
+private extension RecallQueryCandidateCounts {
+    var hasData: Bool {
+        expandedQueries != nil
+            || semanticCandidates != nil
+            || lexicalCandidates != nil
+            || fusedCandidates != nil
+            || rerankedCandidates != nil
+    }
+}
+
+private extension RecallStageLatencyStats {
+    var hasData: Bool {
+        analysisMs != nil
+            || expansionMs != nil
+            || queryEmbeddingMs != nil
+            || semanticSearchMs != nil
+            || lexicalSearchMs != nil
+            || fusionMs != nil
+            || rerankMs != nil
+            || totalMs != nil
+    }
+}
+
+private extension RecallCandidateCountStats {
+    var hasData: Bool {
+        expandedQueries != nil
+            || semanticCandidates != nil
+            || lexicalCandidates != nil
+            || fusedCandidates != nil
+            || rerankedCandidates != nil
+    }
+}
+
 private struct RecallSuiteReport: Codable {
     var totalQueries: Int
     var kValues: [Int]
@@ -247,6 +362,8 @@ private struct RecallSuiteReport: Codable {
     var perTypeMetrics: [RecallPerTypeMetric]?
     var perDifficultyMetrics: [RecallPerDifficultyMetric]?
     var latencyStats: RecallLatencyStats?
+    var stageLatencyStats: RecallStageLatencyStats?
+    var candidateCountStats: RecallCandidateCountStats?
 }
 
 private struct RecallSuiteRunOutput {
@@ -857,6 +974,87 @@ private struct EvalRunReport: Codable {
     var notes: [String]
 }
 
+private final class IndexingStageTimingCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samplesByStage: [IndexingStage: [Double]] = [:]
+
+    func record(_ event: IndexingEvent) {
+        guard case let .stageTiming(_, stage, durationMs) = event else { return }
+        lock.lock()
+        samplesByStage[stage, default: []].append(durationMs)
+        lock.unlock()
+    }
+
+    func report() -> StorageStageLatencyStats? {
+        lock.lock()
+        let samples = samplesByStage
+        lock.unlock()
+
+        let report = StorageStageLatencyStats(
+            typingMs: computeLatencyStats(samples: samples[.typing] ?? []),
+            chunkingMs: computeLatencyStats(samples: samples[.chunking] ?? []),
+            taggingMs: computeLatencyStats(samples: samples[.tagging] ?? []),
+            embeddingMs: computeLatencyStats(samples: samples[.embedding] ?? []),
+            indexWriteMs: computeLatencyStats(samples: samples[.indexWrite] ?? []),
+            totalMs: computeLatencyStats(samples: samples[.total] ?? [])
+        )
+        return report.hasData ? report : nil
+    }
+}
+
+private final class SearchStageTimingCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timingsByStage: [SearchStage: Double] = [:]
+    private var counts = RecallQueryCandidateCounts()
+
+    func record(_ event: SearchEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch event {
+        case let .expandedQueries(count):
+            counts.expandedQueries = count
+        case let .semanticCandidates(count):
+            counts.semanticCandidates = count
+        case let .lexicalCandidates(count):
+            counts.lexicalCandidates = count
+        case let .fusedCandidates(count):
+            counts.fusedCandidates = count
+        case let .reranked(count):
+            counts.rerankedCandidates = count
+        case let .stageTiming(stage, durationMs):
+            timingsByStage[stage, default: 0] += durationMs
+        default:
+            break
+        }
+    }
+
+    func queryTimings() -> RecallQueryStageTimings? {
+        lock.lock()
+        let timings = timingsByStage
+        lock.unlock()
+
+        let report = RecallQueryStageTimings(
+            analysisMs: timings[.analysis],
+            expansionMs: timings[.expansion],
+            queryEmbeddingMs: timings[.queryEmbedding],
+            semanticSearchMs: timings[.semanticSearch],
+            lexicalSearchMs: timings[.lexicalSearch],
+            fusionMs: timings[.fusion],
+            rerankMs: timings[.rerank],
+            totalMs: timings[.total]
+        )
+        return report.hasData ? report : nil
+    }
+
+    func queryCounts() -> RecallQueryCandidateCounts? {
+        lock.lock()
+        let snapshot = counts
+        lock.unlock()
+        return snapshot.hasData ? snapshot : nil
+    }
+}
+
 @main
 struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -1021,7 +1219,7 @@ struct RunCommand: AsyncParsableCommand {
         )
 
         let report = EvalRunReport(
-            schemaVersion: 1,
+            schemaVersion: 2,
             createdAt: Date(),
             profile: profile,
             datasetRoot: datasetRootURL.path,
@@ -1058,6 +1256,12 @@ struct RunCommand: AsyncParsableCommand {
         }
         if let latencyStats = report.recall.latencyStats {
             print("Search latency: p50=\(String(format: "%.0f", latencyStats.p50Ms))ms p95=\(String(format: "%.0f", latencyStats.p95Ms))ms mean=\(String(format: "%.0f", latencyStats.meanMs))ms")
+        }
+        if let ingestTotal = report.storage.stageLatencyStats?.totalMs {
+            print("Indexing total/doc: p50=\(String(format: "%.0f", ingestTotal.p50Ms))ms p95=\(String(format: "%.0f", ingestTotal.p95Ms))ms mean=\(String(format: "%.0f", ingestTotal.meanMs))ms")
+        }
+        if let queryStages = report.recall.stageLatencyStats {
+            print("Query stage p95: analysis=\(formatStageMs(queryStages.analysisMs, keyPath: \.p95Ms)) lexical=\(formatStageMs(queryStages.lexicalSearchMs, keyPath: \.p95Ms)) semantic=\(formatStageMs(queryStages.semanticSearchMs, keyPath: \.p95Ms)) rerank=\(formatStageMs(queryStages.rerankMs, keyPath: \.p95Ms)) total=\(formatStageMs(queryStages.totalMs, keyPath: \.p95Ms))")
         }
         print("JSON report: \(outputURL.path)")
         print("Markdown summary: \(markdownURL.path)")
@@ -1374,12 +1578,18 @@ private func runStorageSuite(
     }
 
     let index = try MemoryIndex(configuration: config)
+    let indexingStageCollector = IndexingStageTimingCollector()
     if canReuseIndex {
         print("[storage] Using cached index for \(dataset.count) cases.")
     } else {
         print("[storage] Building index for \(dataset.count) cases...")
         let indexStart = Date()
-        try await index.rebuildIndex(from: [docsRoot])
+        try await index.rebuildIndex(
+            from: IndexingRequest(roots: [docsRoot]),
+            events: { event in
+                indexingStageCollector.record(event)
+            }
+        )
         print("[storage] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
         try markIndexCacheReady(workspace)
     }
@@ -1491,7 +1701,8 @@ private func runStorageSuite(
         spanCoverage: spanCoverage,
         fallbackRate: fallbackRate,
         confusionMatrix: confusion,
-        caseResults: results.sorted { $0.id < $1.id }
+        caseResults: results.sorted { $0.id < $1.id },
+        stageLatencyStats: indexingStageCollector.report()
     )
 }
 
@@ -1593,12 +1804,18 @@ private func runRecallSuite(
         installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
     }
     let index = try MemoryIndex(configuration: config)
+    let indexingStageCollector = IndexingStageTimingCollector()
     if canReuseIndex {
         print("[recall] Using cached index for \(documents.count) documents.")
     } else {
         print("[recall] Building index for \(documents.count) documents...")
         let indexStart = Date()
-        try await index.rebuildIndex(from: [docsRoot])
+        try await index.rebuildIndex(
+            from: IndexingRequest(roots: [docsRoot]),
+            events: { event in
+                indexingStageCollector.record(event)
+            }
+        )
         print("[recall] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
         try markIndexCacheReady(workspace)
     }
@@ -1652,11 +1869,15 @@ private func runRecallSuite(
         }
 
         let queryStartTime = Date()
+        let searchStageCollector = SearchStageTimingCollector()
         let recallResponse = try await index.recall(
             mode: .hybrid(query: queryCase.query),
             limit: recallLimit,
             features: recallFeatures(for: config),
-            memoryTypes: effectiveMemoryTypes
+            memoryTypes: effectiveMemoryTypes,
+            events: { event in
+                searchStageCollector.record(event)
+            }
         )
         let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
 
@@ -1725,6 +1946,8 @@ private func runRecallSuite(
                 mrrByK: mrrByK,
                 ndcgByK: ndcgByK,
                 latencyMs: queryLatencyMs,
+                stageTimings: searchStageCollector.queryTimings(),
+                candidateCounts: searchStageCollector.queryCounts(),
                 difficulty: queryCase.difficulty
             )
         )
@@ -1775,6 +1998,8 @@ private func runRecallSuite(
         maxK: maxK
     )
     let latencyStats = computeLatencyStats(queryResults: queryResults)
+    let stageLatencyStats = computeRecallStageLatencyStats(queryResults: queryResults)
+    let candidateCountStats = computeRecallCandidateCountStats(queryResults: queryResults)
 
     var notes: [String] = runtimeNotes
     if incompatibleFilterQueryCount > 0 {
@@ -1799,7 +2024,9 @@ private func runRecallSuite(
             queryResults: queryResults.sorted { $0.id < $1.id },
             perTypeMetrics: perTypeMetrics.isEmpty ? nil : perTypeMetrics,
             perDifficultyMetrics: perDifficultyMetrics.isEmpty ? nil : perDifficultyMetrics,
-            latencyStats: latencyStats
+            latencyStats: latencyStats,
+            stageLatencyStats: stageLatencyStats,
+            candidateCountStats: candidateCountStats
         ),
         notes: notes
     )
@@ -1878,20 +2105,67 @@ private func computePerDifficultyMetrics(
 }
 
 private func computeLatencyStats(queryResults: [RecallQueryResult]) -> RecallLatencyStats? {
-    let latencies = queryResults.compactMap(\.latencyMs).sorted()
-    guard !latencies.isEmpty else { return nil }
+    computeLatencyStats(samples: queryResults.compactMap(\.latencyMs))
+}
 
-    let count = latencies.count
-    let mean = latencies.reduce(0, +) / Double(count)
+private func computeRecallStageLatencyStats(queryResults: [RecallQueryResult]) -> RecallStageLatencyStats? {
+    let report = RecallStageLatencyStats(
+        analysisMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.analysisMs)),
+        expansionMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.expansionMs)),
+        queryEmbeddingMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.queryEmbeddingMs)),
+        semanticSearchMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.semanticSearchMs)),
+        lexicalSearchMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.lexicalSearchMs)),
+        fusionMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.fusionMs)),
+        rerankMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.rerankMs)),
+        totalMs: computeLatencyStats(samples: queryResults.compactMap(\.stageTimings?.totalMs))
+    )
+    return report.hasData ? report : nil
+}
+
+private func computeRecallCandidateCountStats(queryResults: [RecallQueryResult]) -> RecallCandidateCountStats? {
+    let report = RecallCandidateCountStats(
+        expandedQueries: computeCountStats(samples: queryResults.compactMap(\.candidateCounts?.expandedQueries)),
+        semanticCandidates: computeCountStats(samples: queryResults.compactMap(\.candidateCounts?.semanticCandidates)),
+        lexicalCandidates: computeCountStats(samples: queryResults.compactMap(\.candidateCounts?.lexicalCandidates)),
+        fusedCandidates: computeCountStats(samples: queryResults.compactMap(\.candidateCounts?.fusedCandidates)),
+        rerankedCandidates: computeCountStats(samples: queryResults.compactMap(\.candidateCounts?.rerankedCandidates))
+    )
+    return report.hasData ? report : nil
+}
+
+private func computeLatencyStats(samples: [Double]) -> RecallLatencyStats? {
+    let sorted = samples.filter(\.isFinite).sorted()
+    guard !sorted.isEmpty else { return nil }
+
+    let count = sorted.count
+    let mean = sorted.reduce(0, +) / Double(count)
     let p50Index = min(count - 1, count / 2)
     let p95Index = min(count - 1, Int(Double(count) * 0.95))
 
     return RecallLatencyStats(
-        p50Ms: latencies[p50Index],
-        p95Ms: latencies[p95Index],
+        p50Ms: sorted[p50Index],
+        p95Ms: sorted[p95Index],
         meanMs: mean,
-        minMs: latencies.first ?? 0,
-        maxMs: latencies.last ?? 0
+        minMs: sorted.first ?? 0,
+        maxMs: sorted.last ?? 0
+    )
+}
+
+private func computeCountStats(samples: [Int]) -> RecallCountStats? {
+    let sorted = samples.sorted()
+    guard !sorted.isEmpty else { return nil }
+
+    let count = sorted.count
+    let sum = sorted.reduce(0, +)
+    let p50Index = min(count - 1, count / 2)
+    let p95Index = min(count - 1, Int(Double(count) * 0.95))
+
+    return RecallCountStats(
+        p50: Double(sorted[p50Index]),
+        p95: Double(sorted[p95Index]),
+        mean: Double(sum) / Double(count),
+        min: sorted.first ?? 0,
+        max: sorted.last ?? 0
     )
 }
 
@@ -2659,6 +2933,21 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
     }
 
     lines.append("")
+    if let ingestStats = report.storage.stageLatencyStats {
+        lines.append("### Storage Stage Latency")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean |")
+        lines.append("|---|---:|---:|---:|")
+        lines.append("| typing | \(formatStageMs(ingestStats.typingMs)) | \(formatStageMs(ingestStats.typingMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.typingMs, keyPath: \.meanMs)) |")
+        lines.append("| chunking | \(formatStageMs(ingestStats.chunkingMs)) | \(formatStageMs(ingestStats.chunkingMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.chunkingMs, keyPath: \.meanMs)) |")
+        lines.append("| tagging | \(formatStageMs(ingestStats.taggingMs)) | \(formatStageMs(ingestStats.taggingMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.taggingMs, keyPath: \.meanMs)) |")
+        lines.append("| embedding | \(formatStageMs(ingestStats.embeddingMs)) | \(formatStageMs(ingestStats.embeddingMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.embeddingMs, keyPath: \.meanMs)) |")
+        lines.append("| index_write | \(formatStageMs(ingestStats.indexWriteMs)) | \(formatStageMs(ingestStats.indexWriteMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.indexWriteMs, keyPath: \.meanMs)) |")
+        lines.append("| total | \(formatStageMs(ingestStats.totalMs)) | \(formatStageMs(ingestStats.totalMs, keyPath: \.p95Ms)) | \(formatStageMs(ingestStats.totalMs, keyPath: \.meanMs)) |")
+        lines.append("")
+    }
+
+    lines.append("")
     lines.append("### Recall By K")
     lines.append("")
     lines.append("| K | Hit | Recall | MRR | nDCG |")
@@ -2704,6 +2993,35 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         lines.append("| mean | \(String(format: "%.1f", latencyStats.meanMs)) ms |")
         lines.append("| min | \(String(format: "%.1f", latencyStats.minMs)) ms |")
         lines.append("| max | \(String(format: "%.1f", latencyStats.maxMs)) ms |")
+    }
+
+    if let stageStats = report.recall.stageLatencyStats {
+        lines.append("")
+        lines.append("### Query Stage Latency")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean |")
+        lines.append("|---|---:|---:|---:|")
+        lines.append("| analysis | \(formatStageMs(stageStats.analysisMs)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.meanMs)) |")
+        lines.append("| expansion | \(formatStageMs(stageStats.expansionMs)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.meanMs)) |")
+        lines.append("| query_embedding | \(formatStageMs(stageStats.queryEmbeddingMs)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.meanMs)) |")
+        lines.append("| semantic_search | \(formatStageMs(stageStats.semanticSearchMs)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| lexical_search | \(formatStageMs(stageStats.lexicalSearchMs)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| fusion | \(formatStageMs(stageStats.fusionMs)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.meanMs)) |")
+        lines.append("| rerank | \(formatStageMs(stageStats.rerankMs)) | \(formatStageMs(stageStats.rerankMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.rerankMs, keyPath: \.meanMs)) |")
+        lines.append("| total | \(formatStageMs(stageStats.totalMs)) | \(formatStageMs(stageStats.totalMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.totalMs, keyPath: \.meanMs)) |")
+    }
+
+    if let countStats = report.recall.candidateCountStats {
+        lines.append("")
+        lines.append("### Query Candidate Counts")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean | min | max |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        lines.append(candidateCountRow(label: "expanded_queries", stats: countStats.expandedQueries))
+        lines.append(candidateCountRow(label: "semantic_candidates", stats: countStats.semanticCandidates))
+        lines.append(candidateCountRow(label: "lexical_candidates", stats: countStats.lexicalCandidates))
+        lines.append(candidateCountRow(label: "fused_candidates", stats: countStats.fusedCandidates))
+        lines.append(candidateCountRow(label: "reranked_candidates", stats: countStats.rerankedCandidates))
     }
 
     let misses = report.recall.queryResults.filter { result in
@@ -2874,6 +3192,19 @@ private func normalizeForMatch(_ value: String) -> String {
 
 private func percent(_ value: Double) -> String {
     String(format: "%.2f%%", value * 100)
+}
+
+private func formatStageMs(
+    _ stats: RecallLatencyStats?,
+    keyPath: KeyPath<RecallLatencyStats, Double> = \.p50Ms
+) -> String {
+    guard let stats else { return "n/a" }
+    return String(format: "%.1f ms", stats[keyPath: keyPath])
+}
+
+private func candidateCountRow(label: String, stats: RecallCountStats?) -> String {
+    guard let stats else { return "| \(label) | n/a | n/a | n/a | n/a | n/a |" }
+    return "| \(label) | \(String(format: "%.1f", stats.p50)) | \(String(format: "%.1f", stats.p95)) | \(String(format: "%.1f", stats.mean)) | \(stats.min) | \(stats.max) |"
 }
 
 private func formatDuration(_ seconds: TimeInterval) -> String {

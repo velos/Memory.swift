@@ -52,14 +52,30 @@ public actor MemoryIndex {
 
             var totalChunks = 0
             for (index, url) in urls.enumerated() {
+                let documentStart = DispatchTime.now().uptimeNanoseconds
                 events?(.readingDocument(path: url.path, index: index + 1, total: urls.count))
-                guard let payload = try await buildDocumentPayload(for: url) else { continue }
+                guard let payload = try await buildDocumentPayload(for: url, events: events) else { continue }
 
                 totalChunks += payload.chunks.count
                 events?(.chunked(path: url.path, chunks: payload.chunks.count))
                 events?(.embedded(path: url.path, chunks: payload.chunks.count))
 
+                let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
+                events?(
+                    .stageTiming(
+                        path: url.path,
+                        stage: .indexWrite,
+                        durationMs: elapsedMilliseconds(since: indexWriteStart)
+                    )
+                )
+                events?(
+                    .stageTiming(
+                        path: url.path,
+                        stage: .total,
+                        durationMs: elapsedMilliseconds(since: documentStart)
+                    )
+                )
                 events?(.stored(path: url.path))
             }
 
@@ -81,6 +97,7 @@ public actor MemoryIndex {
         do {
             var totalChunks = 0
             for (index, url) in documentURLs.enumerated() {
+                let documentStart = DispatchTime.now().uptimeNanoseconds
                 events?(.readingDocument(path: url.path, index: index + 1, total: documentURLs.count))
 
                 if !fileManager.fileExists(atPath: url.path) {
@@ -88,12 +105,27 @@ public actor MemoryIndex {
                     continue
                 }
 
-                guard let payload = try await buildDocumentPayload(for: url) else { continue }
+                guard let payload = try await buildDocumentPayload(for: url, events: events) else { continue }
                 totalChunks += payload.chunks.count
 
                 events?(.chunked(path: url.path, chunks: payload.chunks.count))
                 events?(.embedded(path: url.path, chunks: payload.chunks.count))
+                let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
+                events?(
+                    .stageTiming(
+                        path: url.path,
+                        stage: .indexWrite,
+                        durationMs: elapsedMilliseconds(since: indexWriteStart)
+                    )
+                )
+                events?(
+                    .stageTiming(
+                        path: url.path,
+                        stage: .total,
+                        durationMs: elapsedMilliseconds(since: documentStart)
+                    )
+                )
                 events?(.stored(path: url.path))
             }
 
@@ -120,6 +152,7 @@ public actor MemoryIndex {
         let normalizedText = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return [] }
 
+        let queryStart = DispatchTime.now().uptimeNanoseconds
         events?(.started(query: normalizedText))
 
         let allowedChunkIDs: Set<Int64>?
@@ -146,31 +179,41 @@ public actor MemoryIndex {
             allowedMemoryTypes = nil
         }
 
+        let analysisStart = DispatchTime.now().uptimeNanoseconds
         let queryAnalysis = configuration.queryAnalyzer?.analyze(query: normalizedText)
+        events?(.stageTiming(stage: .analysis, durationMs: elapsedMilliseconds(since: analysisStart)))
 
+        let lexicalProbeStart = DispatchTime.now().uptimeNanoseconds
         let lexicalProbe = try await runLexicalProbe(
             query: query,
             normalizedText: normalizedText,
             allowedChunkIDs: allowedChunkIDs,
             allowedMemoryTypes: allowedMemoryTypes
         )
+        var lexicalSearchDurationMs = elapsedMilliseconds(since: lexicalProbeStart)
+
+        let expansionStart = DispatchTime.now().uptimeNanoseconds
         let expandedQueries = try await buildExpandedQueries(
             query: query,
             normalizedText: normalizedText,
             skipExpansion: lexicalProbe.strongSignal
         )
+        events?(.stageTiming(stage: .expansion, durationMs: elapsedMilliseconds(since: expansionStart)))
         events?(.expandedQueries(count: max(0, expandedQueries.count - 1)))
 
+        let queryEmbeddingStart = DispatchTime.now().uptimeNanoseconds
         let semanticQueryVectors = try await embedExpandedQueries(
             expandedQueries,
             semanticCandidateLimit: query.semanticCandidateLimit,
             events: events
         )
+        events?(.stageTiming(stage: .queryEmbedding, durationMs: elapsedMilliseconds(since: queryEmbeddingStart)))
 
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
         var semanticCandidateCount = 0
         var lexicalCandidateCount = 0
+        var semanticSearchDurationMs = 0.0
 
         for (index, expandedQuery) in expandedQueries.enumerated() {
             let skipSemantic = expandedQuery.expansionType == .lexical
@@ -178,12 +221,14 @@ public actor MemoryIndex {
                 || expandedQuery.expansionType == .hypotheticalDocument
 
             if !skipSemantic, let semanticQueryVectors {
+                let semanticSearchStart = DispatchTime.now().uptimeNanoseconds
                 let semanticHits = try await semanticSearch(
                     queryVector: semanticQueryVectors[index],
                     limit: query.semanticCandidateLimit,
                     allowedChunkIDs: allowedChunkIDs,
                     allowedMemoryTypes: allowedMemoryTypes
                 )
+                semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
                 semanticCandidateCount += semanticHits.count
                 accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
             }
@@ -193,12 +238,14 @@ public actor MemoryIndex {
                 if index == 0, let seeded = lexicalProbe.seededHits {
                     lexicalHits = seeded
                 } else {
+                    let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                     lexicalHits = try await storage.lexicalSearch(
                         query: ftsPreprocess(expandedQuery.text),
                         limit: query.lexicalCandidateLimit,
                         allowedChunkIDs: allowedChunkIDs,
                         allowedMemoryTypes: allowedMemoryTypes
                     )
+                    lexicalSearchDurationMs += elapsedMilliseconds(since: lexicalSearchStart)
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
@@ -207,20 +254,25 @@ public actor MemoryIndex {
 
         if let analysis = queryAnalysis, !analysis.entities.isEmpty, query.lexicalCandidateLimit > 0 {
             for entity in analysis.entities.prefix(3) {
+                let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                 let entityHits = try await storage.lexicalSearch(
                     query: ftsPreprocess(entity),
                     limit: query.lexicalCandidateLimit / 2,
                     allowedChunkIDs: allowedChunkIDs,
                     allowedMemoryTypes: allowedMemoryTypes
                 )
+                lexicalSearchDurationMs += elapsedMilliseconds(since: lexicalSearchStart)
                 accumulateRRF(for: entityHits, weight: 0.5, into: &lexicalRRF)
                 lexicalCandidateCount += entityHits.count
             }
         }
 
+        events?(.stageTiming(stage: .semanticSearch, durationMs: semanticSearchDurationMs))
+        events?(.stageTiming(stage: .lexicalSearch, durationMs: lexicalSearchDurationMs))
         events?(.semanticCandidates(count: semanticCandidateCount))
         events?(.lexicalCandidates(count: lexicalCandidateCount))
 
+        let fusionStart = DispatchTime.now().uptimeNanoseconds
         let queryTags = query.includeTagScoring ? await resolveQueryContentTags(queryText: normalizedText) : []
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
@@ -229,17 +281,20 @@ public actor MemoryIndex {
             primaryQueryText: normalizedText,
             queryTags: queryTags
         )
+        events?(.stageTiming(stage: .fusion, durationMs: elapsedMilliseconds(since: fusionStart)))
         events?(.fusedCandidates(count: fused.count))
 
         let rerankCount = effectiveRerankCount(query: query, fusedCount: fused.count)
         if let reranker = configuration.reranker, !fused.isEmpty, rerankCount > 0 {
             do {
+                let rerankStart = DispatchTime.now().uptimeNanoseconds
                 fused = try await applyReranker(
                     reranker,
                     query: query,
                     fusedResults: fused,
                     rerankCount: rerankCount
                 )
+                events?(.stageTiming(stage: .rerank, durationMs: elapsedMilliseconds(since: rerankStart)))
                 events?(.reranked(count: rerankCount))
             } catch {
                 // Fall back to fused ordering if reranking fails.
@@ -264,6 +319,7 @@ public actor MemoryIndex {
                 .sorted(by: sortByBlendedScore(_:_:))
                 .prefix(query.limit)
         )
+        events?(.stageTiming(stage: .total, durationMs: elapsedMilliseconds(since: queryStart)))
         events?(.completed(count: final.count))
         return final
     }
@@ -1070,7 +1126,10 @@ public actor MemoryIndex {
         return configuration.supportedFileExtensions.contains(ext)
     }
 
-    private func buildDocumentPayload(for url: URL) async throws -> StoredDocumentInput? {
+    private func buildDocumentPayload(
+        for url: URL,
+        events: IndexingEventHandler? = nil
+    ) async throws -> StoredDocumentInput? {
         guard isSupportedFile(url: url) else { return nil }
 
         let content: String
@@ -1081,16 +1140,22 @@ public actor MemoryIndex {
         }
 
         let kind = inferDocumentKind(for: url)
+        let typingStart = DispatchTime.now().uptimeNanoseconds
         let memoryAssignment = try await resolveDocumentMemoryType(
             content: content,
             kind: kind,
             sourceURL: url
         )
+        events?(.stageTiming(path: url.path, stage: .typing, durationMs: elapsedMilliseconds(since: typingStart)))
+
+        let chunkingStart = DispatchTime.now().uptimeNanoseconds
         let chunks = configuration.chunker.chunk(text: content, kind: kind, sourceURL: url)
+        events?(.stageTiming(path: url.path, stage: .chunking, durationMs: elapsedMilliseconds(since: chunkingStart)))
         guard !chunks.isEmpty else { return nil }
 
         let documentTitle = inferTitle(content: content, fallback: url.deletingPathExtension().lastPathComponent)
         let embeddings: [[Float]]
+        let embeddingStart = DispatchTime.now().uptimeNanoseconds
         do {
             embeddings = try await configuration.embeddingProvider.embed(
                 texts: chunks.map(\.content),
@@ -1099,12 +1164,15 @@ public actor MemoryIndex {
         } catch {
             throw MemoryError.embedding("Failed to embed chunks for \(url.path): \(error.localizedDescription)")
         }
+        events?(.stageTiming(path: url.path, stage: .embedding, durationMs: elapsedMilliseconds(since: embeddingStart)))
 
         guard embeddings.count == chunks.count else {
             throw MemoryError.embedding("Embedding provider returned \(embeddings.count) vectors for \(chunks.count) chunks")
         }
 
+        let taggingStart = DispatchTime.now().uptimeNanoseconds
         let chunkTags = await resolveChunkContentTags(chunks: chunks, kind: kind, sourceURL: url)
+        events?(.stageTiming(path: url.path, stage: .tagging, durationMs: elapsedMilliseconds(since: taggingStart)))
         let chunkInputs: [StoredChunkInput] = zip(zip(chunks, embeddings), chunkTags).map { element in
             let (pair, contentTags) = element
             let (chunk, vector) = pair
@@ -1358,6 +1426,11 @@ public actor MemoryIndex {
         guard !vector.isEmpty else { return 0 }
         let sum = vDSP.sum(vDSP.multiply(vector, vector))
         return Double(sqrt(sum))
+    }
+
+    private func elapsedMilliseconds(since startNanoseconds: UInt64) -> Double {
+        let delta = DispatchTime.now().uptimeNanoseconds - startNanoseconds
+        return Double(delta) / 1_000_000.0
     }
 
     private func accumulateRRF(

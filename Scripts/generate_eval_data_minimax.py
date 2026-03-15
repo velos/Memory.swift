@@ -13,7 +13,7 @@ Environment variables:
   - MINIMAX_MODEL (default: MiniMax-M2.5)
 
 Usage:
-  python3 scripts/generate_eval_data_minimax.py --dataset-root Evals --env-file .env
+  python3 Scripts/generate_eval_data_minimax.py --dataset-root Evals/general --dataset-mode general --env-file .env
 """
 
 from __future__ import annotations
@@ -79,6 +79,25 @@ QUERY_STYLE_ROTATION: List[Dict[str, str]] = [
 
 DEFAULT_BASE_URL = "https://api.minimax.io/anthropic"
 DEFAULT_MODEL = "MiniMax-M2.5"
+DEFAULT_PROMPT_VERSION = "2026-03-15"
+
+DATASET_MODES = ("general", "tech", "longmemeval-typed-queries", "adversarial-augment")
+
+SOFTWARE_ENGINEERING_KEYWORDS = {
+    "api", "apis", "backend", "build", "ci", "client", "code", "commit", "container",
+    "database", "db", "debug", "deploy", "deployment", "endpoint", "incident", "infra",
+    "integration", "latency", "log", "migration", "monitoring", "pipeline", "postmortem",
+    "pr", "prod", "release", "repository", "rollback", "runbook", "schema", "service",
+    "slo", "sql", "staging", "test", "tests", "token", "typescript", "swift",
+    "kubernetes", "docker", "cache", "observability", "auth", "frontend", "ios",
+}
+
+NON_TECH_KEYWORDS = {
+    "birthday", "calories", "cat", "cook", "cooking", "diet", "dog", "flight", "garden",
+    "gym", "hotel", "marathon", "movie", "music", "nutrition", "parenting", "pet",
+    "photosynthesis", "recipe", "restaurant", "sauce", "school", "tomato", "vacation",
+    "wedding", "workout",
+}
 
 
 @dataclass
@@ -121,14 +140,19 @@ DOMAIN_PROFILES: Dict[str, DomainProfile] = {
     "technical": DomainProfile(
         name="technical",
         prose_style=(
-            "realistic project/workplace/internal-note style prose"
+            "realistic software-engineering project prose -- incident notes, migration plans, "
+            "debugging logs, runbooks, architecture decisions, API behavior summaries, "
+            "release notes, and engineering planning artifacts. Do NOT produce cooking, travel, "
+            "health, finance, personal-life, or generic workplace-only content."
         ),
         overlap_hints=[
-            "deployment", "timeline", "incident", "release",
-            "stakeholder", "checklist", "planning", "context",
+            "deployment", "rollback", "incident", "release",
+            "migration", "api", "runbook", "latency",
         ],
         storage_style=(
-            "Use natural, realistic notes/docs in markdown-like prose."
+            "Use natural, realistic software-engineering notes and docs in markdown-like prose. "
+            "Stay inside code, infrastructure, incidents, architecture, debugging, releases, "
+            "testing, and operational coordination."
         ),
     ),
 }
@@ -148,6 +172,7 @@ def truncate_for_log(value: str, limit: int = 220) -> str:
 
 @dataclass
 class GenerationConfig:
+    dataset_mode: str
     storage_cases: int
     recall_documents: int
     recall_queries: int
@@ -295,6 +320,21 @@ def word_count(text: str) -> int:
     return len(re.findall(r"\S+", text))
 
 
+def tokenize_keywords(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9_+#.-]+", text.lower()))
+
+
+def looks_software_engineering_focused(text: str) -> bool:
+    tokens = tokenize_keywords(text)
+    tech_hits = len(tokens.intersection(SOFTWARE_ENGINEERING_KEYWORDS))
+    non_tech_hits = len(tokens.intersection(NON_TECH_KEYWORDS))
+    return tech_hits >= 2 and tech_hits > non_tech_hits
+
+
+def dataset_mode_requires_software_focus(dataset_mode: str) -> bool:
+    return dataset_mode == "tech"
+
+
 def extract_json_payload(raw: str) -> Any:
     raw = raw.strip()
 
@@ -350,13 +390,15 @@ def ensure_json_object_with_list(payload: Any, key: str) -> List[Dict[str, Any]]
     return records
 
 
-def sanitize_storage_case(raw: Dict[str, Any], expected_type: str) -> Optional[Dict[str, Any]]:
+def sanitize_storage_case(raw: Dict[str, Any], expected_type: str, dataset_mode: str) -> Optional[Dict[str, Any]]:
     text = normalize_spaces(str(raw.get("text", "")))
     if not text:
         return None
 
     wc = word_count(text)
     if wc < 50 or wc > 220:
+        return None
+    if dataset_mode_requires_software_focus(dataset_mode) and not looks_software_engineering_focused(text):
         return None
 
     spans_raw = raw.get("required_spans")
@@ -382,13 +424,15 @@ def sanitize_storage_case(raw: Dict[str, Any], expected_type: str) -> Optional[D
     }
 
 
-def sanitize_recall_document(raw: Dict[str, Any], expected_type: str) -> Optional[Dict[str, Any]]:
+def sanitize_recall_document(raw: Dict[str, Any], expected_type: str, dataset_mode: str) -> Optional[Dict[str, Any]]:
     text = normalize_spaces(str(raw.get("text", "")))
     if not text:
         return None
 
     wc = word_count(text)
     if wc < 60 or wc > 260:
+        return None
+    if dataset_mode_requires_software_focus(dataset_mode) and not looks_software_engineering_focused(text):
         return None
 
     return {
@@ -517,7 +561,7 @@ Rules:
                 continue
 
             for raw_case in raw_cases:
-                sanitized = sanitize_storage_case(raw_case, memory_type)
+                sanitized = sanitize_storage_case(raw_case, memory_type, config.dataset_mode)
                 if not sanitized:
                     continue
                 normalized_text = normalize_spaces(sanitized["text"]).lower()
@@ -623,7 +667,7 @@ Rules:
                 continue
 
             for raw_document in raw_documents:
-                sanitized = sanitize_recall_document(raw_document, memory_type)
+                sanitized = sanitize_recall_document(raw_document, memory_type, config.dataset_mode)
                 if not sanitized:
                     continue
                 normalized_text = normalize_spaces(sanitized["text"]).lower()
@@ -852,18 +896,302 @@ def log_difficulty_distribution(queries: List[Dict[str, Any]]) -> None:
     log(f"[queries] difficulty distribution: {', '.join(parts)}")
 
 
+def write_dataset_manifest(
+    dataset_root: Path,
+    *,
+    dataset_mode: str,
+    model: str,
+    config: GenerationConfig,
+    notes: List[str],
+) -> None:
+    storage_path = dataset_root / "storage_cases.jsonl"
+    queries_path = dataset_root / "recall_queries.jsonl"
+    storage_records = _read_jsonl(storage_path) if storage_path.exists() else []
+    query_records = _read_jsonl(queries_path) if queries_path.exists() else []
+    typed_queries = sum(1 for record in query_records if record.get("memory_types"))
+
+    if dataset_mode == "tech":
+        primary_use = "secondary"
+        provenance = "synthetic_minimax"
+        synthetic_status = "synthetic"
+    elif dataset_mode == "general":
+        primary_use = "primary"
+        provenance = "synthetic_minimax"
+        synthetic_status = "synthetic"
+    elif dataset_mode == "longmemeval-typed-queries":
+        primary_use = "primary"
+        provenance = "external_converted_plus_synthetic_query_metadata"
+        synthetic_status = "hybrid"
+    else:
+        primary_use = "primary"
+        provenance = "synthetic_minimax_augmentation"
+        synthetic_status = "synthetic"
+
+    manifest = {
+        "dataset": dataset_root.name,
+        "provenance": provenance,
+        "synthetic_status": synthetic_status,
+        "primary_use": primary_use,
+        "typing_coverage": {
+            "storage_cases": {
+                "typed": len(storage_records),
+                "total": len(storage_records),
+            },
+            "recall_queries": {
+                "typed": typed_queries,
+                "total": len(query_records),
+            },
+        },
+        "known_limits": notes,
+        "recommended_weight": primary_use,
+        "generation": {
+            "backend": "minimax_anthropic_api",
+            "model": model,
+            "prompt_version": DEFAULT_PROMPT_VERSION,
+            "dataset_mode": dataset_mode,
+            "seed": config.seed,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+    }
+    (dataset_root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _summarize_document(text: str, limit: int = 220) -> str:
+    return truncate_for_log(text, limit=limit)
+
+
+def augment_longmemeval_typed_queries(
+    client: MiniMaxAnthropicClient,
+    config: GenerationConfig,
+    dataset_root: Path,
+) -> List[Dict[str, Any]]:
+    documents = _read_jsonl(dataset_root / "recall_documents.jsonl")
+    queries = _read_jsonl(dataset_root / "recall_queries.jsonl")
+    document_map = {record["id"]: record for record in documents}
+    query_map = {record["id"]: dict(record) for record in queries}
+    pending = [record for record in queries if not record.get("memory_types")]
+    if not pending:
+        return list(query_map.values())
+
+    system_prompt = (
+        "You label retrieval benchmark queries for memory systems.\n"
+        "Return only strict JSON. No markdown. No commentary."
+    )
+
+    batch_size = max(1, min(config.queries_batch_size, 20))
+    for batch_start in range(0, len(pending), batch_size):
+        batch = pending[batch_start: batch_start + batch_size]
+        lines: List[str] = []
+        for query in batch:
+            relevant_docs = []
+            for doc_id in query["relevant_document_ids"]:
+                document = document_map.get(doc_id)
+                if not document:
+                    continue
+                relevant_docs.append(
+                    {
+                        "id": doc_id,
+                        "memory_type": document.get("memory_type"),
+                        "summary": _summarize_document(document["text"]),
+                    }
+                )
+            lines.append(
+                json.dumps(
+                    {
+                        "id": query["id"],
+                        "query": query["query"],
+                        "relevant_docs": relevant_docs,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+        user_prompt = f"""
+Label the following queries with memory types and difficulty.
+
+Input queries (JSON lines):
+{chr(10).join(lines)}
+
+Required output shape:
+{{
+  "queries": [
+    {{
+      "id": "q-0001",
+      "memory_types": ["semantic"],
+      "difficulty": "medium"
+    }}
+  ]
+}}
+
+Rules:
+- Choose 1 or 2 memory_types from: {", ".join(MEMORY_TYPES)}.
+- Use the query wording and relevant doc summaries together.
+- difficulty must be one of: easy, medium, hard.
+- Prefer the most specific memory type that best matches the retrieval intent.
+"""
+
+        raw = client.create_message(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=max(0.2, config.temperature - 0.1),
+            max_tokens=config.max_tokens,
+            progress_label=f"[longmemeval-typed-queries] batch {batch_start // batch_size + 1}",
+        )
+
+        payload = extract_json_payload(raw)
+        labeled = ensure_json_object_with_list(payload, "queries")
+        for item in labeled:
+            query_id = str(item.get("id", "")).strip()
+            if query_id not in query_map:
+                continue
+            memory_types = [
+                memory_type
+                for memory_type in [str(value).strip().lower() for value in item.get("memory_types", [])]
+                if memory_type in MEMORY_TYPES
+            ]
+            difficulty = str(item.get("difficulty", "medium")).strip().lower()
+            if difficulty not in DIFFICULTY_LEVELS:
+                difficulty = "medium"
+
+            if not memory_types:
+                relevant_doc_types = []
+                for doc_id in query_map[query_id]["relevant_document_ids"]:
+                    memory_type = str(document_map.get(doc_id, {}).get("memory_type", "")).strip().lower()
+                    if memory_type in MEMORY_TYPES and memory_type not in relevant_doc_types:
+                        relevant_doc_types.append(memory_type)
+                memory_types = relevant_doc_types[:2]
+
+            if memory_types:
+                query_map[query_id]["memory_types"] = memory_types
+            query_map[query_id]["difficulty"] = difficulty
+
+    return [query_map[record["id"]] for record in queries]
+
+
+def augment_adversarial_queries(
+    client: MiniMaxAnthropicClient,
+    config: GenerationConfig,
+    rng: random.Random,
+    dataset_root: Path,
+) -> List[Dict[str, Any]]:
+    documents = _read_jsonl(dataset_root / "recall_documents.jsonl")
+    existing_queries = _read_jsonl(dataset_root / "recall_queries.jsonl")
+    valid_doc_ids = {record["id"] for record in documents}
+    seen_queries = {normalize_spaces(record["query"]).lower() for record in existing_queries}
+    generated: List[Dict[str, Any]] = []
+    target = config.recall_queries
+    attempts = 0
+    max_attempts = max(20, config.max_attempts_per_bucket * 4)
+
+    system_prompt = (
+        "You create hard retrieval benchmark queries.\n"
+        "Return only strict JSON. No markdown. No commentary."
+    )
+
+    while len(generated) < target and attempts < max_attempts:
+        attempts += 1
+        needed = target - len(generated)
+        batch_size = min(config.queries_batch_size, needed)
+        candidate_docs = rng.sample(list(documents), k=min(len(documents), max(batch_size * 6, 40)))
+        catalog_snippet = build_document_catalog_snippet(candidate_docs, limit=len(candidate_docs))
+
+        user_prompt = f"""
+Use the following candidate documents and generate EXACTLY {batch_size} adversarial retrieval queries.
+
+Candidate document catalog (JSON lines):
+{catalog_snippet}
+
+Required output shape:
+{{
+  "queries": [
+    {{
+      "query": "string",
+      "relevant_document_ids": ["doc-0001"],
+      "memory_types": ["semantic"],
+      "difficulty": "hard"
+    }}
+  ]
+}}
+
+Rules:
+- Every query must be hard.
+- Use near-miss wording, abstract language, or multi-hop phrasing that could match the wrong documents.
+- Each query must have 1 to 3 relevant_document_ids.
+- relevant_document_ids MUST come from the provided catalog.
+- Include memory_types when they materially constrain retrieval intent.
+"""
+        raw = client.create_message(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=min(0.8, config.temperature + 0.1),
+            max_tokens=config.max_tokens,
+            progress_label=f"[adversarial-augment] batch {attempts}/{max_attempts}",
+        )
+
+        try:
+            payload = extract_json_payload(raw)
+            raw_queries = ensure_json_object_with_list(payload, "queries")
+        except Exception:
+            continue
+
+        for raw_query in raw_queries:
+            sanitized = sanitize_recall_query(
+                raw_query,
+                valid_doc_ids=valid_doc_ids,
+                default_difficulty="hard",
+            )
+            if not sanitized:
+                continue
+            normalized = sanitized["query"].lower()
+            if normalized in seen_queries:
+                continue
+            seen_queries.add(normalized)
+            generated.append(sanitized)
+            if len(generated) >= target:
+                break
+
+    if len(generated) < target:
+        raise RuntimeError(
+            f"Could not generate enough adversarial queries. Expected {target}, got {len(generated)}."
+        )
+
+    merged = list(existing_queries)
+    for index, query in enumerate(generated, start=1):
+        row = {
+            "id": f"adv-q-{index:04d}",
+            "query": query["query"],
+            "relevant_document_ids": query["relevant_document_ids"],
+            "difficulty": "hard",
+        }
+        if "memory_types" in query:
+            row["memory_types"] = query["memory_types"]
+        merged.append(row)
+    return merged
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate Memory.swift eval data via MiniMax Anthropic-compatible API.")
     parser.add_argument("--dataset-root", default="Evals", help="Dataset root folder (default: Evals).")
     parser.add_argument("--env-file", default=".env", help="Path to .env file (default: .env).")
     parser.add_argument("--base-url", default=None, help="Anthropic-compatible base URL.")
     parser.add_argument("--model", default=None, help="Model name (default: MiniMax-M2.5 or MINIMAX_MODEL env).")
-
+    parser.add_argument(
+        "--dataset-mode",
+        choices=DATASET_MODES,
+        default="general",
+        help=(
+            "Generation mode: 'general', 'tech', 'longmemeval-typed-queries', "
+            "or 'adversarial-augment'. Default: general."
+        ),
+    )
     parser.add_argument(
         "--domain-profile",
         choices=list(DOMAIN_PROFILES.keys()),
-        default="general",
-        help="Domain profile: 'general' (diverse life domains) or 'technical' (software engineering). Default: general.",
+        default=None,
+        help="Deprecated compatibility flag. Prefer --dataset-mode.",
     )
 
     parser.add_argument("--storage-cases", type=int, default=240, help="Total storage cases (default: 240).")
@@ -938,10 +1266,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     storage_path = dataset_root / "storage_cases.jsonl"
     documents_path = dataset_root / "recall_documents.jsonl"
     queries_path = dataset_root / "recall_queries.jsonl"
-    maybe_fail_if_exists([storage_path, documents_path, queries_path], overwrite=args.overwrite)
+    dataset_mode = args.dataset_mode
+    if args.domain_profile == "technical" and dataset_mode == "general":
+        dataset_mode = "tech"
 
-    domain_profile = DOMAIN_PROFILES[args.domain_profile]
+    domain_profile = DOMAIN_PROFILES["technical" if dataset_mode == "tech" else "general"]
     cfg = GenerationConfig(
+        dataset_mode=dataset_mode,
         storage_cases=args.storage_cases,
         recall_documents=args.recall_documents,
         recall_queries=args.recall_queries,
@@ -968,36 +1299,98 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     log(f"Using base URL: {base_url}")
     log(f"Using model: {model}")
+    log(f"Dataset mode: {dataset_mode}")
     log(f"Domain profile: {domain_profile.name}")
     log(f"Dataset root: {dataset_root}")
     log(f"Request timeout (seconds): {cfg.request_timeout_seconds}")
-    log("Generating storage cases...")
-    storage_cases = generate_storage_cases(client, cfg, rng)
-    log(f"Generated {len(storage_cases)} storage cases.")
 
-    log("Generating recall documents...")
-    recall_documents = generate_recall_documents(client, cfg, rng)
-    log(f"Generated {len(recall_documents)} recall documents.")
+    if dataset_mode in {"general", "tech"}:
+        maybe_fail_if_exists(
+            [storage_path, documents_path, queries_path, dataset_root / "manifest.json"],
+            overwrite=args.overwrite,
+        )
 
-    log("Generating recall queries...")
-    recall_queries = generate_recall_queries(client, cfg, rng, recall_documents)
-    log(f"Generated {len(recall_queries)} recall queries.")
+        log("Generating storage cases...")
+        storage_cases = generate_storage_cases(client, cfg, rng)
+        log(f"Generated {len(storage_cases)} storage cases.")
 
-    log("Validating query memory_types consistency...")
-    recall_queries = validate_query_memory_type_consistency(recall_queries, recall_documents)
-    log_difficulty_distribution(recall_queries)
+        log("Generating recall documents...")
+        recall_documents = generate_recall_documents(client, cfg, rng)
+        log(f"Generated {len(recall_documents)} recall documents.")
 
-    storage_path.write_text(render_jsonl(storage_cases), encoding="utf-8")
-    documents_path.write_text(render_jsonl(recall_documents), encoding="utf-8")
-    queries_path.write_text(render_jsonl(recall_queries), encoding="utf-8")
+        log("Generating recall queries...")
+        recall_queries = generate_recall_queries(client, cfg, rng, recall_documents)
+        log(f"Generated {len(recall_queries)} recall queries.")
 
-    log("Done.")
-    log(f"Wrote {storage_path}")
-    log(f"Wrote {documents_path}")
-    log(f"Wrote {queries_path}")
+        log("Validating query memory_types consistency...")
+        recall_queries = validate_query_memory_type_consistency(recall_queries, recall_documents)
+        log_difficulty_distribution(recall_queries)
+
+        storage_path.write_text(render_jsonl(storage_cases), encoding="utf-8")
+        documents_path.write_text(render_jsonl(recall_documents), encoding="utf-8")
+        queries_path.write_text(render_jsonl(recall_queries), encoding="utf-8")
+        write_dataset_manifest(
+            dataset_root,
+            dataset_mode=dataset_mode,
+            model=model,
+            config=cfg,
+            notes=[
+                "Synthetic dataset generated through MiniMax Anthropic-compatible API.",
+                "general is mixed-domain and is intended as the primary doc-style benchmark." if dataset_mode == "general"
+                else "tech is synthetic and enforces software-engineering topical validation.",
+            ],
+        )
+
+        log("Done.")
+        log(f"Wrote {storage_path}")
+        log(f"Wrote {documents_path}")
+        log(f"Wrote {queries_path}")
+    elif dataset_mode == "longmemeval-typed-queries":
+        if not queries_path.exists() or not documents_path.exists():
+            raise RuntimeError("longmemeval-typed-queries mode requires existing recall_documents.jsonl and recall_queries.jsonl.")
+        if not args.overwrite:
+            raise RuntimeError("longmemeval-typed-queries mode updates recall_queries.jsonl in place. Re-run with --overwrite.")
+
+        log("Augmenting longmemeval queries with memory_types and difficulty...")
+        augmented_queries = augment_longmemeval_typed_queries(client, cfg, dataset_root)
+        log_difficulty_distribution(augmented_queries)
+        queries_path.write_text(render_jsonl(augmented_queries), encoding="utf-8")
+        write_dataset_manifest(
+            dataset_root,
+            dataset_mode=dataset_mode,
+            model=model,
+            config=cfg,
+            notes=[
+                "Source documents remain from converted LongMemEval.",
+                "memory_types and difficulty fields were added through MiniMax query labeling.",
+            ],
+        )
+        log(f"Wrote {queries_path}")
+    else:
+        if not queries_path.exists() or not documents_path.exists():
+            raise RuntimeError("adversarial-augment mode requires existing recall_documents.jsonl and recall_queries.jsonl.")
+        if not args.overwrite:
+            raise RuntimeError("adversarial-augment mode updates recall_queries.jsonl in place. Re-run with --overwrite.")
+
+        log("Generating adversarial query augmentation...")
+        augmented_queries = augment_adversarial_queries(client, cfg, rng, dataset_root)
+        log_difficulty_distribution(augmented_queries)
+        queries_path.write_text(render_jsonl(augmented_queries), encoding="utf-8")
+        write_dataset_manifest(
+            dataset_root,
+            dataset_mode=dataset_mode,
+            model=model,
+            config=cfg,
+            notes=[
+                "Adds hard retrieval queries against the existing document corpus.",
+                "This mode augments recall_queries.jsonl only; it does not regenerate source documents.",
+            ],
+        )
+        log(f"Wrote {queries_path}")
+
     log("Next:")
     log(f"  swift run memory_eval run --profile baseline --dataset-root {dataset_root}")
-    log(f"  swift run memory_eval run --profile full_apple --dataset-root {dataset_root}")
+    log(f"  swift run memory_eval run --profile coreml_rerank --dataset-root {dataset_root}")
     return 0
 
 

@@ -303,7 +303,7 @@ def build_eval_splits(root: Path) -> tuple[dict[str, list], dict[str, list], dic
         full_documents.extend(full_documents_for_corpus)
         full_queries.extend(full_queries_for_corpus)
 
-    for corpus in ("longmemeval",):
+    for corpus in ("tech",):
         full_storage.extend(load_storage_cases(root, corpus))
         full_documents.extend(load_recall_documents(root, corpus))
         full_queries.extend(load_recall_queries(root, corpus))

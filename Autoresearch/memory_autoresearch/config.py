@@ -11,8 +11,11 @@ CACHE_NAMESPACE = "memory-swift-autoresearch"
 ACTIVE_COMPONENTS = ("typing", "embedding", "reranker")
 SUPPORTED_CORPORA = ("general", "tech", "scifact", "nfcorpus", "longmemeval")
 TRAINING_CORPORA = ("general", "tech", "scifact", "nfcorpus")
-QUICK_EVAL_CORPORA = ("general", "tech")
-FULL_EVAL_CORPORA = ("longmemeval", "general", "tech")
+PRIMARY_EVAL_CORPORA = ("general", "longmemeval")
+SECONDARY_EVAL_CORPORA = ("tech",)
+STRESS_EVAL_CORPORA = ("scifact", "nfcorpus")
+QUICK_EVAL_CORPORA = ("general", "longmemeval")
+FULL_EVAL_CORPORA = ("general", "longmemeval", "tech")
 
 MEMORY_TYPES = (
     "factual",
@@ -99,6 +102,16 @@ EXPORT_QUANTIZATION = {
 
 HYSTERESIS_MIN_IMPROVEMENT = 0.003
 HYSTERESIS_TIE_TOLERANCE = 0.001
+PRIMARY_LATENCY_TOLERANCE = {
+    "general": 0.15,
+    "longmemeval": 0.20,
+}
+MODEL_SIZE_TOLERANCE_MULTIPLIER = 1.25
+CORPUS_SCORE_WEIGHTS = {
+    "general": 0.45,
+    "longmemeval": 0.45,
+    "tech": 0.10,
+}
 
 DEFAULT_QUICK_PROFILE_NAME = "automemory_quick"
 DEFAULT_FULL_PROFILE_NAME = "automemory_full"

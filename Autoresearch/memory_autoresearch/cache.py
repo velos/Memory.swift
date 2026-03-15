@@ -84,6 +84,10 @@ def metrics_path(component: str) -> Path:
     return runs_root() / f"{component}_last_metrics.json"
 
 
+def report_path(component: str) -> Path:
+    return runs_root() / f"{component}_last_report.json"
+
+
 @dataclass
 class RunManifest:
     component: str

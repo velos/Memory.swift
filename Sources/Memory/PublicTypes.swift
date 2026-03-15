@@ -373,13 +373,34 @@ public struct Chunk: Sendable {
     }
 }
 
+public enum IndexingStage: String, Sendable, Codable {
+    case typing
+    case chunking
+    case tagging
+    case embedding
+    case indexWrite = "index_write"
+    case total
+}
+
 public enum IndexingEvent: Sendable {
     case started(totalDocuments: Int)
     case readingDocument(path: String, index: Int, total: Int)
     case chunked(path: String, chunks: Int)
     case embedded(path: String, chunks: Int)
+    case stageTiming(path: String, stage: IndexingStage, durationMs: Double)
     case stored(path: String)
     case completed(processedDocuments: Int, totalChunks: Int)
+}
+
+public enum SearchStage: String, Sendable, Codable {
+    case analysis
+    case expansion
+    case queryEmbedding = "query_embedding"
+    case semanticSearch = "semantic_search"
+    case lexicalSearch = "lexical_search"
+    case fusion
+    case rerank
+    case total
 }
 
 public enum SearchEvent: Sendable {
@@ -390,6 +411,7 @@ public enum SearchEvent: Sendable {
     case lexicalCandidates(count: Int)
     case fusedCandidates(count: Int)
     case reranked(count: Int)
+    case stageTiming(stage: SearchStage, durationMs: Double)
     case completed(count: Int)
 }
 

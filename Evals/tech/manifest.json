@@ -1,0 +1,22 @@
+{
+  "dataset": "tech",
+  "provenance": "synthetic_minimax",
+  "synthetic_status": "synthetic",
+  "primary_use": "secondary",
+  "typing_coverage": {
+    "storage_cases": {
+      "typed": 500,
+      "total": 500
+    },
+    "recall_queries": {
+      "typed": 477,
+      "total": 500
+    }
+  },
+  "known_limits": [
+    "Current synthetic prompt is too broad and allows non-software topics into the corpus.",
+    "Use as a secondary benchmark until regenerated with strict software-engineering topical validation.",
+    "Useful today for retrieval pressure and typed-query shape, not for product-signoff."
+  ],
+  "recommended_weight": "secondary"
+}
