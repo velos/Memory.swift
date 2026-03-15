@@ -1,1 +1,8 @@
 commit	component	memory_score	storage_score	recall_score	model_mb	latency_ms	status	description
+5af82d8	typing	0.709694	0.897001	0.272646	8.4	6.3	keep	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0003 steps=4383 loss=0.1230
+5af82d8	typing	0.781794	1.000000	0.272646	8.4	5.8	keep	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0003 steps=7871 loss=0.0599
+5af82d8	typing	0.781794	1.000000	0.272646	8.4	6.1	keep	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0001 steps=7852 loss=0.0705
+5af82d8	typing	0.707811	0.894311	0.272646	8.4	6.0	discard_full	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0003 steps=11742 loss=0.0452
+5af82d8	embedding	0.271299	0.378871	0.244406	11.0	209.6	discard	embedding ckpt=sentence-transformers/all-MiniLM-L6-v2 lr=0.0003 steps=609 loss=2.1900
+5af82d8	reranker	0.293891	0.378871	0.272646	11.0	67.5	discard_full	reranker ckpt=cross-encoder/ms-marco-MiniLM-L-6-v2 lr=0.0003 steps=2638 loss=0.6770
+5af82d8	typing	0.738558	0.938235	0.272646	8.4	4.6	discard_full	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0005 steps=8361 loss=0.0866

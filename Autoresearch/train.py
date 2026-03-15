@@ -32,7 +32,7 @@ from memory_autoresearch.training import train_embedding, train_reranker, train_
 # ---------------------------------------------------------------------------
 
 ACTIVE_COMPONENT = "typing"
-LEARNING_RATE = 3e-4
+LEARNING_RATE = 5e-4
 TIME_BUDGET_SECONDS = DEFAULT_TIME_BUDGET_SECONDS
 TYPING_CHECKPOINT_OVERRIDE = "google/bert_uncased_L-2_H-128_A-2"
 

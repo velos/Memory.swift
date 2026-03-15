@@ -1,0 +1,335 @@
+Torch version 2.10.0 has not been tested with coremltools. You may run into unexpected errors. Torch 2.7.0 is the most recent version that has been tested.
+Loading weights:   0%|          | 0/39 [00:00<?, ?it/s]Loading weights: 100%|██████████| 39/39 [00:00<00:00, 17433.43it/s]
+[1mBertModel LOAD REPORT[0m from: google/bert_uncased_L-2_H-128_A-2
+Key                                        | Status     |  | 
+-------------------------------------------+------------+--+-
+cls.predictions.transform.LayerNorm.bias   | UNEXPECTED |  | 
+cls.seq_relationship.bias                  | UNEXPECTED |  | 
+cls.predictions.transform.LayerNorm.weight | UNEXPECTED |  | 
+cls.predictions.transform.dense.bias       | UNEXPECTED |  | 
+cls.seq_relationship.weight                | UNEXPECTED |  | 
+cls.predictions.transform.dense.weight     | UNEXPECTED |  | 
+cls.predictions.bias                       | UNEXPECTED |  | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.[0m
+Converting PyTorch Frontend ==> MIL Ops:   0%|          | 0/150 [00:00<?, ? ops/s]Saving value type of int64 into a builtin type of int32, might lose precision!
+Converting PyTorch Frontend ==> MIL Ops:  99%|█████████▉| 149/150 [00:00<00:00, 11174.41 ops/s]
+Running MIL frontend_pytorch pipeline:   0%|          | 0/5 [00:00<?, ? passes/s]Running MIL frontend_pytorch pipeline: 100%|██████████| 5/5 [00:00<00:00, 1013.80 passes/s]
+Running MIL default pipeline:   0%|          | 0/95 [00:00<?, ? passes/s]Running MIL default pipeline:  62%|██████▏   | 59/95 [00:00<00:00, 433.94 passes/s]/Users/zac/Projects/collab/Memory.swift/Autoresearch/.venv/lib/python3.11/site-packages/coremltools/converters/mil/mil/passes/defs/optimize_repeat_ops.py:433: RuntimeWarning: overflow encountered in cast
+  max(cur_range.low, tmp_range.low), min(cur_range.high, tmp_range.high)
+Running MIL default pipeline: 100%|██████████| 95/95 [00:00<00:00, 487.14 passes/s]
+Running MIL backend_mlprogram pipeline:   0%|          | 0/12 [00:00<?, ? passes/s]Running MIL backend_mlprogram pipeline: 100%|██████████| 12/12 [00:00<00:00, 1286.60 passes/s]
+[cache] enabled: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/quick_eval/cache/provider/eval_provider_cache.sqlite
+[storage][index-cache] hit: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/quick_eval/cache/index/storage/coreml_rerank-eb1363886fc3b1407205fe46
+[storage] Using cached index for 144 cases.
+[storage][cache] no cache traffic.
+[progress][storage] 1/144 (0.7%) elapsed 0s eta 0s
+[progress][storage] 5/144 (3.5%) elapsed 0s eta 0s
+[progress][storage] 10/144 (6.9%) elapsed 0s eta 0s
+[progress][storage] 15/144 (10.4%) elapsed 0s eta 0s
+[progress][storage] 20/144 (13.9%) elapsed 0s eta 0s
+[progress][storage] 25/144 (17.4%) elapsed 0s eta 0s
+[progress][storage] 30/144 (20.8%) elapsed 0s eta 0s
+[progress][storage] 35/144 (24.3%) elapsed 0s eta 0s
+[progress][storage] 40/144 (27.8%) elapsed 0s eta 0s
+[progress][storage] 45/144 (31.2%) elapsed 0s eta 0s
+[progress][storage] 50/144 (34.7%) elapsed 0s eta 0s
+[progress][storage] 55/144 (38.2%) elapsed 0s eta 0s
+[progress][storage] 60/144 (41.7%) elapsed 0s eta 0s
+[progress][storage] 65/144 (45.1%) elapsed 0s eta 0s
+[progress][storage] 70/144 (48.6%) elapsed 0s eta 0s
+[progress][storage] 75/144 (52.1%) elapsed 0s eta 0s
+[progress][storage] 80/144 (55.6%) elapsed 0s eta 0s
+[progress][storage] 85/144 (59.0%) elapsed 0s eta 0s
+[progress][storage] 90/144 (62.5%) elapsed 0s eta 0s
+[progress][storage] 95/144 (66.0%) elapsed 0s eta 0s
+[progress][storage] 100/144 (69.4%) elapsed 0s eta 0s
+[progress][storage] 105/144 (72.9%) elapsed 0s eta 0s
+[progress][storage] 110/144 (76.4%) elapsed 0s eta 0s
+[progress][storage] 115/144 (79.9%) elapsed 0s eta 0s
+[progress][storage] 120/144 (83.3%) elapsed 0s eta 0s
+[progress][storage] 125/144 (86.8%) elapsed 0s eta 0s
+[progress][storage] 130/144 (90.3%) elapsed 0s eta 0s
+[progress][storage] 135/144 (93.8%) elapsed 0s eta 0s
+[progress][storage] 140/144 (97.2%) elapsed 0s eta 0s
+[progress][storage] 144/144 (100.0%) elapsed 0s
+[recall][index-cache] hit: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/quick_eval/cache/index/recall/coreml_rerank-f9d1c04b1657ed8812dc53ce
+[recall] Using cached index for 194 documents.
+[recall] Evaluating 147 queries at k=1,3,5,10...
+[progress][recall] 1/147 (0.7%) elapsed 0s eta 16s
+[progress][recall] 5/147 (3.4%) elapsed 0s eta 6s
+[progress][recall] 10/147 (6.8%) elapsed 0s eta 4s
+[progress][recall] 15/147 (10.2%) elapsed 1s eta 5s
+[progress][recall] 20/147 (13.6%) elapsed 1s eta 4s
+[progress][recall] 25/147 (17.0%) elapsed 1s eta 4s
+[progress][recall] 30/147 (20.4%) elapsed 1s eta 4s
+[progress][recall] 35/147 (23.8%) elapsed 1s eta 4s
+[progress][recall] 40/147 (27.2%) elapsed 1s eta 4s
+[progress][recall] 45/147 (30.6%) elapsed 1s eta 3s
+[progress][recall] 50/147 (34.0%) elapsed 2s eta 3s
+[progress][recall] 55/147 (37.4%) elapsed 2s eta 3s
+[progress][recall] 60/147 (40.8%) elapsed 2s eta 3s
+[progress][recall] 65/147 (44.2%) elapsed 2s eta 3s
+[progress][recall] 70/147 (47.6%) elapsed 2s eta 3s
+[progress][recall] 75/147 (51.0%) elapsed 2s eta 2s
+[progress][recall] 80/147 (54.4%) elapsed 3s eta 2s
+[progress][recall] 85/147 (57.8%) elapsed 3s eta 2s
+[progress][recall] 90/147 (61.2%) elapsed 3s eta 2s
+[progress][recall] 95/147 (64.6%) elapsed 3s eta 2s
+[progress][recall] 100/147 (68.0%) elapsed 3s eta 2s
+[progress][recall] 105/147 (71.4%) elapsed 3s eta 1s
+[progress][recall] 110/147 (74.8%) elapsed 4s eta 1s
+[progress][recall] 115/147 (78.2%) elapsed 4s eta 1s
+[progress][recall] 120/147 (81.6%) elapsed 4s eta 1s
+[progress][recall] 125/147 (85.0%) elapsed 4s eta 1s
+[progress][recall] 130/147 (88.4%) elapsed 4s eta 1s
+[progress][recall] 135/147 (91.8%) elapsed 4s eta 0s
+[progress][recall] 140/147 (95.2%) elapsed 4s eta 0s
+[progress][recall] 145/147 (98.6%) elapsed 5s eta 0s
+[progress][recall] 147/147 (100.0%) elapsed 5s
+[recall][cache][rerank] hits=147, misses=0, writes=0, hitRate=100.00%
+Profile: coreml_rerank
+Storage type accuracy: 23.61%
+Storage macro F1: 20.27%
+Storage span coverage: 100.00%
+Recall Hit@10: 32.65%
+Recall Recall@10: 24.26%
+Recall MRR@10: 0.2912
+Recall nDCG@10: 0.2418
+Search latency: p50=25ms p95=68ms mean=31ms
+JSON report: /Users/zac/.cache/memory-swift-autoresearch/runs/typing_quick_eval.json
+Markdown summary: /Users/zac/.cache/memory-swift-autoresearch/runs/typing_quick_eval.md
+[cache] enabled: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/full_eval/cache/provider/eval_provider_cache.sqlite
+[storage][index-cache] hit: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/full_eval/cache/index/storage/coreml_rerank-abb80e043b75fe073e6db388
+[storage] Using cached index for 896 cases.
+[storage][cache] no cache traffic.
+[progress][storage] 1/896 (0.1%) elapsed 0s eta 1s
+[progress][storage] 10/896 (1.1%) elapsed 0s eta 0s
+[progress][storage] 20/896 (2.2%) elapsed 0s eta 0s
+[progress][storage] 30/896 (3.3%) elapsed 0s eta 0s
+[progress][storage] 40/896 (4.5%) elapsed 0s eta 0s
+[progress][storage] 50/896 (5.6%) elapsed 0s eta 0s
+[progress][storage] 60/896 (6.7%) elapsed 0s eta 0s
+[progress][storage] 70/896 (7.8%) elapsed 0s eta 0s
+[progress][storage] 80/896 (8.9%) elapsed 0s eta 0s
+[progress][storage] 90/896 (10.0%) elapsed 0s eta 0s
+[progress][storage] 100/896 (11.2%) elapsed 0s eta 0s
+[progress][storage] 110/896 (12.3%) elapsed 0s eta 0s
+[progress][storage] 120/896 (13.4%) elapsed 0s eta 0s
+[progress][storage] 130/896 (14.5%) elapsed 0s eta 0s
+[progress][storage] 140/896 (15.6%) elapsed 0s eta 0s
+[progress][storage] 150/896 (16.7%) elapsed 0s eta 0s
+[progress][storage] 160/896 (17.9%) elapsed 0s eta 0s
+[progress][storage] 170/896 (19.0%) elapsed 0s eta 0s
+[progress][storage] 180/896 (20.1%) elapsed 0s eta 0s
+[progress][storage] 190/896 (21.2%) elapsed 0s eta 0s
+[progress][storage] 200/896 (22.3%) elapsed 0s eta 0s
+[progress][storage] 210/896 (23.4%) elapsed 0s eta 0s
+[progress][storage] 220/896 (24.6%) elapsed 0s eta 0s
+[progress][storage] 230/896 (25.7%) elapsed 0s eta 0s
+[progress][storage] 240/896 (26.8%) elapsed 0s eta 0s
+[progress][storage] 250/896 (27.9%) elapsed 0s eta 0s
+[progress][storage] 260/896 (29.0%) elapsed 0s eta 0s
+[progress][storage] 270/896 (30.1%) elapsed 0s eta 0s
+[progress][storage] 280/896 (31.2%) elapsed 0s eta 0s
+[progress][storage] 290/896 (32.4%) elapsed 0s eta 0s
+[progress][storage] 300/896 (33.5%) elapsed 0s eta 0s
+[progress][storage] 310/896 (34.6%) elapsed 0s eta 0s
+[progress][storage] 320/896 (35.7%) elapsed 0s eta 0s
+[progress][storage] 330/896 (36.8%) elapsed 0s eta 0s
+[progress][storage] 340/896 (37.9%) elapsed 0s eta 0s
+[progress][storage] 350/896 (39.1%) elapsed 0s eta 0s
+[progress][storage] 360/896 (40.2%) elapsed 0s eta 0s
+[progress][storage] 370/896 (41.3%) elapsed 0s eta 0s
+[progress][storage] 380/896 (42.4%) elapsed 0s eta 0s
+[progress][storage] 390/896 (43.5%) elapsed 0s eta 0s
+[progress][storage] 400/896 (44.6%) elapsed 0s eta 0s
+[progress][storage] 410/896 (45.8%) elapsed 0s eta 0s
+[progress][storage] 420/896 (46.9%) elapsed 0s eta 0s
+[progress][storage] 430/896 (48.0%) elapsed 0s eta 0s
+[progress][storage] 440/896 (49.1%) elapsed 0s eta 0s
+[progress][storage] 450/896 (50.2%) elapsed 0s eta 0s
+[progress][storage] 460/896 (51.3%) elapsed 0s eta 0s
+[progress][storage] 470/896 (52.5%) elapsed 0s eta 0s
+[progress][storage] 480/896 (53.6%) elapsed 0s eta 0s
+[progress][storage] 490/896 (54.7%) elapsed 0s eta 0s
+[progress][storage] 500/896 (55.8%) elapsed 0s eta 0s
+[progress][storage] 510/896 (56.9%) elapsed 0s eta 0s
+[progress][storage] 520/896 (58.0%) elapsed 0s eta 0s
+[progress][storage] 530/896 (59.2%) elapsed 0s eta 0s
+[progress][storage] 540/896 (60.3%) elapsed 0s eta 0s
+[progress][storage] 550/896 (61.4%) elapsed 0s eta 0s
+[progress][storage] 560/896 (62.5%) elapsed 0s eta 0s
+[progress][storage] 570/896 (63.6%) elapsed 0s eta 0s
+[progress][storage] 580/896 (64.7%) elapsed 0s eta 0s
+[progress][storage] 590/896 (65.8%) elapsed 0s eta 0s
+[progress][storage] 600/896 (67.0%) elapsed 0s eta 0s
+[progress][storage] 610/896 (68.1%) elapsed 0s eta 0s
+[progress][storage] 620/896 (69.2%) elapsed 0s eta 0s
+[progress][storage] 630/896 (70.3%) elapsed 0s eta 0s
+[progress][storage] 640/896 (71.4%) elapsed 0s eta 0s
+[progress][storage] 650/896 (72.5%) elapsed 0s eta 0s
+[progress][storage] 660/896 (73.7%) elapsed 0s eta 0s
+[progress][storage] 670/896 (74.8%) elapsed 0s eta 0s
+[progress][storage] 680/896 (75.9%) elapsed 0s eta 0s
+[progress][storage] 690/896 (77.0%) elapsed 0s eta 0s
+[progress][storage] 700/896 (78.1%) elapsed 0s eta 0s
+[progress][storage] 710/896 (79.2%) elapsed 0s eta 0s
+[progress][storage] 720/896 (80.4%) elapsed 0s eta 0s
+[progress][storage] 730/896 (81.5%) elapsed 0s eta 0s
+[progress][storage] 740/896 (82.6%) elapsed 0s eta 0s
+[progress][storage] 750/896 (83.7%) elapsed 0s eta 0s
+[progress][storage] 760/896 (84.8%) elapsed 0s eta 0s
+[progress][storage] 770/896 (85.9%) elapsed 0s eta 0s
+[progress][storage] 780/896 (87.1%) elapsed 0s eta 0s
+[progress][storage] 790/896 (88.2%) elapsed 0s eta 0s
+[progress][storage] 800/896 (89.3%) elapsed 0s eta 0s
+[progress][storage] 810/896 (90.4%) elapsed 0s eta 0s
+[progress][storage] 820/896 (91.5%) elapsed 0s eta 0s
+[progress][storage] 830/896 (92.6%) elapsed 0s eta 0s
+[progress][storage] 840/896 (93.8%) elapsed 0s eta 0s
+[progress][storage] 850/896 (94.9%) elapsed 0s eta 0s
+[progress][storage] 860/896 (96.0%) elapsed 0s eta 0s
+[progress][storage] 870/896 (97.1%) elapsed 0s eta 0s
+[progress][storage] 880/896 (98.2%) elapsed 0s eta 0s
+[progress][storage] 890/896 (99.3%) elapsed 0s eta 0s
+[progress][storage] 896/896 (100.0%) elapsed 0s
+[recall][index-cache] hit: /Users/zac/.cache/memory-swift-autoresearch/datasets/5af82d8200da15f5b64b83d494b61ce0792db21c/full_eval/cache/index/recall/coreml_rerank-c98014f34a9550c507c8436f
+[recall] Using cached index for 1494 documents.
+[recall] Evaluating 1103 queries at k=1,3,5,10...
+[progress][recall] 1/1103 (0.1%) elapsed 3s eta 54m 08s
+[progress][recall] 10/1103 (0.9%) elapsed 12s eta 21m 04s
+[progress][recall] 20/1103 (1.8%) elapsed 40s eta 35m 51s
+[progress][recall] 30/1103 (2.7%) elapsed 1m 14s eta 43m 56s
+[progress][recall] 40/1103 (3.6%) elapsed 1m 45s eta 46m 34s
+[progress][recall] 50/1103 (4.5%) elapsed 2m 09s eta 45m 08s
+[progress][recall] 60/1103 (5.4%) elapsed 2m 19s eta 40m 11s
+[progress][recall] 70/1103 (6.3%) elapsed 2m 46s eta 40m 51s
+[progress][recall] 80/1103 (7.3%) elapsed 3m 12s eta 41m 01s
+[progress][recall] 90/1103 (8.2%) elapsed 3m 43s eta 41m 48s
+[progress][recall] 100/1103 (9.1%) elapsed 4m 00s eta 40m 09s
+[progress][recall] 110/1103 (10.0%) elapsed 4m 18s eta 38m 48s
+[progress][recall] 120/1103 (10.9%) elapsed 4m 29s eta 36m 46s
+[progress][recall] 130/1103 (11.8%) elapsed 4m 58s eta 37m 09s
+[progress][recall] 140/1103 (12.7%) elapsed 5m 21s eta 36m 50s
+[progress][recall] 150/1103 (13.6%) elapsed 5m 31s eta 35m 02s
+[progress][recall] 160/1103 (14.5%) elapsed 5m 58s eta 35m 09s
+[progress][recall] 170/1103 (15.4%) elapsed 6m 21s eta 34m 50s
+[progress][recall] 180/1103 (16.3%) elapsed 6m 41s eta 34m 18s
+[progress][recall] 190/1103 (17.2%) elapsed 7m 10s eta 34m 27s
+[progress][recall] 200/1103 (18.1%) elapsed 7m 40s eta 34m 35s
+[progress][recall] 210/1103 (19.0%) elapsed 7m 51s eta 33m 23s
+[progress][recall] 220/1103 (19.9%) elapsed 8m 02s eta 32m 14s
+[progress][recall] 230/1103 (20.9%) elapsed 8m 23s eta 31m 48s
+[progress][recall] 240/1103 (21.8%) elapsed 8m 33s eta 30m 44s
+[progress][recall] 250/1103 (22.7%) elapsed 8m 41s eta 29m 39s
+[progress][recall] 260/1103 (23.6%) elapsed 8m 58s eta 29m 04s
+[progress][recall] 270/1103 (24.5%) elapsed 9m 18s eta 28m 40s
+[progress][recall] 280/1103 (25.4%) elapsed 9m 51s eta 28m 57s
+[progress][recall] 290/1103 (26.3%) elapsed 10m 11s eta 28m 34s
+[progress][recall] 300/1103 (27.2%) elapsed 10m 29s eta 28m 03s
+[progress][recall] 310/1103 (28.1%) elapsed 10m 49s eta 27m 40s
+[progress][recall] 320/1103 (29.0%) elapsed 11m 08s eta 27m 13s
+[progress][recall] 330/1103 (29.9%) elapsed 11m 21s eta 26m 35s
+[progress][recall] 340/1103 (30.8%) elapsed 11m 27s eta 25m 42s
+[progress][recall] 350/1103 (31.7%) elapsed 11m 44s eta 25m 14s
+[progress][recall] 360/1103 (32.6%) elapsed 11m 56s eta 24m 38s
+[progress][recall] 370/1103 (33.5%) elapsed 12m 11s eta 24m 09s
+[progress][recall] 380/1103 (34.5%) elapsed 12m 27s eta 23m 40s
+[progress][recall] 390/1103 (35.4%) elapsed 12m 52s eta 23m 31s
+[progress][recall] 400/1103 (36.3%) elapsed 13m 05s eta 22m 59s
+[progress][recall] 410/1103 (37.2%) elapsed 13m 18s eta 22m 29s
+[progress][recall] 420/1103 (38.1%) elapsed 13m 34s eta 22m 04s
+[progress][recall] 430/1103 (39.0%) elapsed 13m 48s eta 21m 35s
+[progress][recall] 440/1103 (39.9%) elapsed 13m 56s eta 21m 00s
+[progress][recall] 450/1103 (40.8%) elapsed 14m 08s eta 20m 31s
+[progress][recall] 460/1103 (41.7%) elapsed 14m 26s eta 20m 10s
+[progress][recall] 470/1103 (42.6%) elapsed 14m 46s eta 19m 53s
+[progress][recall] 480/1103 (43.5%) elapsed 14m 59s eta 19m 27s
+[progress][recall] 490/1103 (44.4%) elapsed 15m 05s eta 18m 52s
+[progress][recall] 500/1103 (45.3%) elapsed 15m 12s eta 18m 20s
+[progress][recall] 510/1103 (46.2%) elapsed 15m 30s eta 18m 02s
+[progress][recall] 520/1103 (47.1%) elapsed 15m 41s eta 17m 35s
+[progress][recall] 530/1103 (48.1%) elapsed 15m 58s eta 17m 15s
+[progress][recall] 540/1103 (49.0%) elapsed 16m 14s eta 16m 55s
+[progress][recall] 550/1103 (49.9%) elapsed 16m 24s eta 16m 29s
+[progress][recall] 560/1103 (50.8%) elapsed 16m 39s eta 16m 09s
+[progress][recall] 570/1103 (51.7%) elapsed 16m 52s eta 15m 46s
+[progress][recall] 580/1103 (52.6%) elapsed 17m 06s eta 15m 25s
+[progress][recall] 590/1103 (53.5%) elapsed 17m 21s eta 15m 06s
+[progress][recall] 600/1103 (54.4%) elapsed 17m 38s eta 14m 47s
+[progress][recall] 610/1103 (55.3%) elapsed 17m 43s eta 14m 19s
+[progress][recall] 620/1103 (56.2%) elapsed 17m 47s eta 13m 51s
+[progress][recall] 630/1103 (57.1%) elapsed 17m 51s eta 13m 24s
+[progress][recall] 640/1103 (58.0%) elapsed 17m 55s eta 12m 58s
+[progress][recall] 650/1103 (58.9%) elapsed 17m 59s eta 12m 32s
+[progress][recall] 660/1103 (59.8%) elapsed 18m 03s eta 12m 07s
+[progress][recall] 670/1103 (60.7%) elapsed 18m 07s eta 11m 43s
+[progress][recall] 680/1103 (61.7%) elapsed 18m 11s eta 11m 19s
+[progress][recall] 690/1103 (62.6%) elapsed 18m 15s eta 10m 56s
+[progress][recall] 700/1103 (63.5%) elapsed 18m 19s eta 10m 33s
+[progress][recall] 710/1103 (64.4%) elapsed 18m 23s eta 10m 10s
+[progress][recall] 720/1103 (65.3%) elapsed 18m 26s eta 9m 49s
+[progress][recall] 730/1103 (66.2%) elapsed 18m 31s eta 9m 27s
+[progress][recall] 740/1103 (67.1%) elapsed 18m 34s eta 9m 07s
+[progress][recall] 750/1103 (68.0%) elapsed 18m 39s eta 8m 46s
+[progress][recall] 760/1103 (68.9%) elapsed 18m 42s eta 8m 27s
+[progress][recall] 770/1103 (69.8%) elapsed 18m 46s eta 8m 07s
+[progress][recall] 780/1103 (70.7%) elapsed 18m 50s eta 7m 48s
+[progress][recall] 790/1103 (71.6%) elapsed 18m 54s eta 7m 29s
+[progress][recall] 800/1103 (72.5%) elapsed 18m 58s eta 7m 11s
+[progress][recall] 810/1103 (73.4%) elapsed 19m 02s eta 6m 53s
+[progress][recall] 820/1103 (74.3%) elapsed 19m 06s eta 6m 36s
+[progress][recall] 830/1103 (75.2%) elapsed 19m 10s eta 6m 18s
+[progress][recall] 840/1103 (76.2%) elapsed 19m 14s eta 6m 01s
+[progress][recall] 850/1103 (77.1%) elapsed 19m 18s eta 5m 45s
+[progress][recall] 860/1103 (78.0%) elapsed 19m 22s eta 5m 28s
+[progress][recall] 870/1103 (78.9%) elapsed 19m 25s eta 5m 12s
+[progress][recall] 880/1103 (79.8%) elapsed 19m 29s eta 4m 56s
+[progress][recall] 890/1103 (80.7%) elapsed 19m 33s eta 4m 41s
+[progress][recall] 900/1103 (81.6%) elapsed 19m 37s eta 4m 26s
+[progress][recall] 910/1103 (82.5%) elapsed 19m 41s eta 4m 10s
+[progress][recall] 920/1103 (83.4%) elapsed 19m 45s eta 3m 56s
+[progress][recall] 930/1103 (84.3%) elapsed 19m 49s eta 3m 41s
+[progress][recall] 940/1103 (85.2%) elapsed 19m 52s eta 3m 27s
+[progress][recall] 950/1103 (86.1%) elapsed 19m 56s eta 3m 13s
+[progress][recall] 960/1103 (87.0%) elapsed 20m 00s eta 2m 59s
+[progress][recall] 970/1103 (87.9%) elapsed 20m 04s eta 2m 45s
+[progress][recall] 980/1103 (88.8%) elapsed 20m 08s eta 2m 32s
+[progress][recall] 990/1103 (89.8%) elapsed 20m 12s eta 2m 18s
+[progress][recall] 1000/1103 (90.7%) elapsed 20m 16s eta 2m 05s
+[progress][recall] 1010/1103 (91.6%) elapsed 20m 20s eta 1m 52s
+[progress][recall] 1020/1103 (92.5%) elapsed 20m 24s eta 1m 40s
+[progress][recall] 1030/1103 (93.4%) elapsed 20m 28s eta 1m 27s
+[progress][recall] 1040/1103 (94.3%) elapsed 20m 32s eta 1m 15s
+[progress][recall] 1050/1103 (95.2%) elapsed 20m 36s eta 1m 02s
+[progress][recall] 1060/1103 (96.1%) elapsed 20m 40s eta 50s
+[progress][recall] 1070/1103 (97.0%) elapsed 20m 44s eta 38s
+[progress][recall] 1080/1103 (97.9%) elapsed 20m 48s eta 27s
+[progress][recall] 1090/1103 (98.8%) elapsed 20m 52s eta 15s
+[progress][recall] 1100/1103 (99.7%) elapsed 20m 55s eta 3s
+[progress][recall] 1103/1103 (100.0%) elapsed 20m 57s
+[recall][cache][rerank] hits=1103, misses=0, writes=0, hitRate=100.00%
+Profile: coreml_rerank
+Storage type accuracy: 20.20%
+Storage macro F1: 16.08%
+Storage span coverage: 99.69%
+Recall Hit@10: 41.61%
+Recall Recall@10: 33.17%
+Recall MRR@10: 0.3393
+Recall nDCG@10: 0.3050
+Search latency: p50=459ms p95=4134ms mean=1139ms
+JSON report: /Users/zac/.cache/memory-swift-autoresearch/runs/typing_full_eval.json
+Markdown summary: /Users/zac/.cache/memory-swift-autoresearch/runs/typing_full_eval.md
+---
+component:         typing
+memory_score:      0.738558
+storage_score:     0.938235
+recall_score:      0.272646
+model_mb:          8.4
+latency_ms:        4.6
+training_seconds:  300.0
+num_steps:         8361
+average_loss:      0.086560
+status:            discard_full

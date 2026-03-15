@@ -13,7 +13,7 @@ public actor CoreMLEmbeddingProvider: EmbeddingProvider {
         modelURL: URL,
         vocabURL: URL? = nil,
         maxSequenceLength: Int = 512,
-        identifier: String = "coreml-leaf-ir",
+        identifier: String = "coreml-embedding-v1",
         computeUnits: MLComputeUnits = .all
     ) throws {
         self.identifier = identifier

@@ -69,7 +69,7 @@ try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))
 ```
 
-## Quick Start (CoreML LEAF-IR + TinyBERT reranker)
+## Quick Start (CoreML v1 stack)
 
 Provide your own compiled model URLs from the app bundle or local filesystem. The model files in this repository are reference assets, not package resources exposed by the library product.
 
@@ -79,16 +79,23 @@ import Memory
 import MemoryCoreMLEmbedding
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
-let embeddingModel = URL(fileURLWithPath: "Models/leaf-ir.mlpackage")
-let rerankerModel = URL(fileURLWithPath: "Models/tinybert-reranker.mlpackage")
+let typingModel = URL(fileURLWithPath: "Models/typing-v1.mlpackage")
+let embeddingModel = URL(fileURLWithPath: "Models/embedding-v1.mlpackage")
+let rerankerModel = URL(fileURLWithPath: "Models/reranker-v1.mlpackage")
 
+let typing = try CoreMLMemoryTypeClassifier(modelURL: typingModel)
 let embedder = try CoreMLEmbeddingProvider(modelURL: embeddingModel)
 let reranker = try CoreMLReranker(modelURL: rerankerModel)
 
 let config = MemoryConfiguration(
     databaseURL: dbURL,
     embeddingProvider: embedder,
-    reranker: reranker
+    reranker: reranker,
+    memoryTyping: MemoryTypingConfiguration(
+        mode: .automatic,
+        classifier: typing,
+        fallbackType: .factual
+    )
 )
 let index = try MemoryIndex(configuration: config)
 ```
@@ -176,10 +183,10 @@ if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.
     config.reranker = AppleIntelligenceReranker()
     config.memoryTyping.classifier = FallbackMemoryTypeClassifier(
         primary: AppleIntelligenceMemoryTypeClassifier(),
-        fallback: HeuristicMemoryTypeClassifier()
+        fallback: typing
     )
 } else {
-    config.memoryTyping.classifier = HeuristicMemoryTypeClassifier()
+    config.memoryTyping.classifier = typing
 }
 ```
 

@@ -43,6 +43,12 @@ private let rerankerStopWords: Set<String> = [
 
 private let evalIndexCacheSchemaVersion = 1
 
+private enum RepoCoreMLModels {
+    static let typing = "typing-v1"
+    static let embedding = "embedding-v1"
+    static let reranker = "reranker-v1"
+}
+
 private let recallDocumentsTemplate = """
 {"id":"doc-a","relative_path":"project/roadmap.md","kind":"markdown","text":"Q3 roadmap includes API stability work and a September launch milestone.","memory_type":"temporal"}
 {"id":"doc-b","relative_path":"operations/runbook.md","kind":"markdown","text":"Deploy checklist: build, migrate database, run smoke tests, monitor errors.","memory_type":"procedural"}
@@ -1895,11 +1901,7 @@ private func buildConfiguration(
     databaseURL: URL
 ) throws -> MemoryConfiguration {
     var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
-    configuration.memoryTyping = MemoryTypingConfiguration(
-        mode: .automatic,
-        classifier: NLEnhancedMemoryTypeClassifier(),
-        fallbackType: .factual
-    )
+    configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
 
     switch profile {
     case .baseline:
@@ -1947,66 +1949,46 @@ private func buildConfiguration(
             databaseURL: databaseURL,
             poolingStrategy: .mean
         )
-        configuration.memoryTyping = MemoryTypingConfiguration(
-            mode: .automatic,
-            classifier: NLEnhancedMemoryTypeClassifier(),
-            fallbackType: .factual
-        )
+        configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
     case .poolingWeightedMean:
         configuration = MemoryConfiguration.naturalLanguageDefault(
             databaseURL: databaseURL,
             poolingStrategy: .weightedMean
         )
-        configuration.memoryTyping = MemoryTypingConfiguration(
-            mode: .automatic,
-            classifier: NLEnhancedMemoryTypeClassifier(),
-            fallbackType: .factual
-        )
+        configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
     case .coremlLeafIR:
-        let modelURL = locateCoreMLModel(name: "leaf-ir")
+        let modelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
         let provider = try CoreMLEmbeddingProvider(modelURL: modelURL)
         configuration = MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlRerank:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
-        let rerankerModelURL = locateCoreMLModel(name: "tinybert-reranker")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
+        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         let reranker = try CoreMLReranker(modelURL: rerankerModelURL)
         configuration = MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlRerankHeavy:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
-        let rerankerModelURL = locateCoreMLModel(name: "tinybert-reranker")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
+        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-tinybert-reranker-heavy")
+        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-reranker-v1-heavy")
         configuration = MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             positionAwareBlending: PositionAwareBlending(
                 topRankFusedWeight: 0.40,
@@ -2016,19 +1998,15 @@ private func buildConfiguration(
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlRerankOnly:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
-        let rerankerModelURL = locateCoreMLModel(name: "tinybert-reranker")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
+        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-tinybert-reranker-only")
+        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-reranker-v1-only")
         configuration = MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             positionAwareBlending: PositionAwareBlending(
                 topRankFusedWeight: 0.0,
@@ -2038,7 +2016,7 @@ private func buildConfiguration(
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlRerankMiniLMInt8:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
         let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-int8")
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         let reranker = try CoreMLReranker(
@@ -2049,16 +2027,12 @@ private func buildConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlRerankMiniLMPal4:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
         let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-pal4")
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         let reranker = try CoreMLReranker(
@@ -2069,16 +2043,12 @@ private func buildConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .coremlColbertRerank:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
         let rerankerModelURL = locateCoreMLModel(name: "colbert-17m")
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         let reranker = try CoreMLColBERTReranker(modelURL: rerankerModelURL)
@@ -2086,16 +2056,12 @@ private func buildConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: provider,
             reranker: reranker,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: NLEnhancedMemoryTypeClassifier(),
-                fallbackType: .factual
-            ),
+            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
             tokenizer: NLWordTokenizer(),
             ftsTokenizer: NLLemmatizingTokenizer()
         )
     case .leafirAppleRerank:
-        let embeddingModelURL = locateCoreMLModel(name: "leaf-ir")
+        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
         let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
@@ -2107,11 +2073,7 @@ private func buildConfiguration(
                 databaseURL: databaseURL,
                 embeddingProvider: provider,
                 reranker: reranker,
-                memoryTyping: MemoryTypingConfiguration(
-                    mode: .automatic,
-                    classifier: NLEnhancedMemoryTypeClassifier(),
-                    fallbackType: .factual
-                ),
+                memoryTyping: try makeRepoCoreMLTypingConfiguration(),
                 tokenizer: NLWordTokenizer(),
                 positionAwareBlending: PositionAwareBlending(
                     topRankFusedWeight: 0.58,
@@ -2129,6 +2091,18 @@ private func buildConfiguration(
     }
 
     return configuration
+}
+
+private func makeRepoCoreMLTypingConfiguration() throws -> MemoryTypingConfiguration {
+    MemoryTypingConfiguration(
+        mode: .automatic,
+        classifier: try makeRepoCoreMLTypingClassifier(),
+        fallbackType: .factual
+    )
+}
+
+private func makeRepoCoreMLTypingClassifier() throws -> any MemoryTypeClassifier {
+    try CoreMLMemoryTypeClassifier(modelURL: locateCoreMLModel(name: RepoCoreMLModels.typing))
 }
 
 private func locateCoreMLModel(name: String) -> URL {
@@ -2154,7 +2128,7 @@ private func makeAppleFirstMemoryClassifier() throws -> any MemoryTypeClassifier
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
         return FallbackMemoryTypeClassifier(
             primary: AppleIntelligenceMemoryTypeClassifier(),
-            fallback: HeuristicMemoryTypeClassifier()
+            fallback: try makeRepoCoreMLTypingClassifier()
         )
     }
     #endif

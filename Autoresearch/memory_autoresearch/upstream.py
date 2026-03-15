@@ -40,8 +40,8 @@ def seed_baseline_models(repo_path: Path | None = None) -> dict[str, Path]:
     repo_path = repo_path or prepare_memory_swift_checkout()
     models_root = repo_path / "Models"
     baseline_map = {
-        "embedding": models_root / "leaf-ir.mlpackage",
-        "reranker": models_root / "tinybert-reranker.mlpackage",
+        "embedding": models_root / "embedding-v1.mlpackage",
+        "reranker": models_root / "reranker-v1.mlpackage",
     }
     result = {}
     for component, source in baseline_map.items():
@@ -58,8 +58,8 @@ def install_artifact_into_upstream(component: str, artifact_path: Path, repo_pat
     repo_path = repo_path or prepare_memory_swift_checkout()
     models_root = repo_path / "Models"
     target_map = {
-        "embedding": models_root / "leaf-ir.mlpackage",
-        "reranker": models_root / "tinybert-reranker.mlpackage",
+        "embedding": models_root / "embedding-v1.mlpackage",
+        "reranker": models_root / "reranker-v1.mlpackage",
     }
     target = target_map[component]
     if target.exists():
