@@ -275,6 +275,20 @@ python3 Scripts/tag_eval_data_minimax.py \
   --env-file .env
 ```
 
+Build audit packets and run model-assisted review:
+
+```bash
+python3 Scripts/build_audit_packet.py \
+  --dataset-root ./Evals/general_v2 \
+  --dataset-root ./Evals/tech_v2 \
+  --dataset-root ./Evals/longmemeval_v2
+
+python3 Scripts/audit_eval_data.py \
+  --packet ./Evals/_audit/general_v2/packet.jsonl \
+  --backend opencode \
+  --model opencode/nemotron-3-super-free
+```
+
 Convert public eval corpora:
 
 ```bash
