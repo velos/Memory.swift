@@ -15,7 +15,7 @@ Key behavior:
   - Resume support: can continue from existing JSONL files.
 
 Usage:
-  python3 scripts/generate_eval_data_codex.py --dataset-root Evals --resume
+  python3 Scripts/generate_eval_data_codex.py --dataset-root Evals --resume
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from eval_data_codex_support import CodexClient as SharedCodexClient
+from eval_data_codex_support import DEFAULT_MODEL as SHARED_DEFAULT_MODEL
+
 MEMORY_TYPES: List[str] = [
     "factual",
     "procedural",
@@ -45,7 +48,7 @@ MEMORY_TYPES: List[str] = [
 ]
 
 VALID_KINDS = {"markdown", "code", "plainText"}
-DEFAULT_MODEL = "gpt-5.2"
+DEFAULT_MODEL = SHARED_DEFAULT_MODEL
 
 
 STORAGE_OUTPUT_SCHEMA: Dict[str, Any] = {
@@ -1215,7 +1218,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     codex_config_overrides.extend(args.codex_config)
 
     rng = random.Random(cfg.seed)
-    client = CodexClient(
+    client = SharedCodexClient(
         codex_bin=args.codex_bin,
         model=args.model,
         workspace=workspace,

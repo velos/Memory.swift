@@ -1,0 +1,37 @@
+{
+  "dataset": "tech_v2",
+  "provenance": "merged_public_corpora",
+  "synthetic_status": "mixed_external",
+  "primary_use": "staging_candidate",
+  "license_scope": "commercial_safe",
+  "source_datasets": [
+    {
+      "name": "allenai/qasper",
+      "license": "CC-BY-4.0",
+      "splits": [
+        "train",
+        "dev"
+      ]
+    }
+  ],
+  "known_limits": [
+    "Merged from multiple public corpora with document-level deduplication.",
+    "Merged queries preserve relevant-document mapping but not source-specific identifiers.",
+    "Use tag_eval_data_minimax.py or tag_eval_data_codex.py to add or refresh memory tags and adversarial coverage."
+  ],
+  "recommended_weight": "primary",
+  "promotion_status": "draft",
+  "audit": {
+    "sample_sizes": {
+      "query_tags": 50,
+      "document_tags": 25,
+      "storage_cases": 50
+    }
+  },
+  "tagging": {
+    "backend": "minimax_anthropic_api",
+    "model": "MiniMax-M2.5",
+    "prompt_version": "2026-03-15-minimax-tagging-v1",
+    "auto_accept_policy": "single_pass_document,single_pass_query_and_storage"
+  }
+}

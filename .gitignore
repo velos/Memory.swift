@@ -10,4 +10,7 @@ DerivedData/
 Evals/**/runs/
 Evals/**/cache/
 Evals/**/*.sqlite
+Evals/local_nc/
 .env
+.pycache
+.codex

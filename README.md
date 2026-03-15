@@ -257,6 +257,42 @@ python3 Scripts/generate_eval_data_codex.py \
   --resume
 ```
 
+Tag or augment existing eval datasets with Codex:
+
+```bash
+python3 Scripts/tag_eval_data_codex.py \
+  --dataset-root ./Evals/longmemeval \
+  --mode query-tags \
+  --model gpt-5-codex
+```
+
+Tag or augment existing eval datasets with MiniMax:
+
+```bash
+python3 Scripts/tag_eval_data_minimax.py \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --mode query-tags \
+  --env-file .env
+```
+
+Convert public eval corpora:
+
+```bash
+python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Evals/raw_multidoc2dial
+python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Evals/raw_repliqa --splits repliqa_0
+python3 Scripts/convert_qasper_to_eval.py --output-dir ./Evals/raw_qasper --splits train,dev
+```
+
+Merge converted corpora into a staged dataset:
+
+```bash
+python3 Scripts/merge_eval_corpora.py \
+  --dataset-name general_v2 \
+  --output-dir ./Evals/general_v2 \
+  --source multidoc2dial=./Evals/raw_multidoc2dial \
+  --source repliqa=./Evals/raw_repliqa
+```
+
 Initialize dataset templates:
 
 ```bash

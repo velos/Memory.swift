@@ -1,0 +1,24 @@
+{
+  "dataset": "qasper",
+  "provenance": "external_qasper",
+  "synthetic_status": "external",
+  "primary_use": "staging_candidate",
+  "license_scope": "commercial_safe",
+  "source_datasets": [
+    {
+      "name": "allenai/qasper",
+      "license": "CC-BY-4.0",
+      "splits": [
+        "train",
+        "dev"
+      ]
+    }
+  ],
+  "known_limits": [
+    "Queries are paper-level information-seeking questions from a scientific QA benchmark.",
+    "Converted documents are entire papers, so retrieval difficulty is partly long-context driven.",
+    "Document and query memory tags should be added with tag_eval_data_codex.py."
+  ],
+  "recommended_weight": "secondary",
+  "promotion_status": "draft"
+}

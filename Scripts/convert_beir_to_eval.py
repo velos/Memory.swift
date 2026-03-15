@@ -2,9 +2,9 @@
 """Convert a BEIR dataset into Memory.swift eval format.
 
 Usage:
-    python3 scripts/convert_beir_to_eval.py --dataset scifact --output-dir ./Evals/scifact
-    python3 scripts/convert_beir_to_eval.py --dataset scifact --output-dir ./Evals/scifact --storage-mode auto-factual
-    python3 scripts/convert_beir_to_eval.py --dataset nfcorpus --output-dir ./Evals/nfcorpus
+    python3 Scripts/convert_beir_to_eval.py --dataset scifact --output-dir ./Evals/scifact
+    python3 Scripts/convert_beir_to_eval.py --dataset scifact --output-dir ./Evals/scifact --storage-mode auto-factual
+    python3 Scripts/convert_beir_to_eval.py --dataset nfcorpus --output-dir ./Evals/nfcorpus
 """
 
 import argparse

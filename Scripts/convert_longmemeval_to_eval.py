@@ -2,9 +2,9 @@
 """Convert LongMemEval-cleaned data into Memory.swift eval format.
 
 Usage examples:
-  python3 scripts/convert_longmemeval_to_eval.py --output-dir ./Evals/longmemeval
-  python3 scripts/convert_longmemeval_to_eval.py --split s_cleaned --output-dir ./Evals/longmemeval_s
-  python3 scripts/convert_longmemeval_to_eval.py --source-file ./longmemeval_oracle.json --output-dir ./Evals/longmemeval
+  python3 Scripts/convert_longmemeval_to_eval.py --output-dir ./Evals/longmemeval
+  python3 Scripts/convert_longmemeval_to_eval.py --split s_cleaned --output-dir ./Evals/longmemeval_s
+  python3 Scripts/convert_longmemeval_to_eval.py --source-file ./longmemeval_oracle.json --output-dir ./Evals/longmemeval
 """
 
 import argparse

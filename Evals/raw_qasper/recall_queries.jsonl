@@ -1,0 +1,1000 @@
+{"id": "q-0001", "query": "What is the seed lexicon?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0002", "query": "What are the results?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0003", "query": "How are relations used to propagate polarity?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0004", "query": "How big is the Japanese data?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0005", "query": "What are labels available in dataset for supervision?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0006", "query": "How big are improvements of supervszed learning results trained on smalled labeled data enhanced with proposed approach copared to basic approach?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0007", "query": "How does their model learn using mostly raw data?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0008", "query": "How big is seed lexicon used for training?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0009", "query": "How large is raw corpus used for training?", "relevant_document_ids": ["doc-0001"], "difficulty": "unknown"}
+{"id": "q-0010", "query": "Does the paper report macro F1?", "relevant_document_ids": ["doc-0002"], "difficulty": "unknown"}
+{"id": "q-0011", "query": "How is the annotation experiment evaluated?", "relevant_document_ids": ["doc-0002"], "difficulty": "unknown"}
+{"id": "q-0012", "query": "What are the aesthetic emotions formalized?", "relevant_document_ids": ["doc-0002"], "difficulty": "unknown"}
+{"id": "q-0013", "query": "Do they report results only on English data?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0014", "query": "How do the various social phenomena examined manifest in different types of communities?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0015", "query": "What patterns do they observe about how user engagement varies with the characteristics of a community?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0016", "query": "How did the select the 300 Reddit communities for comparison?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0017", "query": "How do the authors measure how temporally dynamic a community is?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0018", "query": "How do the authors measure how distinctive a community is?", "relevant_document_ids": ["doc-0003"], "difficulty": "unknown"}
+{"id": "q-0019", "query": "What data is the language model pretrained on?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0020", "query": "What baselines is the proposed model compared against?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0021", "query": "How is the clinical text structuring task defined?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0022", "query": "What are the specific tasks being unified?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0023", "query": "Is all text in this dataset a question, or are there unrelated sentences in between questions?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0024", "query": "How many questions are in the dataset?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0025", "query": "How they introduce domain-specific features into pre-trained language model?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0026", "query": "How big is QA-CTS task dataset?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0027", "query": "How big is dataset of pathology reports collected from Ruijing Hospital?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0028", "query": "What are strong baseline models in specific tasks?", "relevant_document_ids": ["doc-0004"], "difficulty": "unknown"}
+{"id": "q-0029", "query": "What aspects have been compared between various language models?", "relevant_document_ids": ["doc-0005"], "difficulty": "unknown"}
+{"id": "q-0030", "query": "what classic language models are mentioned in the paper?", "relevant_document_ids": ["doc-0005"], "difficulty": "unknown"}
+{"id": "q-0031", "query": "What is a commonly used evaluation metric for language models?", "relevant_document_ids": ["doc-0005"], "difficulty": "unknown"}
+{"id": "q-0032", "query": "Which dataset do they use a starting point in generating fake reviews?", "relevant_document_ids": ["doc-0006"], "difficulty": "unknown"}
+{"id": "q-0033", "query": "What kind of model do they use for detection?", "relevant_document_ids": ["doc-0006"], "difficulty": "unknown"}
+{"id": "q-0034", "query": "Does their detection tool work better than human detection?", "relevant_document_ids": ["doc-0006"], "difficulty": "unknown"}
+{"id": "q-0035", "query": "How many reviews in total (both generated and true) do they evaluate on Amazon Mechanical Turk?", "relevant_document_ids": ["doc-0006"], "difficulty": "unknown"}
+{"id": "q-0036", "query": "Which baselines did they compare?", "relevant_document_ids": ["doc-0007"], "difficulty": "unknown"}
+{"id": "q-0037", "query": "How many attention layers are there in their model?", "relevant_document_ids": ["doc-0007"], "difficulty": "unknown"}
+{"id": "q-0038", "query": "Is the explanation from saliency map correct?", "relevant_document_ids": ["doc-0007"], "difficulty": "unknown"}
+{"id": "q-0039", "query": "How is embedding quality assessed?", "relevant_document_ids": ["doc-0008"], "difficulty": "unknown"}
+{"id": "q-0040", "query": "What are the three measures of bias which are reduced in experiments?", "relevant_document_ids": ["doc-0008"], "difficulty": "unknown"}
+{"id": "q-0041", "query": "What turn out to be more important high volume or high quality data?", "relevant_document_ids": ["doc-0009"], "difficulty": "unknown"}
+{"id": "q-0042", "query": "What two architectures are used?", "relevant_document_ids": ["doc-0009"], "difficulty": "unknown"}
+{"id": "q-0043", "query": "What were the word embeddings trained on?", "relevant_document_ids": ["doc-0010"], "difficulty": "unknown"}
+{"id": "q-0044", "query": "Which word embeddings are analysed?", "relevant_document_ids": ["doc-0010"], "difficulty": "unknown"}
+{"id": "q-0045", "query": "Did they experiment on this dataset?", "relevant_document_ids": ["doc-0011"], "difficulty": "unknown"}
+{"id": "q-0046", "query": "How is quality of the citation measured?", "relevant_document_ids": ["doc-0011"], "difficulty": "unknown"}
+{"id": "q-0047", "query": "How big is the dataset?", "relevant_document_ids": ["doc-0011"], "difficulty": "unknown"}
+{"id": "q-0048", "query": "How is the intensity of the PTSD established?", "relevant_document_ids": ["doc-0012"], "difficulty": "unknown"}
+{"id": "q-0049", "query": "How is LIWC incorporated into this system?", "relevant_document_ids": ["doc-0012"], "difficulty": "unknown"}
+{"id": "q-0050", "query": "How many twitter users are surveyed using the clinically validated survey?", "relevant_document_ids": ["doc-0012"], "difficulty": "unknown"}
+{"id": "q-0051", "query": "Which clinically validated survey tools are used?", "relevant_document_ids": ["doc-0012"], "difficulty": "unknown"}
+{"id": "q-0052", "query": "Did they experiment with the dataset?", "relevant_document_ids": ["doc-0013"], "difficulty": "unknown"}
+{"id": "q-0053", "query": "What is the size of this dataset?", "relevant_document_ids": ["doc-0013"], "difficulty": "unknown"}
+{"id": "q-0054", "query": "Do they list all the named entity types present?", "relevant_document_ids": ["doc-0013"], "difficulty": "unknown"}
+{"id": "q-0055", "query": "how is quality measured?", "relevant_document_ids": ["doc-0014"], "difficulty": "unknown"}
+{"id": "q-0056", "query": "what sentiment sources do they compare with?", "relevant_document_ids": ["doc-0014"], "difficulty": "unknown"}
+{"id": "q-0057", "query": "Is the method described in this work a clustering-based method?", "relevant_document_ids": ["doc-0015"], "difficulty": "unknown"}
+{"id": "q-0058", "query": "How are the different senses annotated/labeled?", "relevant_document_ids": ["doc-0015"], "difficulty": "unknown"}
+{"id": "q-0059", "query": "Was any extrinsic evaluation carried out?", "relevant_document_ids": ["doc-0015"], "difficulty": "unknown"}
+{"id": "q-0060", "query": "Does the model use both spectrogram images and raw waveforms as features?", "relevant_document_ids": ["doc-0016"], "difficulty": "unknown"}
+{"id": "q-0061", "query": "Is the performance compared against a baseline model?", "relevant_document_ids": ["doc-0016"], "difficulty": "unknown"}
+{"id": "q-0062", "query": "What is the accuracy reported by state-of-the-art methods?", "relevant_document_ids": ["doc-0016"], "difficulty": "unknown"}
+{"id": "q-0063", "query": "Which vision-based approaches does this approach outperform?", "relevant_document_ids": ["doc-0017"], "difficulty": "unknown"}
+{"id": "q-0064", "query": "What baseline is used for the experimental setup?", "relevant_document_ids": ["doc-0017"], "difficulty": "unknown"}
+{"id": "q-0065", "query": "Which languages are used in the multi-lingual caption model?", "relevant_document_ids": ["doc-0017"], "difficulty": "unknown"}
+{"id": "q-0066", "query": "Did they experiment on all the tasks?", "relevant_document_ids": ["doc-0018"], "difficulty": "unknown"}
+{"id": "q-0067", "query": "What models did they compare to?", "relevant_document_ids": ["doc-0018"], "difficulty": "unknown"}
+{"id": "q-0068", "query": "What datasets are used in training?", "relevant_document_ids": ["doc-0018"], "difficulty": "unknown"}
+{"id": "q-0069", "query": "Which GAN do they use?", "relevant_document_ids": ["doc-0019"], "difficulty": "unknown"}
+{"id": "q-0070", "query": "Do they evaluate grammaticality of generated text?", "relevant_document_ids": ["doc-0019"], "difficulty": "unknown"}
+{"id": "q-0071", "query": "Which corpora do they use?", "relevant_document_ids": ["doc-0019"], "difficulty": "unknown"}
+{"id": "q-0072", "query": "Do they report results only on English datasets?", "relevant_document_ids": ["doc-0020"], "difficulty": "unknown"}
+{"id": "q-0073", "query": "How do the authors define or exemplify 'incorrect words'?", "relevant_document_ids": ["doc-0020"], "difficulty": "unknown"}
+{"id": "q-0074", "query": "Do they test their approach on a dataset without incomplete data?", "relevant_document_ids": ["doc-0020"], "difficulty": "unknown"}
+{"id": "q-0075", "query": "Should their approach be applied only when dealing with incomplete data?", "relevant_document_ids": ["doc-0020"], "difficulty": "unknown"}
+{"id": "q-0076", "query": "By how much do they outperform other models in the sentiment in intent classification tasks?", "relevant_document_ids": ["doc-0020"], "difficulty": "unknown"}
+{"id": "q-0077", "query": "What is the sample size of people used to measure user satisfaction?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0078", "query": "What are all the metrics to measure user engagement?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0079", "query": "What the system designs introduced?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0080", "query": "Do they specify the model they use for Gunrock?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0081", "query": "Do they gather explicit user satisfaction data on Gunrock?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0082", "query": "How do they correlate user backstory queries to user satisfaction?", "relevant_document_ids": ["doc-0021"], "difficulty": "unknown"}
+{"id": "q-0083", "query": "What is the baseline for the experiments?", "relevant_document_ids": ["doc-0022"], "difficulty": "unknown"}
+{"id": "q-0084", "query": "Which experiments are perfomed?", "relevant_document_ids": ["doc-0022"], "difficulty": "unknown"}
+{"id": "q-0085", "query": "Is ROUGE their only baseline?", "relevant_document_ids": ["doc-0023"], "difficulty": "unknown"}
+{"id": "q-0086", "query": "what language models do they use?", "relevant_document_ids": ["doc-0023"], "difficulty": "unknown"}
+{"id": "q-0087", "query": "What misbehavior is identified?", "relevant_document_ids": ["doc-0024"], "difficulty": "unknown"}
+{"id": "q-0088", "query": "Which attention mechanisms do they compare?", "relevant_document_ids": ["doc-0024"], "difficulty": "unknown"}
+{"id": "q-0089", "query": "Which paired corpora did they use in the other experiment?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0090", "query": "By how much does their system outperform the lexicon-based models?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0091", "query": "Which lexicon-based models did they compare with?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0092", "query": "How many comments were used?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0093", "query": "How many articles did they have?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0094", "query": "What news comment dataset was used?", "relevant_document_ids": ["doc-0025"], "difficulty": "unknown"}
+{"id": "q-0095", "query": "By how much do they outperform standard BERT?", "relevant_document_ids": ["doc-0026"], "difficulty": "unknown"}
+{"id": "q-0096", "query": "What dataset do they use?", "relevant_document_ids": ["doc-0026"], "difficulty": "unknown"}
+{"id": "q-0097", "query": "How do they combine text representations with the knowledge graph embeddings?", "relevant_document_ids": ["doc-0026"], "difficulty": "unknown"}
+{"id": "q-0098", "query": "What is the algorithm used for the classification tasks?", "relevant_document_ids": ["doc-0027"], "difficulty": "unknown"}
+{"id": "q-0099", "query": "Is the outcome of the LDA analysis evaluated in any way?", "relevant_document_ids": ["doc-0027"], "difficulty": "unknown"}
+{"id": "q-0100", "query": "What is the corpus used in the study?", "relevant_document_ids": ["doc-0027"], "difficulty": "unknown"}
+{"id": "q-0101", "query": "What are the traditional methods to identifying important attributes?", "relevant_document_ids": ["doc-0028"], "difficulty": "unknown"}
+{"id": "q-0102", "query": "What do you use to calculate word/sub-word embeddings", "relevant_document_ids": ["doc-0028"], "difficulty": "unknown"}
+{"id": "q-0103", "query": "Did they propose other metrics?", "relevant_document_ids": ["doc-0029"], "difficulty": "unknown"}
+{"id": "q-0104", "query": "Which real-world datasets did they use?", "relevant_document_ids": ["doc-0029"], "difficulty": "unknown"}
+{"id": "q-0105", "query": "What are the country-specific drivers of international development rhetoric?", "relevant_document_ids": ["doc-0030"], "difficulty": "unknown"}
+{"id": "q-0106", "query": "Is the dataset multilingual?", "relevant_document_ids": ["doc-0030"], "difficulty": "unknown"}
+{"id": "q-0107", "query": "How are the main international development topics that states raise identified?", "relevant_document_ids": ["doc-0030"], "difficulty": "unknown"}
+{"id": "q-0108", "query": "What experiments do the authors present to validate their system?", "relevant_document_ids": ["doc-0031"], "difficulty": "unknown"}
+{"id": "q-0109", "query": "What components is the QnAMaker composed of?", "relevant_document_ids": ["doc-0031"], "difficulty": "unknown"}
+{"id": "q-0110", "query": "How they measure robustness in experiments?", "relevant_document_ids": ["doc-0032"], "difficulty": "unknown"}
+{"id": "q-0111", "query": "What experiments with large-scale features are performed?", "relevant_document_ids": ["doc-0032"], "difficulty": "unknown"}
+{"id": "q-0112", "query": "Which ASR system(s) is used in this work?", "relevant_document_ids": ["doc-0033"], "difficulty": "unknown"}
+{"id": "q-0113", "query": "What are the series of simple models?", "relevant_document_ids": ["doc-0033"], "difficulty": "unknown"}
+{"id": "q-0114", "query": "Over which datasets/corpora is this work evaluated?", "relevant_document_ids": ["doc-0033"], "difficulty": "unknown"}
+{"id": "q-0115", "query": "Is the semantic hierarchy representation used for any task?", "relevant_document_ids": ["doc-0034"], "difficulty": "unknown"}
+{"id": "q-0116", "query": "What are the corpora used for the task?", "relevant_document_ids": ["doc-0034"], "difficulty": "unknown"}
+{"id": "q-0117", "query": "Is the model evaluated?", "relevant_document_ids": ["doc-0034"], "difficulty": "unknown"}
+{"id": "q-0118", "query": "What new metrics are suggested to track progress?", "relevant_document_ids": ["doc-0035"], "difficulty": "unknown"}
+{"id": "q-0119", "query": "What intrinsic evaluation metrics are used?", "relevant_document_ids": ["doc-0035"], "difficulty": "unknown"}
+{"id": "q-0120", "query": "What experimental results suggest that using less than 50% of the available training examples might result in overfitting?", "relevant_document_ids": ["doc-0035"], "difficulty": "unknown"}
+{"id": "q-0121", "query": "What multimodality is available in the dataset?", "relevant_document_ids": ["doc-0036"], "difficulty": "unknown"}
+{"id": "q-0122", "query": "What are previously reported models?", "relevant_document_ids": ["doc-0036"], "difficulty": "unknown"}
+{"id": "q-0123", "query": "How better is accuracy of new model compared to previously reported models?", "relevant_document_ids": ["doc-0036"], "difficulty": "unknown"}
+{"id": "q-0124", "query": "How does the scoring model work?", "relevant_document_ids": ["doc-0037"], "difficulty": "unknown"}
+{"id": "q-0125", "query": "How does the active learning model work?", "relevant_document_ids": ["doc-0037"], "difficulty": "unknown"}
+{"id": "q-0126", "query": "Which neural network architectures are employed?", "relevant_document_ids": ["doc-0037"], "difficulty": "unknown"}
+{"id": "q-0127", "query": "Did the annotators agreed and how much?", "relevant_document_ids": ["doc-0038"], "difficulty": "unknown"}
+{"id": "q-0128", "query": "How many subjects have been used to create the annotations?", "relevant_document_ids": ["doc-0038"], "difficulty": "unknown"}
+{"id": "q-0129", "query": "What datasets are used to evaluate this approach?", "relevant_document_ids": ["doc-0039"], "difficulty": "unknown"}
+{"id": "q-0130", "query": "How is this approach used to detect incorrect facts?", "relevant_document_ids": ["doc-0039"], "difficulty": "unknown"}
+{"id": "q-0131", "query": "Can this adversarial approach be used to directly improve model accuracy?", "relevant_document_ids": ["doc-0039"], "difficulty": "unknown"}
+{"id": "q-0132", "query": "what are the advantages of the proposed model?", "relevant_document_ids": ["doc-0040"], "difficulty": "unknown"}
+{"id": "q-0133", "query": "what are the state of the art approaches?", "relevant_document_ids": ["doc-0040"], "difficulty": "unknown"}
+{"id": "q-0134", "query": "what datasets were used?", "relevant_document_ids": ["doc-0040"], "difficulty": "unknown"}
+{"id": "q-0135", "query": "How was the dataset collected?", "relevant_document_ids": ["doc-0041"], "difficulty": "unknown"}
+{"id": "q-0136", "query": "What are the benchmark models?", "relevant_document_ids": ["doc-0041"], "difficulty": "unknown"}
+{"id": "q-0137", "query": "How was the corpus annotated?", "relevant_document_ids": ["doc-0041"], "difficulty": "unknown"}
+{"id": "q-0138", "query": "What models other than standalone BERT is new model compared to?", "relevant_document_ids": ["doc-0042"], "difficulty": "unknown"}
+{"id": "q-0139", "query": "How much is representaton improved for rare/medum frequency words compared to standalone BERT and previous work?", "relevant_document_ids": ["doc-0042"], "difficulty": "unknown"}
+{"id": "q-0140", "query": "What are three downstream task datasets?", "relevant_document_ids": ["doc-0042"], "difficulty": "unknown"}
+{"id": "q-0141", "query": "What is dataset for word probing task?", "relevant_document_ids": ["doc-0042"], "difficulty": "unknown"}
+{"id": "q-0142", "query": "How big is the performance difference between this method and the baseline?", "relevant_document_ids": ["doc-0043"], "difficulty": "unknown"}
+{"id": "q-0143", "query": "What datasets used for evaluation?", "relevant_document_ids": ["doc-0043"], "difficulty": "unknown"}
+{"id": "q-0144", "query": "what are the mentioned cues?", "relevant_document_ids": ["doc-0043"], "difficulty": "unknown"}
+{"id": "q-0145", "query": "What approaches without reinforcement learning have been tried?", "relevant_document_ids": ["doc-0044"], "difficulty": "unknown"}
+{"id": "q-0146", "query": "What classification approaches were experimented for this task?", "relevant_document_ids": ["doc-0044"], "difficulty": "unknown"}
+{"id": "q-0147", "query": "Did classification models perform better than previous regression one?", "relevant_document_ids": ["doc-0044"], "difficulty": "unknown"}
+{"id": "q-0148", "query": "What are the main sources of recall errors in the mapping?", "relevant_document_ids": ["doc-0045"], "difficulty": "unknown"}
+{"id": "q-0149", "query": "Do they look for inconsistencies between different languages' annotations in UniMorph?", "relevant_document_ids": ["doc-0045"], "difficulty": "unknown"}
+{"id": "q-0150", "query": "Do they look for inconsistencies between different UD treebanks?", "relevant_document_ids": ["doc-0045"], "difficulty": "unknown"}
+{"id": "q-0151", "query": "Which languages do they validate on?", "relevant_document_ids": ["doc-0045"], "difficulty": "unknown"}
+{"id": "q-0152", "query": "How is face and audio data analysis evaluated?", "relevant_document_ids": ["doc-0046"], "difficulty": "unknown"}
+{"id": "q-0153", "query": "What is the baseline method for the task?", "relevant_document_ids": ["doc-0046"], "difficulty": "unknown"}
+{"id": "q-0154", "query": "What are the emotion detection tools used for audio and face input?", "relevant_document_ids": ["doc-0046"], "difficulty": "unknown"}
+{"id": "q-0155", "query": "what amounts of size were used on german-english?", "relevant_document_ids": ["doc-0047"], "difficulty": "unknown"}
+{"id": "q-0156", "query": "what were their experimental results in the low-resource dataset?", "relevant_document_ids": ["doc-0047"], "difficulty": "unknown"}
+{"id": "q-0157", "query": "what are the methods they compare with in the korean-english dataset?", "relevant_document_ids": ["doc-0047"], "difficulty": "unknown"}
+{"id": "q-0158", "query": "what pitfalls are mentioned in the paper?", "relevant_document_ids": ["doc-0047"], "difficulty": "unknown"}
+{"id": "q-0159", "query": "Does the paper report the results of previous models applied to the same tasks?", "relevant_document_ids": ["doc-0048"], "difficulty": "unknown"}
+{"id": "q-0160", "query": "What are the causal mapping methods employed?", "relevant_document_ids": ["doc-0048"], "difficulty": "unknown"}
+{"id": "q-0161", "query": "What is the previous work's model?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0162", "query": "What dataset is used?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0163", "query": "How big is the dataset?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0164", "query": "How is the dataset collected?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0165", "query": "What models do previous work use?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0166", "query": "Does the dataset contain content from various social media platforms?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0167", "query": "What dataset is used?", "relevant_document_ids": ["doc-0049"], "difficulty": "unknown"}
+{"id": "q-0168", "query": "How they demonstrate that language-neutral component is sufficiently general in terms of modeling semantics to allow high-accuracy word-alignment?", "relevant_document_ids": ["doc-0050"], "difficulty": "unknown"}
+{"id": "q-0169", "query": "Are language-specific and language-neutral components disjunctive?", "relevant_document_ids": ["doc-0050"], "difficulty": "unknown"}
+{"id": "q-0170", "query": "How they show that mBERT representations can be split into a language-specific component and a language-neutral component?", "relevant_document_ids": ["doc-0050"], "difficulty": "unknown"}
+{"id": "q-0171", "query": "What challenges this work presents that must be solved to build better language-neutral representations?", "relevant_document_ids": ["doc-0050"], "difficulty": "unknown"}
+{"id": "q-0172", "query": "What pretrained LM is used?", "relevant_document_ids": ["doc-0051"], "difficulty": "unknown"}
+{"id": "q-0173", "query": "What approaches they propose?", "relevant_document_ids": ["doc-0052"], "difficulty": "unknown"}
+{"id": "q-0174", "query": "What faithfulness criteria does they propose?", "relevant_document_ids": ["doc-0052"], "difficulty": "unknown"}
+{"id": "q-0175", "query": "Which are three assumptions in current approaches for defining faithfulness?", "relevant_document_ids": ["doc-0052"], "difficulty": "unknown"}
+{"id": "q-0176", "query": "Which are key points in guidelines for faithfulness evaluation?", "relevant_document_ids": ["doc-0052"], "difficulty": "unknown"}
+{"id": "q-0177", "query": "Did they use the state-of-the-art model to analyze the attention?", "relevant_document_ids": ["doc-0053"], "difficulty": "unknown"}
+{"id": "q-0178", "query": "How many layers are there in their model?", "relevant_document_ids": ["doc-0053"], "difficulty": "unknown"}
+{"id": "q-0179", "query": "What MC abbreviate for?", "relevant_document_ids": ["doc-0054"], "difficulty": "unknown"}
+{"id": "q-0180", "query": "how much of improvement the adaptation model can get?", "relevant_document_ids": ["doc-0054"], "difficulty": "unknown"}
+{"id": "q-0181", "query": "what is the architecture of the baseline model?", "relevant_document_ids": ["doc-0054"], "difficulty": "unknown"}
+{"id": "q-0182", "query": "What is the exact performance on SQUAD?", "relevant_document_ids": ["doc-0054"], "difficulty": "unknown"}
+{"id": "q-0183", "query": "What are their correlation results?", "relevant_document_ids": ["doc-0055"], "difficulty": "unknown"}
+{"id": "q-0184", "query": "What dataset do they use?", "relevant_document_ids": ["doc-0055"], "difficulty": "unknown"}
+{"id": "q-0185", "query": "What simpler models do they look at?", "relevant_document_ids": ["doc-0055"], "difficulty": "unknown"}
+{"id": "q-0186", "query": "What linguistic quality aspects are addressed?", "relevant_document_ids": ["doc-0055"], "difficulty": "unknown"}
+{"id": "q-0187", "query": "What benchmark datasets are used for the link prediction task?", "relevant_document_ids": ["doc-0056"], "difficulty": "unknown"}
+{"id": "q-0188", "query": "What are state-of-the art models for this task?", "relevant_document_ids": ["doc-0056"], "difficulty": "unknown"}
+{"id": "q-0189", "query": "How better does HAKE model peform than state-of-the-art methods?", "relevant_document_ids": ["doc-0056"], "difficulty": "unknown"}
+{"id": "q-0190", "query": "How are entities mapped onto polar coordinate system?", "relevant_document_ids": ["doc-0056"], "difficulty": "unknown"}
+{"id": "q-0191", "query": "What additional techniques are incorporated?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0192", "query": "What dataset do they use?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0193", "query": "What is the architecture of the system?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0194", "query": "What additional techniques could be incorporated to further improve accuracy?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0195", "query": "What programming language is target language?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0196", "query": "What dataset is used to measure accuracy?", "relevant_document_ids": ["doc-0057"], "difficulty": "unknown"}
+{"id": "q-0197", "query": "Is text-to-image synthesis trained is suppervized or unsuppervized manner?", "relevant_document_ids": ["doc-0058"], "difficulty": "unknown"}
+{"id": "q-0198", "query": "What challenges remain unresolved?", "relevant_document_ids": ["doc-0058"], "difficulty": "unknown"}
+{"id": "q-0199", "query": "What is the conclusion of comparison of proposed solution?", "relevant_document_ids": ["doc-0058"], "difficulty": "unknown"}
+{"id": "q-0200", "query": "What is typical GAN architecture for each text-to-image synhesis group?", "relevant_document_ids": ["doc-0058"], "difficulty": "unknown"}
+{"id": "q-0201", "query": "Where do they employ feature-wise sigmoid gating?", "relevant_document_ids": ["doc-0059"], "difficulty": "unknown"}
+{"id": "q-0202", "query": "Which model architecture do they use to obtain representations?", "relevant_document_ids": ["doc-0059"], "difficulty": "unknown"}
+{"id": "q-0203", "query": "Which downstream sentence-level tasks do they evaluate on?", "relevant_document_ids": ["doc-0059"], "difficulty": "unknown"}
+{"id": "q-0204", "query": "Which similarity datasets do they use?", "relevant_document_ids": ["doc-0059"], "difficulty": "unknown"}
+{"id": "q-0205", "query": "Are there datasets with relation tuples annotated, how big are datasets available?", "relevant_document_ids": ["doc-0060"], "difficulty": "unknown"}
+{"id": "q-0206", "query": "Which one of two proposed approaches performed better in experiments?", "relevant_document_ids": ["doc-0060"], "difficulty": "unknown"}
+{"id": "q-0207", "query": "What is previous work authors reffer to?", "relevant_document_ids": ["doc-0060"], "difficulty": "unknown"}
+{"id": "q-0208", "query": "How higher are F1 scores compared to previous work?", "relevant_document_ids": ["doc-0060"], "difficulty": "unknown"}
+{"id": "q-0209", "query": "what were the baselines?", "relevant_document_ids": ["doc-0061"], "difficulty": "unknown"}
+{"id": "q-0210", "query": "what is the supervised model they developed?", "relevant_document_ids": ["doc-0061"], "difficulty": "unknown"}
+{"id": "q-0211", "query": "what is the size of this built corpus?", "relevant_document_ids": ["doc-0061"], "difficulty": "unknown"}
+{"id": "q-0212", "query": "what crowdsourcing platform is used?", "relevant_document_ids": ["doc-0061"], "difficulty": "unknown"}
+{"id": "q-0213", "query": "Which deep learning model performed better?", "relevant_document_ids": ["doc-0062"], "difficulty": "unknown"}
+{"id": "q-0214", "query": "What was their performance on the dataset?", "relevant_document_ids": ["doc-0062"], "difficulty": "unknown"}
+{"id": "q-0215", "query": "Did the authors use crowdsourcing platforms?", "relevant_document_ids": ["doc-0063"], "difficulty": "unknown"}
+{"id": "q-0216", "query": "How was the dataset collected?", "relevant_document_ids": ["doc-0063"], "difficulty": "unknown"}
+{"id": "q-0217", "query": "What language do the agents talk in?", "relevant_document_ids": ["doc-0063"], "difficulty": "unknown"}
+{"id": "q-0218", "query": "What evaluation metrics did the authors look at?", "relevant_document_ids": ["doc-0063"], "difficulty": "unknown"}
+{"id": "q-0219", "query": "What data did they use?", "relevant_document_ids": ["doc-0063"], "difficulty": "unknown"}
+{"id": "q-0220", "query": "How is the accuracy of the system measured?", "relevant_document_ids": ["doc-0064"], "difficulty": "unknown"}
+{"id": "q-0221", "query": "How is an incoming claim used to retrieve similar factchecked claims?", "relevant_document_ids": ["doc-0064"], "difficulty": "unknown"}
+{"id": "q-0222", "query": "What existing corpus is used for comparison in these experiments?", "relevant_document_ids": ["doc-0064"], "difficulty": "unknown"}
+{"id": "q-0223", "query": "What is the baseline?", "relevant_document_ids": ["doc-0065"], "difficulty": "unknown"}
+{"id": "q-0224", "query": "What dataset was used in the experiment?", "relevant_document_ids": ["doc-0065"], "difficulty": "unknown"}
+{"id": "q-0225", "query": "Did they use any crowdsourcing platform?", "relevant_document_ids": ["doc-0065"], "difficulty": "unknown"}
+{"id": "q-0226", "query": "How was the dataset annotated?", "relevant_document_ids": ["doc-0065"], "difficulty": "unknown"}
+{"id": "q-0227", "query": "How many label options are there in the multi-label task?", "relevant_document_ids": ["doc-0066"], "difficulty": "unknown"}
+{"id": "q-0228", "query": "Who are the experts?", "relevant_document_ids": ["doc-0066"], "difficulty": "unknown"}
+{"id": "q-0229", "query": "Who is the crowd in these experiments?", "relevant_document_ids": ["doc-0066"], "difficulty": "unknown"}
+{"id": "q-0230", "query": "How do you establish the ground truth of who won a debate?", "relevant_document_ids": ["doc-0066"], "difficulty": "unknown"}
+{"id": "q-0231", "query": "How much better is performance of proposed method than state-of-the-art methods in experiments?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0232", "query": "What further analysis is done?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0233", "query": "What seven state-of-the-art methods are used for comparison?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0234", "query": "What three datasets are used to measure performance?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0235", "query": "How does KANE capture both high-order structural and attribute information of KGs in an efficient, explicit and unified manner?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0236", "query": "What are recent works on knowedge graph embeddings authors mention?", "relevant_document_ids": ["doc-0067"], "difficulty": "unknown"}
+{"id": "q-0237", "query": "Do they report results only on English data?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0238", "query": "Do the authors mention any confounds to their study?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0239", "query": "What baseline model is used?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0240", "query": "What stylistic features are used to detect drunk texts?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0241", "query": "Is the data acquired under distant supervision verified by humans at any stage?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0242", "query": "Do the authors equate drunk tweeting with drunk texting?", "relevant_document_ids": ["doc-0068"], "difficulty": "unknown"}
+{"id": "q-0243", "query": "What corpus was the source of the OpenIE extractions?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0244", "query": "What is the accuracy of the proposed technique?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0245", "query": "Is an entity linking process used?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0246", "query": "Are the OpenIE extractions all triples?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0247", "query": "What method was used to generate the OpenIE extractions?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0248", "query": "Can the method answer multi-hop questions?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0249", "query": "What was the textual source to which OpenIE was applied?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0250", "query": "What OpenIE method was used to generate the extractions?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0251", "query": "Is their method capable of multi-hop reasoning?", "relevant_document_ids": ["doc-0069"], "difficulty": "unknown"}
+{"id": "q-0252", "query": "Do the authors offer any hypothesis about why the dense mode outperformed the sparse one?", "relevant_document_ids": ["doc-0070"], "difficulty": "unknown"}
+{"id": "q-0253", "query": "What evaluation is conducted?", "relevant_document_ids": ["doc-0070"], "difficulty": "unknown"}
+{"id": "q-0254", "query": "Which corpus of synsets are used?", "relevant_document_ids": ["doc-0070"], "difficulty": "unknown"}
+{"id": "q-0255", "query": "What measure of semantic similarity is used?", "relevant_document_ids": ["doc-0070"], "difficulty": "unknown"}
+{"id": "q-0256", "query": "Which retrieval system was used for baselines?", "relevant_document_ids": ["doc-0071"], "difficulty": "unknown"}
+{"id": "q-0257", "query": "What word embeddings were used?", "relevant_document_ids": ["doc-0072"], "difficulty": "unknown"}
+{"id": "q-0258", "query": "What type of errors were produced by the BLSTM-CNN-CRF system?", "relevant_document_ids": ["doc-0072"], "difficulty": "unknown"}
+{"id": "q-0259", "query": "How much better was the BLSTM-CNN-CRF than the BLSTM-CRF?", "relevant_document_ids": ["doc-0072"], "difficulty": "unknown"}
+{"id": "q-0260", "query": "What supplemental tasks are used for multitask learning?", "relevant_document_ids": ["doc-0073"], "difficulty": "unknown"}
+{"id": "q-0261", "query": "How much performance gap between their approach and the strong handcrafted method?", "relevant_document_ids": ["doc-0073"], "difficulty": "unknown"}
+{"id": "q-0262", "query": "Did they experimnet in other languages?", "relevant_document_ids": ["doc-0073"], "difficulty": "unknown"}
+{"id": "q-0263", "query": "Do they use multi-attention heads?", "relevant_document_ids": ["doc-0074"], "difficulty": "unknown"}
+{"id": "q-0264", "query": "How big is their model?", "relevant_document_ids": ["doc-0074"], "difficulty": "unknown"}
+{"id": "q-0265", "query": "How is their model different from BERT?", "relevant_document_ids": ["doc-0074"], "difficulty": "unknown"}
+{"id": "q-0266", "query": "What datasets were used?", "relevant_document_ids": ["doc-0075"], "difficulty": "unknown"}
+{"id": "q-0267", "query": "How did they do compared to other teams?", "relevant_document_ids": ["doc-0075"], "difficulty": "unknown"}
+{"id": "q-0268", "query": "Which tested technique was the worst performer?", "relevant_document_ids": ["doc-0076"], "difficulty": "unknown"}
+{"id": "q-0269", "query": "How many emotions do they look at?", "relevant_document_ids": ["doc-0076"], "difficulty": "unknown"}
+{"id": "q-0270", "query": "What are the baseline benchmarks?", "relevant_document_ids": ["doc-0076"], "difficulty": "unknown"}
+{"id": "q-0271", "query": "What is the size of this dataset?", "relevant_document_ids": ["doc-0076"], "difficulty": "unknown"}
+{"id": "q-0272", "query": "How many annotators were there?", "relevant_document_ids": ["doc-0076"], "difficulty": "unknown"}
+{"id": "q-0273", "query": "Can SCRF be used to pretrain the model?", "relevant_document_ids": ["doc-0077"], "difficulty": "unknown"}
+{"id": "q-0274", "query": "What conclusions are drawn from the syntactic analysis?", "relevant_document_ids": ["doc-0078"], "difficulty": "unknown"}
+{"id": "q-0275", "query": "What type of syntactic analysis is performed?", "relevant_document_ids": ["doc-0078"], "difficulty": "unknown"}
+{"id": "q-0276", "query": "How is it demonstrated that the correct gender and number information is injected using this system?", "relevant_document_ids": ["doc-0078"], "difficulty": "unknown"}
+{"id": "q-0277", "query": "Which neural machine translation system is used?", "relevant_document_ids": ["doc-0078"], "difficulty": "unknown"}
+{"id": "q-0278", "query": "What are the components of the black-box context injection system?", "relevant_document_ids": ["doc-0078"], "difficulty": "unknown"}
+{"id": "q-0279", "query": "What normalization techniques are mentioned?", "relevant_document_ids": ["doc-0079"], "difficulty": "unknown"}
+{"id": "q-0280", "query": "What features do they experiment with?", "relevant_document_ids": ["doc-0079"], "difficulty": "unknown"}
+{"id": "q-0281", "query": "Which architecture is their best model?", "relevant_document_ids": ["doc-0079"], "difficulty": "unknown"}
+{"id": "q-0282", "query": "What approach did previous models use for multi-span questions?", "relevant_document_ids": ["doc-0080"], "difficulty": "unknown"}
+{"id": "q-0283", "query": "How they use sequence tagging to answer multi-span questions?", "relevant_document_ids": ["doc-0080"], "difficulty": "unknown"}
+{"id": "q-0284", "query": "What is difference in peformance between proposed model and state-of-the art on other question types?", "relevant_document_ids": ["doc-0080"], "difficulty": "unknown"}
+{"id": "q-0285", "query": "What is the performance of proposed model on entire DROP dataset?", "relevant_document_ids": ["doc-0080"], "difficulty": "unknown"}
+{"id": "q-0286", "query": "What is the previous model that attempted to tackle multi-span questions as a part of its design?", "relevant_document_ids": ["doc-0080"], "difficulty": "unknown"}
+{"id": "q-0287", "query": "Does the system trained only using XR loss outperform the fully supervised neural system?", "relevant_document_ids": ["doc-0081"], "difficulty": "unknown"}
+{"id": "q-0288", "query": "How accurate is the aspect based sentiment classifier trained only using the XR loss?", "relevant_document_ids": ["doc-0081"], "difficulty": "unknown"}
+{"id": "q-0289", "query": "How is the expectation regularization loss defined?", "relevant_document_ids": ["doc-0081"], "difficulty": "unknown"}
+{"id": "q-0290", "query": "What were the non-neural baselines used for the task?", "relevant_document_ids": ["doc-0082"], "difficulty": "unknown"}
+{"id": "q-0291", "query": "Which publicly available NLU dataset is used?", "relevant_document_ids": ["doc-0083"], "difficulty": "unknown"}
+{"id": "q-0292", "query": "What metrics other than entity tagging are compared?", "relevant_document_ids": ["doc-0083"], "difficulty": "unknown"}
+{"id": "q-0293", "query": "Do they provide decision sequences as supervision while training models?", "relevant_document_ids": ["doc-0084"], "difficulty": "unknown"}
+{"id": "q-0294", "query": "What are the models evaluated on?", "relevant_document_ids": ["doc-0084"], "difficulty": "unknown"}
+{"id": "q-0295", "query": "How do they train models in this setup?", "relevant_document_ids": ["doc-0084"], "difficulty": "unknown"}
+{"id": "q-0296", "query": "What commands does their setup provide to models seeking information?", "relevant_document_ids": ["doc-0084"], "difficulty": "unknown"}
+{"id": "q-0297", "query": "What models do they propose?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0298", "query": "How large is the dataset?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0299", "query": "What is the results of multimodal compared to unimodal models?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0300", "query": "What is author's opinion on why current multimodal models cannot outperform models analyzing only text?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0301", "query": "What metrics are used to benchmark the results?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0302", "query": "How is data collected, manual collection or Twitter api?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0303", "query": "How many tweats does MMHS150k contains, 150000?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0304", "query": "What unimodal detection models were used?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0305", "query": "What different models for multimodal detection were proposed?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0306", "query": "What annotations are available in the dataset - tweat used hate speach or not?", "relevant_document_ids": ["doc-0085"], "difficulty": "unknown"}
+{"id": "q-0307", "query": "What were the evaluation metrics used?", "relevant_document_ids": ["doc-0086"], "difficulty": "unknown"}
+{"id": "q-0308", "query": "What were their performance results?", "relevant_document_ids": ["doc-0086"], "difficulty": "unknown"}
+{"id": "q-0309", "query": "By how much did they outperform the other methods?", "relevant_document_ids": ["doc-0086"], "difficulty": "unknown"}
+{"id": "q-0310", "query": "Which popular clustering methods did they experiment with?", "relevant_document_ids": ["doc-0086"], "difficulty": "unknown"}
+{"id": "q-0311", "query": "What datasets did they use?", "relevant_document_ids": ["doc-0086"], "difficulty": "unknown"}
+{"id": "q-0312", "query": "Does pre-training on general text corpus improve performance?", "relevant_document_ids": ["doc-0087"], "difficulty": "unknown"}
+{"id": "q-0313", "query": "What neural configurations are explored?", "relevant_document_ids": ["doc-0087"], "difficulty": "unknown"}
+{"id": "q-0314", "query": "Are the Transformers masked?", "relevant_document_ids": ["doc-0087"], "difficulty": "unknown"}
+{"id": "q-0315", "query": "How is this problem evaluated?", "relevant_document_ids": ["doc-0087"], "difficulty": "unknown"}
+{"id": "q-0316", "query": "What datasets do they use?", "relevant_document_ids": ["doc-0087"], "difficulty": "unknown"}
+{"id": "q-0317", "query": "What evaluation metrics were used?", "relevant_document_ids": ["doc-0088"], "difficulty": "unknown"}
+{"id": "q-0318", "query": "Where did the real production data come from?", "relevant_document_ids": ["doc-0088"], "difficulty": "unknown"}
+{"id": "q-0319", "query": "What feedback labels are used?", "relevant_document_ids": ["doc-0088"], "difficulty": "unknown"}
+{"id": "q-0320", "query": "What representations for textual documents do they use?", "relevant_document_ids": ["doc-0089"], "difficulty": "unknown"}
+{"id": "q-0321", "query": "Which dataset(s) do they use?", "relevant_document_ids": ["doc-0089"], "difficulty": "unknown"}
+{"id": "q-0322", "query": "How do they evaluate knowledge extraction performance?", "relevant_document_ids": ["doc-0089"], "difficulty": "unknown"}
+{"id": "q-0323", "query": "What is CamemBERT trained on?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0324", "query": "Which tasks does CamemBERT not improve on?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0325", "query": "What is the state of the art?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0326", "query": "How much better was results of CamemBERT than previous results on these tasks?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0327", "query": "Was CamemBERT compared against multilingual BERT on these tasks?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0328", "query": "What data is used for training CamemBERT?", "relevant_document_ids": ["doc-0090"], "difficulty": "unknown"}
+{"id": "q-0329", "query": "What are the state of the art measures?", "relevant_document_ids": ["doc-0091"], "difficulty": "unknown"}
+{"id": "q-0330", "query": "What controversial topics are experimented with?", "relevant_document_ids": ["doc-0091"], "difficulty": "unknown"}
+{"id": "q-0331", "query": "What datasets did they use?", "relevant_document_ids": ["doc-0091"], "difficulty": "unknown"}
+{"id": "q-0332", "query": "What social media platform is observed?", "relevant_document_ids": ["doc-0091"], "difficulty": "unknown"}
+{"id": "q-0333", "query": "How many languages do they experiment with?", "relevant_document_ids": ["doc-0091"], "difficulty": "unknown"}
+{"id": "q-0334", "query": "What is the current SOTA for sentiment analysis on Twitter at the time of writing?", "relevant_document_ids": ["doc-0092"], "difficulty": "unknown"}
+{"id": "q-0335", "query": "What difficulties does sentiment analysis on Twitter have, compared to sentiment analysis in other domains?", "relevant_document_ids": ["doc-0092"], "difficulty": "unknown"}
+{"id": "q-0336", "query": "How many sentence transformations on average are available per unique sentence in dataset?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0337", "query": "What annotations are available in the dataset?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0338", "query": "How are possible sentence transformations represented in dataset, as new sentences?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0339", "query": "What are all 15 types of modifications ilustrated in the dataset?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0340", "query": "Is this dataset publicly available?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0341", "query": "Are some baseline models trained on this dataset?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0342", "query": "Do they do any analysis of of how the modifications changed the starting set of sentences?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0343", "query": "How do they introduce language variation?", "relevant_document_ids": ["doc-0093"], "difficulty": "unknown"}
+{"id": "q-0344", "query": "How better are state-of-the-art results than this model?", "relevant_document_ids": ["doc-0094"], "difficulty": "unknown"}
+{"id": "q-0345", "query": "What were their results on the three datasets?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0346", "query": "What was the baseline?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0347", "query": "Which datasets did they use?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0348", "query": "Are results reported only on English datasets?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0349", "query": "Which three Twitter sentiment classification datasets are used for experiments?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0350", "query": "What semantic rules are proposed?", "relevant_document_ids": ["doc-0095"], "difficulty": "unknown"}
+{"id": "q-0351", "query": "Which knowledge graph completion tasks do they experiment with?", "relevant_document_ids": ["doc-0096"], "difficulty": "unknown"}
+{"id": "q-0352", "query": "What is the dataset used to train the model?", "relevant_document_ids": ["doc-0097"], "difficulty": "unknown"}
+{"id": "q-0353", "query": "What is the performance of the model?", "relevant_document_ids": ["doc-0097"], "difficulty": "unknown"}
+{"id": "q-0354", "query": "Is the model evaluated against a CNN baseline?", "relevant_document_ids": ["doc-0097"], "difficulty": "unknown"}
+{"id": "q-0355", "query": "Does the model proposed beat the baseline models for all the values of the masking parameter tested?", "relevant_document_ids": ["doc-0098"], "difficulty": "unknown"}
+{"id": "q-0356", "query": "Has STES been previously used in the literature to evaluate similar tasks?", "relevant_document_ids": ["doc-0098"], "difficulty": "unknown"}
+{"id": "q-0357", "query": "What are the baseline models mentioned in the paper?", "relevant_document_ids": ["doc-0098"], "difficulty": "unknown"}
+{"id": "q-0358", "query": "What was the performance of both approaches on their dataset?", "relevant_document_ids": ["doc-0099"], "difficulty": "unknown"}
+{"id": "q-0359", "query": "What kind of settings do the utterances come from?", "relevant_document_ids": ["doc-0099"], "difficulty": "unknown"}
+{"id": "q-0360", "query": "What genres are covered?", "relevant_document_ids": ["doc-0099"], "difficulty": "unknown"}
+{"id": "q-0361", "query": "Which of the two speech recognition models works better overall on CN-Celeb?", "relevant_document_ids": ["doc-0099"], "difficulty": "unknown"}
+{"id": "q-0362", "query": "By how much is performance on CN-Celeb inferior to performance on VoxCeleb?", "relevant_document_ids": ["doc-0099"], "difficulty": "unknown"}
+{"id": "q-0363", "query": "On what datasets is the new model evaluated on?", "relevant_document_ids": ["doc-0100"], "difficulty": "unknown"}
+{"id": "q-0364", "query": "How do the authors measure performance?", "relevant_document_ids": ["doc-0100"], "difficulty": "unknown"}
+{"id": "q-0365", "query": "Does the new objective perform better than the original objective bert is trained on?", "relevant_document_ids": ["doc-0100"], "difficulty": "unknown"}
+{"id": "q-0366", "query": "Are other pretrained language models also evaluated for contextual augmentation?", "relevant_document_ids": ["doc-0100"], "difficulty": "unknown"}
+{"id": "q-0367", "query": "Do the authors report performance of conditional bert on tasks without data augmentation?", "relevant_document_ids": ["doc-0100"], "difficulty": "unknown"}
+{"id": "q-0368", "query": "What is the latest paper covered by this survey?", "relevant_document_ids": ["doc-0101"], "difficulty": "unknown"}
+{"id": "q-0369", "query": "Do they survey visual question generation work?", "relevant_document_ids": ["doc-0101"], "difficulty": "unknown"}
+{"id": "q-0370", "query": "What learning paradigms do they cover in this survey?", "relevant_document_ids": ["doc-0101"], "difficulty": "unknown"}
+{"id": "q-0371", "query": "What are all the input modalities considered in prior work in question generation?", "relevant_document_ids": ["doc-0101"], "difficulty": "unknown"}
+{"id": "q-0372", "query": "What is their model?", "relevant_document_ids": ["doc-0102"], "difficulty": "unknown"}
+{"id": "q-0373", "query": "Do they evaluate on NER data sets?", "relevant_document_ids": ["doc-0102"], "difficulty": "unknown"}
+{"id": "q-0374", "query": "What previously proposed methods is this method compared against?", "relevant_document_ids": ["doc-0103"], "difficulty": "unknown"}
+{"id": "q-0375", "query": "How is effective word score calculated?", "relevant_document_ids": ["doc-0103"], "difficulty": "unknown"}
+{"id": "q-0376", "query": "Why is supporting fact supervision necessary for DMN?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0377", "query": "What does supporting fact supervision mean?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0378", "query": "What changes they did on input module?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0379", "query": "What improvements they did for DMN?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0380", "query": "How does the model circumvent the lack of supporting facts during training?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0381", "query": "Does the DMN+ model establish state-of-the-art ?", "relevant_document_ids": ["doc-0104"], "difficulty": "unknown"}
+{"id": "q-0382", "query": "Is this style generator compared to some baseline?", "relevant_document_ids": ["doc-0105"], "difficulty": "unknown"}
+{"id": "q-0383", "query": "How they perform manual evaluation, what is criteria?", "relevant_document_ids": ["doc-0105"], "difficulty": "unknown"}
+{"id": "q-0384", "query": "What metrics are used for automatic evaluation?", "relevant_document_ids": ["doc-0105"], "difficulty": "unknown"}
+{"id": "q-0385", "query": "How they know what are content words?", "relevant_document_ids": ["doc-0105"], "difficulty": "unknown"}
+{"id": "q-0386", "query": "How they model style as a suite of low-level linguistic controls, such as frequency of pronouns, prepositions, and subordinate clause constructions?", "relevant_document_ids": ["doc-0105"], "difficulty": "unknown"}
+{"id": "q-0387", "query": "What insights into the relationship between demographics and mental health are provided?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0388", "query": "What model is used to achieve 5% improvement on F1 for identifying depressed individuals on Twitter?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0389", "query": "How do this framework facilitate demographic inference from social media?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0390", "query": "What types of features are used from each data type?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0391", "query": "How is the data annotated?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0392", "query": "Where does the information on individual-level demographics come from?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0393", "query": "What is the source of the user interaction data?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0394", "query": "What is the source of the textual data?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0395", "query": "What is the source of the visual data?", "relevant_document_ids": ["doc-0106"], "difficulty": "unknown"}
+{"id": "q-0396", "query": "Do they perform manual evaluation?", "relevant_document_ids": ["doc-0107"], "difficulty": "unknown"}
+{"id": "q-0397", "query": "Do they compare against Noraset et al. 2017?", "relevant_document_ids": ["doc-0107"], "difficulty": "unknown"}
+{"id": "q-0398", "query": "What is a sememe?", "relevant_document_ids": ["doc-0107"], "difficulty": "unknown"}
+{"id": "q-0399", "query": "What data did they use?", "relevant_document_ids": ["doc-0108"], "difficulty": "unknown"}
+{"id": "q-0400", "query": "What is the state of the art?", "relevant_document_ids": ["doc-0108"], "difficulty": "unknown"}
+{"id": "q-0401", "query": "What language tasks did they experiment on?", "relevant_document_ids": ["doc-0108"], "difficulty": "unknown"}
+{"id": "q-0402", "query": "What result from experiments suggest that natural language based agents are more robust?", "relevant_document_ids": ["doc-0109"], "difficulty": "unknown"}
+{"id": "q-0403", "query": "What experiments authors perform?", "relevant_document_ids": ["doc-0109"], "difficulty": "unknown"}
+{"id": "q-0404", "query": "How is state to learn and complete tasks represented via natural language?", "relevant_document_ids": ["doc-0109"], "difficulty": "unknown"}
+{"id": "q-0405", "query": "How does the model compare with the MMR baseline?", "relevant_document_ids": ["doc-0110"], "difficulty": "unknown"}
+{"id": "q-0406", "query": "Does the paper discuss previous models which have been applied to the same task?", "relevant_document_ids": ["doc-0111"], "difficulty": "unknown"}
+{"id": "q-0407", "query": "Which datasets are used in the paper?", "relevant_document_ids": ["doc-0111"], "difficulty": "unknown"}
+{"id": "q-0408", "query": "How does the parameter-free model work?", "relevant_document_ids": ["doc-0111"], "difficulty": "unknown"}
+{"id": "q-0409", "query": "How do they quantify moral relevance?", "relevant_document_ids": ["doc-0111"], "difficulty": "unknown"}
+{"id": "q-0410", "query": "Which fine-grained moral dimension examples do they showcase?", "relevant_document_ids": ["doc-0111"], "difficulty": "unknown"}
+{"id": "q-0411", "query": "How well did the system do?", "relevant_document_ids": ["doc-0112"], "difficulty": "unknown"}
+{"id": "q-0412", "query": "How is the information extracted?", "relevant_document_ids": ["doc-0112"], "difficulty": "unknown"}
+{"id": "q-0413", "query": "What are some guidelines in writing input vernacular so model can generate", "relevant_document_ids": ["doc-0113"], "difficulty": "unknown"}
+{"id": "q-0414", "query": "How much is proposed model better in perplexity and BLEU score than typical UMT models?", "relevant_document_ids": ["doc-0113"], "difficulty": "unknown"}
+{"id": "q-0415", "query": "What dataset is used for training?", "relevant_document_ids": ["doc-0113"], "difficulty": "unknown"}
+{"id": "q-0416", "query": "What were the evaluation metrics?", "relevant_document_ids": ["doc-0114"], "difficulty": "unknown"}
+{"id": "q-0417", "query": "What were the baseline systems?", "relevant_document_ids": ["doc-0114"], "difficulty": "unknown"}
+{"id": "q-0418", "query": "Which dialog datasets did they experiment with?", "relevant_document_ids": ["doc-0114"], "difficulty": "unknown"}
+{"id": "q-0419", "query": "Do they train a different training method except from scheduled sampling?", "relevant_document_ids": ["doc-0115"], "difficulty": "unknown"}
+{"id": "q-0420", "query": "What classifier is used for emergency categorization?", "relevant_document_ids": ["doc-0116"], "difficulty": "unknown"}
+{"id": "q-0421", "query": "What classifier is used for emergency detection?", "relevant_document_ids": ["doc-0116"], "difficulty": "unknown"}
+{"id": "q-0422", "query": "Do the tweets come from any individual?", "relevant_document_ids": ["doc-0116"], "difficulty": "unknown"}
+{"id": "q-0423", "query": "Do they release MED?", "relevant_document_ids": ["doc-0117"], "difficulty": "unknown"}
+{"id": "q-0424", "query": "What NLI models do they analyze?", "relevant_document_ids": ["doc-0117"], "difficulty": "unknown"}
+{"id": "q-0425", "query": "How do they define upward and downward reasoning?", "relevant_document_ids": ["doc-0117"], "difficulty": "unknown"}
+{"id": "q-0426", "query": "What is monotonicity reasoning?", "relevant_document_ids": ["doc-0117"], "difficulty": "unknown"}
+{"id": "q-0427", "query": "What other relations were found in the datasets?", "relevant_document_ids": ["doc-0118"], "difficulty": "unknown"}
+{"id": "q-0428", "query": "How does the ensemble annotator extract the final label?", "relevant_document_ids": ["doc-0118"], "difficulty": "unknown"}
+{"id": "q-0429", "query": "How were dialogue act labels defined?", "relevant_document_ids": ["doc-0118"], "difficulty": "unknown"}
+{"id": "q-0430", "query": "How many models were used?", "relevant_document_ids": ["doc-0118"], "difficulty": "unknown"}
+{"id": "q-0431", "query": "Do they annotate their own dataset or use an existing one?", "relevant_document_ids": ["doc-0119"], "difficulty": "unknown"}
+{"id": "q-0432", "query": "Does their neural network predict a single offset in a recording?", "relevant_document_ids": ["doc-0119"], "difficulty": "unknown"}
+{"id": "q-0433", "query": "What kind of neural network architecture do they use?", "relevant_document_ids": ["doc-0119"], "difficulty": "unknown"}
+{"id": "q-0434", "query": "How are aspects identified in aspect extraction?", "relevant_document_ids": ["doc-0120"], "difficulty": "unknown"}
+{"id": "q-0435", "query": "What web and user-generated NER datasets are used for the analysis?", "relevant_document_ids": ["doc-0121"], "difficulty": "unknown"}
+{"id": "q-0436", "query": "Which unlabeled data do they pretrain with?", "relevant_document_ids": ["doc-0122"], "difficulty": "unknown"}
+{"id": "q-0437", "query": "How many convolutional layers does their model have?", "relevant_document_ids": ["doc-0122"], "difficulty": "unknown"}
+{"id": "q-0438", "query": "Do they explore how much traning data is needed for which magnitude of improvement for WER?", "relevant_document_ids": ["doc-0122"], "difficulty": "unknown"}
+{"id": "q-0439", "query": "How are character representations from various languages joint?", "relevant_document_ids": ["doc-0123"], "difficulty": "unknown"}
+{"id": "q-0440", "query": "On which dataset is the experiment conducted?", "relevant_document_ids": ["doc-0123"], "difficulty": "unknown"}
+{"id": "q-0441", "query": "Do they train their own RE model?", "relevant_document_ids": ["doc-0124"], "difficulty": "unknown"}
+{"id": "q-0442", "query": "How big are the datasets?", "relevant_document_ids": ["doc-0124"], "difficulty": "unknown"}
+{"id": "q-0443", "query": "What languages do they experiment on?", "relevant_document_ids": ["doc-0124"], "difficulty": "unknown"}
+{"id": "q-0444", "query": "What datasets are used?", "relevant_document_ids": ["doc-0124"], "difficulty": "unknown"}
+{"id": "q-0445", "query": "How big is data provided by this research?", "relevant_document_ids": ["doc-0125"], "difficulty": "unknown"}
+{"id": "q-0446", "query": "How they complete a user query prefix conditioned upon an image?", "relevant_document_ids": ["doc-0125"], "difficulty": "unknown"}
+{"id": "q-0447", "query": "Did the collection process use a WoZ method?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0448", "query": "By how much did their model outperform the baseline?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0449", "query": "What baselines did they compare their model with?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0450", "query": "What was the performance of their model?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0451", "query": "What evaluation metrics are used?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0452", "query": "Did the authors use a crowdsourcing platform?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0453", "query": "How were the navigation instructions collected?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0454", "query": "What language is the experiment done in?", "relevant_document_ids": ["doc-0126"], "difficulty": "unknown"}
+{"id": "q-0455", "query": "What additional features are proposed for future work?", "relevant_document_ids": ["doc-0127"], "difficulty": "unknown"}
+{"id": "q-0456", "query": "What are their initial results on this task?", "relevant_document_ids": ["doc-0127"], "difficulty": "unknown"}
+{"id": "q-0457", "query": "What datasets did the authors use?", "relevant_document_ids": ["doc-0127"], "difficulty": "unknown"}
+{"id": "q-0458", "query": "How is morphology knowledge implemented in the method?", "relevant_document_ids": ["doc-0128"], "difficulty": "unknown"}
+{"id": "q-0459", "query": "How does the word segmentation method work?", "relevant_document_ids": ["doc-0128"], "difficulty": "unknown"}
+{"id": "q-0460", "query": "How many layers do they use in their best performing network?", "relevant_document_ids": ["doc-0129"], "difficulty": "unknown"}
+{"id": "q-0461", "query": "Do they just sum up all the loses the calculate to end up with one single loss?", "relevant_document_ids": ["doc-0129"], "difficulty": "unknown"}
+{"id": "q-0462", "query": "Are agglutinative languages used in the prediction of both prefixing and suffixing languages?", "relevant_document_ids": ["doc-0130"], "difficulty": "unknown"}
+{"id": "q-0463", "query": "What is an example of a prefixing language?", "relevant_document_ids": ["doc-0130"], "difficulty": "unknown"}
+{"id": "q-0464", "query": "How is the performance on the task evaluated?", "relevant_document_ids": ["doc-0130"], "difficulty": "unknown"}
+{"id": "q-0465", "query": "What are the tree target languages studied in the paper?", "relevant_document_ids": ["doc-0130"], "difficulty": "unknown"}
+{"id": "q-0466", "query": "Is the model evaluated against any baseline?", "relevant_document_ids": ["doc-0131"], "difficulty": "unknown"}
+{"id": "q-0467", "query": "Does the paper report the accuracy of the model?", "relevant_document_ids": ["doc-0131"], "difficulty": "unknown"}
+{"id": "q-0468", "query": "How is the performance of the model evaluated?", "relevant_document_ids": ["doc-0131"], "difficulty": "unknown"}
+{"id": "q-0469", "query": "What are the different bilingual models employed?", "relevant_document_ids": ["doc-0131"], "difficulty": "unknown"}
+{"id": "q-0470", "query": "How does the well-resourced language impact the quality of the output?", "relevant_document_ids": ["doc-0131"], "difficulty": "unknown"}
+{"id": "q-0471", "query": "what are the baselines?", "relevant_document_ids": ["doc-0132"], "difficulty": "unknown"}
+{"id": "q-0472", "query": "did they outperform previous methods?", "relevant_document_ids": ["doc-0132"], "difficulty": "unknown"}
+{"id": "q-0473", "query": "what language pairs are explored?", "relevant_document_ids": ["doc-0132"], "difficulty": "unknown"}
+{"id": "q-0474", "query": "what datasets were used?", "relevant_document_ids": ["doc-0132"], "difficulty": "unknown"}
+{"id": "q-0475", "query": "How is order of binomials tracked across time?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0476", "query": "What types of various community texts have been investigated for exploring global structure of binomials?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0477", "query": "Are there any new finding in analasys of trinomials that was not present binomials?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0478", "query": "What new model is proposed for binomial lists?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0479", "query": "How was performance of previously proposed rules at very large scale?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0480", "query": "What previously proposed rules for predicting binoial ordering are used?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0481", "query": "What online text resources are used to test binomial lists?", "relevant_document_ids": ["doc-0133"], "difficulty": "unknown"}
+{"id": "q-0482", "query": "How do they model a city description using embeddings?", "relevant_document_ids": ["doc-0134"], "difficulty": "unknown"}
+{"id": "q-0483", "query": "How do they obtain human judgements?", "relevant_document_ids": ["doc-0134"], "difficulty": "unknown"}
+{"id": "q-0484", "query": "Which clustering method do they use to cluster city description embeddings?", "relevant_document_ids": ["doc-0134"], "difficulty": "unknown"}
+{"id": "q-0485", "query": "Does this approach perform better in the multi-domain or single-domain setting?", "relevant_document_ids": ["doc-0135"], "difficulty": "unknown"}
+{"id": "q-0486", "query": "What are the performance metrics used?", "relevant_document_ids": ["doc-0135"], "difficulty": "unknown"}
+{"id": "q-0487", "query": "Which datasets are used to evaluate performance?", "relevant_document_ids": ["doc-0135"], "difficulty": "unknown"}
+{"id": "q-0488", "query": "How many samples did they generate for the artificial language?", "relevant_document_ids": ["doc-0136"], "difficulty": "unknown"}
+{"id": "q-0489", "query": "Which of their training domains improves performance the most?", "relevant_document_ids": ["doc-0137"], "difficulty": "unknown"}
+{"id": "q-0490", "query": "Do they fine-tune their model on the end task?", "relevant_document_ids": ["doc-0137"], "difficulty": "unknown"}
+{"id": "q-0491", "query": "Why does not the approach from English work on other languages?", "relevant_document_ids": ["doc-0138"], "difficulty": "unknown"}
+{"id": "q-0492", "query": "How do they measure grammaticality?", "relevant_document_ids": ["doc-0138"], "difficulty": "unknown"}
+{"id": "q-0493", "query": "Which model do they use to convert between masculine-inflected and feminine-inflected sentences?", "relevant_document_ids": ["doc-0138"], "difficulty": "unknown"}
+{"id": "q-0494", "query": "What is the size of the datasets employed?", "relevant_document_ids": ["doc-0139"], "difficulty": "unknown"}
+{"id": "q-0495", "query": "What are the baseline models?", "relevant_document_ids": ["doc-0139"], "difficulty": "unknown"}
+{"id": "q-0496", "query": "What evaluation metrics are used?", "relevant_document_ids": ["doc-0140"], "difficulty": "unknown"}
+{"id": "q-0497", "query": "What datasets did they use?", "relevant_document_ids": ["doc-0140"], "difficulty": "unknown"}
+{"id": "q-0498", "query": "Why does their model do better than prior models?", "relevant_document_ids": ["doc-0141"], "difficulty": "unknown"}
+{"id": "q-0499", "query": "What is the difference in recall score between the systems?", "relevant_document_ids": ["doc-0142"], "difficulty": "unknown"}
+{"id": "q-0500", "query": "What is their f1 score and recall?", "relevant_document_ids": ["doc-0142"], "difficulty": "unknown"}
+{"id": "q-0501", "query": "How many layers does their system have?", "relevant_document_ids": ["doc-0142"], "difficulty": "unknown"}
+{"id": "q-0502", "query": "How large is the dataset they used?", "relevant_document_ids": ["doc-0142"], "difficulty": "unknown"}
+{"id": "q-0503", "query": "Which coreference resolution systems are tested?", "relevant_document_ids": ["doc-0143"], "difficulty": "unknown"}
+{"id": "q-0504", "query": "How big is improvement in performances of proposed model over state of the art?", "relevant_document_ids": ["doc-0144"], "difficulty": "unknown"}
+{"id": "q-0505", "query": "What two large datasets are used for evaluation?", "relevant_document_ids": ["doc-0144"], "difficulty": "unknown"}
+{"id": "q-0506", "query": "What context modelling methods are evaluated?", "relevant_document_ids": ["doc-0144"], "difficulty": "unknown"}
+{"id": "q-0507", "query": "What are two datasets models are tested on?", "relevant_document_ids": ["doc-0144"], "difficulty": "unknown"}
+{"id": "q-0508", "query": "How big is the improvement over the state-of-the-art results?", "relevant_document_ids": ["doc-0145"], "difficulty": "unknown"}
+{"id": "q-0509", "query": "Is the model evaluated against other Aspect-Based models?", "relevant_document_ids": ["doc-0145"], "difficulty": "unknown"}
+{"id": "q-0510", "query": "Is the baseline a non-heirarchical model like BERT?", "relevant_document_ids": ["doc-0146"], "difficulty": "unknown"}
+{"id": "q-0511", "query": "Which inter-annotator metric do they use?", "relevant_document_ids": ["doc-0147"], "difficulty": "unknown"}
+{"id": "q-0512", "query": "How high is the inter-annotator agreement?", "relevant_document_ids": ["doc-0147"], "difficulty": "unknown"}
+{"id": "q-0513", "query": "How are resources adapted to properties of Chinese text?", "relevant_document_ids": ["doc-0147"], "difficulty": "unknown"}
+{"id": "q-0514", "query": "How better are results compared to baseline models?", "relevant_document_ids": ["doc-0148"], "difficulty": "unknown"}
+{"id": "q-0515", "query": "What models that rely only on claim-specific linguistic features are used as baselines?", "relevant_document_ids": ["doc-0148"], "difficulty": "unknown"}
+{"id": "q-0516", "query": "How is pargmative and discourse context added to the dataset?", "relevant_document_ids": ["doc-0148"], "difficulty": "unknown"}
+{"id": "q-0517", "query": "What annotations are available in the dataset?", "relevant_document_ids": ["doc-0148"], "difficulty": "unknown"}
+{"id": "q-0518", "query": "How big is dataset used for training/testing?", "relevant_document_ids": ["doc-0149"], "difficulty": "unknown"}
+{"id": "q-0519", "query": "Is there any example where geometric property is visible for context similarity between words?", "relevant_document_ids": ["doc-0149"], "difficulty": "unknown"}
+{"id": "q-0520", "query": "What geometric properties do embeddings display?", "relevant_document_ids": ["doc-0149"], "difficulty": "unknown"}
+{"id": "q-0521", "query": "How accurate is model trained on text exclusively?", "relevant_document_ids": ["doc-0149"], "difficulty": "unknown"}
+{"id": "q-0522", "query": "What was their result on Stance Sentiment Emotion Corpus?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0523", "query": "What performance did they obtain on the SemEval dataset?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0524", "query": "What are the state-of-the-art systems?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0525", "query": "How is multi-tasking performed?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0526", "query": "What are the datasets used for training?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0527", "query": "What is the previous state-of-the-art model?", "relevant_document_ids": ["doc-0150"], "difficulty": "unknown"}
+{"id": "q-0528", "query": "How can the classifier facilitate the annotation task for human annotators?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0529", "query": "What recommendations are made to improve the performance in future?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0530", "query": "What type of errors do the classifiers use?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0531", "query": "What neural classifiers are used?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0532", "query": "What languages are included in the dataset?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0533", "query": "What dataset is used for this study?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0534", "query": "What proxies for data annotation were used in previous datasets?", "relevant_document_ids": ["doc-0151"], "difficulty": "unknown"}
+{"id": "q-0535", "query": "What are the supported natural commands?", "relevant_document_ids": ["doc-0152"], "difficulty": "unknown"}
+{"id": "q-0536", "query": "What is the size of their collected dataset?", "relevant_document_ids": ["doc-0152"], "difficulty": "unknown"}
+{"id": "q-0537", "query": "Did they compare against other systems?", "relevant_document_ids": ["doc-0152"], "difficulty": "unknown"}
+{"id": "q-0538", "query": "What intents does the paper explore?", "relevant_document_ids": ["doc-0152"], "difficulty": "unknown"}
+{"id": "q-0539", "query": "What kind of features are used by the HMM models, and how interpretable are those?", "relevant_document_ids": ["doc-0153"], "difficulty": "unknown"}
+{"id": "q-0540", "query": "What kind of information do the HMMs learn that the LSTMs don't?", "relevant_document_ids": ["doc-0153"], "difficulty": "unknown"}
+{"id": "q-0541", "query": "Which methods do the authors use to reach the conclusion that LSTMs and HMMs learn complementary information?", "relevant_document_ids": ["doc-0153"], "difficulty": "unknown"}
+{"id": "q-0542", "query": "How large is the gap in performance between the HMMs and the LSTMs?", "relevant_document_ids": ["doc-0153"], "difficulty": "unknown"}
+{"id": "q-0543", "query": "Do they report results only on English data?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0544", "query": "Which publicly available datasets are used?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0545", "query": "What embedding algorithm and dimension size are used?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0546", "query": "What data are the embeddings trained on?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0547", "query": "how much was the parameter difference between their model and previous methods?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0548", "query": "how many parameters did their model use?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0549", "query": "which datasets were used?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0550", "query": "what was their system's f1 performance?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0551", "query": "what was the baseline?", "relevant_document_ids": ["doc-0154"], "difficulty": "unknown"}
+{"id": "q-0552", "query": "What datasets were used?", "relevant_document_ids": ["doc-0155"], "difficulty": "unknown"}
+{"id": "q-0553", "query": "What language pairs did they experiment with?", "relevant_document_ids": ["doc-0155"], "difficulty": "unknown"}
+{"id": "q-0554", "query": "How much more coverage is in the new dataset?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0555", "query": "How was coverage measured?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0556", "query": "How was quality measured?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0557", "query": "How was the corpus obtained?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0558", "query": "How are workers trained?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0559", "query": "What is different in the improved annotation protocol?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0560", "query": "How was the previous dataset annotated?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0561", "query": "How big is the dataset?", "relevant_document_ids": ["doc-0156"], "difficulty": "unknown"}
+{"id": "q-0562", "query": "What data were they used to train the multilingual encoder?", "relevant_document_ids": ["doc-0157"], "difficulty": "unknown"}
+{"id": "q-0563", "query": "From when are many VQA datasets collected?", "relevant_document_ids": ["doc-0158"], "difficulty": "unknown"}
+{"id": "q-0564", "query": "What is task success rate achieved?", "relevant_document_ids": ["doc-0159"], "difficulty": "unknown"}
+{"id": "q-0565", "query": "What simulations are performed by the authors to validate their approach?", "relevant_document_ids": ["doc-0159"], "difficulty": "unknown"}
+{"id": "q-0566", "query": "Does proposed end-to-end approach learn in reinforcement or supervised learning manner?", "relevant_document_ids": ["doc-0159"], "difficulty": "unknown"}
+{"id": "q-0567", "query": "Are synonymous relation taken into account in the Japanese-Vietnamese task?", "relevant_document_ids": ["doc-0160"], "difficulty": "unknown"}
+{"id": "q-0568", "query": "Is the supervised morphological learner tested on Japanese?", "relevant_document_ids": ["doc-0160"], "difficulty": "unknown"}
+{"id": "q-0569", "query": "What non-contextual properties do they refer to?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0570", "query": "What is the baseline?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0571", "query": "What are their proposed features?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0572", "query": "What are overall baseline results on new this new task?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0573", "query": "What metrics are used in evaluation of this task?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0574", "query": "Do authors provide any explanation for intriguing patterns of word being echoed?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0575", "query": "What features are proposed?", "relevant_document_ids": ["doc-0162"], "difficulty": "unknown"}
+{"id": "q-0576", "query": "Which datasets are used to train this model?", "relevant_document_ids": ["doc-0163"], "difficulty": "unknown"}
+{"id": "q-0577", "query": "How is performance of this system measured?", "relevant_document_ids": ["doc-0164"], "difficulty": "unknown"}
+{"id": "q-0578", "query": "How many questions per image on average are available in dataset?", "relevant_document_ids": ["doc-0164"], "difficulty": "unknown"}
+{"id": "q-0579", "query": "Is machine learning system underneath similar to image caption ML systems?", "relevant_document_ids": ["doc-0164"], "difficulty": "unknown"}
+{"id": "q-0580", "query": "How big dataset is used for training this system?", "relevant_document_ids": ["doc-0164"], "difficulty": "unknown"}
+{"id": "q-0581", "query": "How do they obtain word lattices from words?", "relevant_document_ids": ["doc-0165"], "difficulty": "unknown"}
+{"id": "q-0582", "query": "Which metrics do they use to evaluate matching?", "relevant_document_ids": ["doc-0165"], "difficulty": "unknown"}
+{"id": "q-0583", "query": "Which dataset(s) do they evaluate on?", "relevant_document_ids": ["doc-0165"], "difficulty": "unknown"}
+{"id": "q-0584", "query": "Do they propose any further additions that could be made to improve generalisation to unseen speakers?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0585", "query": "What are the characteristics of the dataset?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0586", "query": "What type of models are used for classification?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0587", "query": "How many instances does their dataset have?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0588", "query": "What model do they use to classify phonetic segments?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0589", "query": "How many speakers do they have in the dataset?", "relevant_document_ids": ["doc-0167"], "difficulty": "unknown"}
+{"id": "q-0590", "query": "How better is proposed method than baselines perpexity wise?", "relevant_document_ids": ["doc-0168"], "difficulty": "unknown"}
+{"id": "q-0591", "query": "How does the multi-turn dialog system learns?", "relevant_document_ids": ["doc-0168"], "difficulty": "unknown"}
+{"id": "q-0592", "query": "How is human evaluation performed?", "relevant_document_ids": ["doc-0168"], "difficulty": "unknown"}
+{"id": "q-0593", "query": "Is some other metrics other then perplexity measured?", "relevant_document_ids": ["doc-0168"], "difficulty": "unknown"}
+{"id": "q-0594", "query": "What two baseline models are used?", "relevant_document_ids": ["doc-0168"], "difficulty": "unknown"}
+{"id": "q-0595", "query": "What is the baseline model for the agreement-based mode?", "relevant_document_ids": ["doc-0170"], "difficulty": "unknown"}
+{"id": "q-0596", "query": "Do the authors suggest why syntactic parsing is so important for semantic role labelling for interlanguages?", "relevant_document_ids": ["doc-0170"], "difficulty": "unknown"}
+{"id": "q-0597", "query": "Who manually annotated the semantic roles for the set of learner texts?", "relevant_document_ids": ["doc-0170"], "difficulty": "unknown"}
+{"id": "q-0598", "query": "By how much do they outperform existing state-of-the-art VQA models?", "relevant_document_ids": ["doc-0171"], "difficulty": "unknown"}
+{"id": "q-0599", "query": "How do they measure the correlation between manual groundings and model generated ones?", "relevant_document_ids": ["doc-0171"], "difficulty": "unknown"}
+{"id": "q-0600", "query": "How do they obtain region descriptions and object annotations?", "relevant_document_ids": ["doc-0171"], "difficulty": "unknown"}
+{"id": "q-0601", "query": "Which training dataset allowed for the best generalization to benchmark sets?", "relevant_document_ids": ["doc-0172"], "difficulty": "unknown"}
+{"id": "q-0602", "query": "Which model generalized the best?", "relevant_document_ids": ["doc-0172"], "difficulty": "unknown"}
+{"id": "q-0603", "query": "Which models were compared?", "relevant_document_ids": ["doc-0172"], "difficulty": "unknown"}
+{"id": "q-0604", "query": "Which datasets were used?", "relevant_document_ids": ["doc-0172"], "difficulty": "unknown"}
+{"id": "q-0605", "query": "Is the data all in Vietnamese?", "relevant_document_ids": ["doc-0173"], "difficulty": "unknown"}
+{"id": "q-0606", "query": "What classifier do they use?", "relevant_document_ids": ["doc-0173"], "difficulty": "unknown"}
+{"id": "q-0607", "query": "What is private dashboard?", "relevant_document_ids": ["doc-0173"], "difficulty": "unknown"}
+{"id": "q-0608", "query": "What is public dashboard?", "relevant_document_ids": ["doc-0173"], "difficulty": "unknown"}
+{"id": "q-0609", "query": "What dataset do they use?", "relevant_document_ids": ["doc-0173"], "difficulty": "unknown"}
+{"id": "q-0610", "query": "Do the authors report results only on English data?", "relevant_document_ids": ["doc-0174"], "difficulty": "unknown"}
+{"id": "q-0611", "query": "What other interesting correlations are observed?", "relevant_document_ids": ["doc-0174"], "difficulty": "unknown"}
+{"id": "q-0612", "query": "what were the baselines?", "relevant_document_ids": ["doc-0175"], "difficulty": "unknown"}
+{"id": "q-0613", "query": "what is the state of the art for ranking mc test answers?", "relevant_document_ids": ["doc-0175"], "difficulty": "unknown"}
+{"id": "q-0614", "query": "what datasets did they use?", "relevant_document_ids": ["doc-0175"], "difficulty": "unknown"}
+{"id": "q-0615", "query": "What evaluation metric is used?", "relevant_document_ids": ["doc-0176"], "difficulty": "unknown"}
+{"id": "q-0616", "query": "What datasets are used?", "relevant_document_ids": ["doc-0176"], "difficulty": "unknown"}
+{"id": "q-0617", "query": "What are three main machine translation tasks?", "relevant_document_ids": ["doc-0176"], "difficulty": "unknown"}
+{"id": "q-0618", "query": "How big is improvement in performance over Transformers?", "relevant_document_ids": ["doc-0176"], "difficulty": "unknown"}
+{"id": "q-0619", "query": "How do they determine the opinion summary?", "relevant_document_ids": ["doc-0177"], "difficulty": "unknown"}
+{"id": "q-0620", "query": "Do they explore how useful is the detection history and opinion summary?", "relevant_document_ids": ["doc-0177"], "difficulty": "unknown"}
+{"id": "q-0621", "query": "Which dataset(s) do they use to train the model?", "relevant_document_ids": ["doc-0177"], "difficulty": "unknown"}
+{"id": "q-0622", "query": "By how much do they outperform state-of-the-art methods?", "relevant_document_ids": ["doc-0177"], "difficulty": "unknown"}
+{"id": "q-0623", "query": "What is the average number of turns per dialog?", "relevant_document_ids": ["doc-0178"], "difficulty": "unknown"}
+{"id": "q-0624", "query": "What baseline models are offered?", "relevant_document_ids": ["doc-0178"], "difficulty": "unknown"}
+{"id": "q-0625", "query": "Which six domains are covered in the dataset?", "relevant_document_ids": ["doc-0178"], "difficulty": "unknown"}
+{"id": "q-0626", "query": "What other natural processing tasks authors think could be studied by using word embeddings?", "relevant_document_ids": ["doc-0179"], "difficulty": "unknown"}
+{"id": "q-0627", "query": "What is the reason that traditional co-occurrence networks fail in establishing links between similar words whenever they appear distant in the text?", "relevant_document_ids": ["doc-0179"], "difficulty": "unknown"}
+{"id": "q-0628", "query": "Do the use word embeddings alone or they replace some previous features of the model with word embeddings?", "relevant_document_ids": ["doc-0179"], "difficulty": "unknown"}
+{"id": "q-0629", "query": "On what model architectures are previous co-occurence networks based?", "relevant_document_ids": ["doc-0179"], "difficulty": "unknown"}
+{"id": "q-0630", "query": "Is model explanation output evaluated, what metric was used?", "relevant_document_ids": ["doc-0180"], "difficulty": "unknown"}
+{"id": "q-0631", "query": "How many annotators are used to write natural language explanations to SNLI-VE-2.0?", "relevant_document_ids": ["doc-0180"], "difficulty": "unknown"}
+{"id": "q-0632", "query": "How many natural language explanations are human-written?", "relevant_document_ids": ["doc-0180"], "difficulty": "unknown"}
+{"id": "q-0633", "query": "How much is performance difference of existing model between original and corrected corpus?", "relevant_document_ids": ["doc-0180"], "difficulty": "unknown"}
+{"id": "q-0634", "query": "What is the class with highest error rate in SNLI-VE?", "relevant_document_ids": ["doc-0180"], "difficulty": "unknown"}
+{"id": "q-0635", "query": "What is the dataset used as input to the Word2Vec algorithm?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0636", "query": "Are the word embeddings tested on a NLP task?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0637", "query": "Are the word embeddings evaluated?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0638", "query": "How big is dataset used to train Word2Vec for the Italian Language?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0639", "query": "How does different parameter settings impact the performance and semantic capacity of resulting model?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0640", "query": "What dataset is used for training Word2Vec in Italian language?", "relevant_document_ids": ["doc-0181"], "difficulty": "unknown"}
+{"id": "q-0641", "query": "How are the auxiliary signals from the morphology table incorporated in the decoder?", "relevant_document_ids": ["doc-0182"], "difficulty": "unknown"}
+{"id": "q-0642", "query": "What type of morphological information is contained in the \"morphology table\"?", "relevant_document_ids": ["doc-0182"], "difficulty": "unknown"}
+{"id": "q-0643", "query": "Do they report results only on English data?", "relevant_document_ids": ["doc-0183"], "difficulty": "unknown"}
+{"id": "q-0644", "query": "Do the authors mention any confounds to their study?", "relevant_document_ids": ["doc-0183"], "difficulty": "unknown"}
+{"id": "q-0645", "query": "Which machine learning models are used?", "relevant_document_ids": ["doc-0183"], "difficulty": "unknown"}
+{"id": "q-0646", "query": "What methodology is used to compensate for limited labelled data?", "relevant_document_ids": ["doc-0183"], "difficulty": "unknown"}
+{"id": "q-0647", "query": "Which five natural disasters were examined?", "relevant_document_ids": ["doc-0183"], "difficulty": "unknown"}
+{"id": "q-0648", "query": "Which social media platform is explored?", "relevant_document_ids": ["doc-0184"], "difficulty": "unknown"}
+{"id": "q-0649", "query": "What datasets did they use?", "relevant_document_ids": ["doc-0184"], "difficulty": "unknown"}
+{"id": "q-0650", "query": "What are the baseline state of the art models?", "relevant_document_ids": ["doc-0184"], "difficulty": "unknown"}
+{"id": "q-0651", "query": "What is the size of the dataset?", "relevant_document_ids": ["doc-0185"], "difficulty": "unknown"}
+{"id": "q-0652", "query": "What model did they use?", "relevant_document_ids": ["doc-0185"], "difficulty": "unknown"}
+{"id": "q-0653", "query": "What patterns were discovered from the stories?", "relevant_document_ids": ["doc-0185"], "difficulty": "unknown"}
+{"id": "q-0654", "query": "Does the performance increase using their method?", "relevant_document_ids": ["doc-0186"], "difficulty": "unknown"}
+{"id": "q-0655", "query": "What tasks are they experimenting with in this paper?", "relevant_document_ids": ["doc-0186"], "difficulty": "unknown"}
+{"id": "q-0656", "query": "How do they select answer candidates for their QA task?", "relevant_document_ids": ["doc-0187"], "difficulty": "unknown"}
+{"id": "q-0657", "query": "How do they extract causality from text?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0658", "query": "What is the source of the \"control\" corpus?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0659", "query": "What are the selection criteria for \"causal statements\"?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0660", "query": "Do they use expert annotations, crowdsourcing, or only automatic methods to analyze the corpora?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0661", "query": "how do they collect the comparable corpus?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0662", "query": "How do they collect the control corpus?", "relevant_document_ids": ["doc-0188"], "difficulty": "unknown"}
+{"id": "q-0663", "query": "What languages do they experiment with?", "relevant_document_ids": ["doc-0189"], "difficulty": "unknown"}
+{"id": "q-0664", "query": "What are the baselines?", "relevant_document_ids": ["doc-0189"], "difficulty": "unknown"}
+{"id": "q-0665", "query": "What was the inter-annotator agreement?", "relevant_document_ids": ["doc-0189"], "difficulty": "unknown"}
+{"id": "q-0666", "query": "Are resolution mode variables hand crafted?", "relevant_document_ids": ["doc-0190"], "difficulty": "unknown"}
+{"id": "q-0667", "query": "What are resolution model variables?", "relevant_document_ids": ["doc-0190"], "difficulty": "unknown"}
+{"id": "q-0668", "query": "Is the model presented in the paper state of the art?", "relevant_document_ids": ["doc-0190"], "difficulty": "unknown"}
+{"id": "q-0669", "query": "What problems are found with the evaluation scheme?", "relevant_document_ids": ["doc-0191"], "difficulty": "unknown"}
+{"id": "q-0670", "query": "How many intents were classified?", "relevant_document_ids": ["doc-0191"], "difficulty": "unknown"}
+{"id": "q-0671", "query": "What was the result of the highest performing system?", "relevant_document_ids": ["doc-0191"], "difficulty": "unknown"}
+{"id": "q-0672", "query": "What metrics are used in the evaluation?", "relevant_document_ids": ["doc-0191"], "difficulty": "unknown"}
+{"id": "q-0673", "query": "How do they measure the quality of summaries?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0674", "query": "Does their model also take the expected answer style as input?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0675", "query": "What do they mean by answer styles?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0676", "query": "Is there exactly one \"answer style\" per dataset?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0677", "query": "What are the baselines that Masque is compared against?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0678", "query": "What is the performance achieved on NarrativeQA?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0679", "query": "What is an \"answer style\"?", "relevant_document_ids": ["doc-0192"], "difficulty": "unknown"}
+{"id": "q-0680", "query": "What was the previous state of the art model for this task?", "relevant_document_ids": ["doc-0193"], "difficulty": "unknown"}
+{"id": "q-0681", "query": "What syntactic structure is used to model tones?", "relevant_document_ids": ["doc-0193"], "difficulty": "unknown"}
+{"id": "q-0682", "query": "What visual information characterizes tones?", "relevant_document_ids": ["doc-0193"], "difficulty": "unknown"}
+{"id": "q-0683", "query": "How do they demonstrate the robustness of their results?", "relevant_document_ids": ["doc-0194"], "difficulty": "unknown"}
+{"id": "q-0684", "query": "What baseline and classification systems are used in experiments?", "relevant_document_ids": ["doc-0194"], "difficulty": "unknown"}
+{"id": "q-0685", "query": "How are the EAU text spans annotated?", "relevant_document_ids": ["doc-0194"], "difficulty": "unknown"}
+{"id": "q-0686", "query": "Which Twitter corpus was used to train the word vectors?", "relevant_document_ids": ["doc-0195"], "difficulty": "unknown"}
+{"id": "q-0687", "query": "How does proposed word embeddings compare to Sindhi fastText word representations?", "relevant_document_ids": ["doc-0196"], "difficulty": "unknown"}
+{"id": "q-0688", "query": "Are trained word embeddings used for any other NLP task?", "relevant_document_ids": ["doc-0196"], "difficulty": "unknown"}
+{"id": "q-0689", "query": "How many uniue words are in the dataset?", "relevant_document_ids": ["doc-0196"], "difficulty": "unknown"}
+{"id": "q-0690", "query": "How is the data collected, which web resources were used?", "relevant_document_ids": ["doc-0196"], "difficulty": "unknown"}
+{"id": "q-0691", "query": "What trends are found in musical preferences?", "relevant_document_ids": ["doc-0197"], "difficulty": "unknown"}
+{"id": "q-0692", "query": "Which decades did they look at?", "relevant_document_ids": ["doc-0197"], "difficulty": "unknown"}
+{"id": "q-0693", "query": "How many genres did they collect from?", "relevant_document_ids": ["doc-0197"], "difficulty": "unknown"}
+{"id": "q-0694", "query": "Does the paper mention other works proposing methods to detect anglicisms in Spanish?", "relevant_document_ids": ["doc-0198"], "difficulty": "unknown"}
+{"id": "q-0695", "query": "What is the performance of the CRF model on the task described?", "relevant_document_ids": ["doc-0198"], "difficulty": "unknown"}
+{"id": "q-0696", "query": "Does the paper motivate the use of CRF as the baseline model?", "relevant_document_ids": ["doc-0198"], "difficulty": "unknown"}
+{"id": "q-0697", "query": "What are the handcrafted features used?", "relevant_document_ids": ["doc-0198"], "difficulty": "unknown"}
+{"id": "q-0698", "query": "What are three new proposed architectures?", "relevant_document_ids": ["doc-0199"], "difficulty": "unknown"}
+{"id": "q-0699", "query": "How much does the standard metrics for style accuracy vary on different re-runs?", "relevant_document_ids": ["doc-0199"], "difficulty": "unknown"}
+{"id": "q-0700", "query": "Which baseline methods are used?", "relevant_document_ids": ["doc-0200"], "difficulty": "unknown"}
+{"id": "q-0701", "query": "How much is the BLEU score?", "relevant_document_ids": ["doc-0200"], "difficulty": "unknown"}
+{"id": "q-0702", "query": "Which datasets are used in experiments?", "relevant_document_ids": ["doc-0200"], "difficulty": "unknown"}
+{"id": "q-0703", "query": "What regularizers were used to encourage consistency in back translation cycles?", "relevant_document_ids": ["doc-0201"], "difficulty": "unknown"}
+{"id": "q-0704", "query": "What are new best results on standard benchmark?", "relevant_document_ids": ["doc-0201"], "difficulty": "unknown"}
+{"id": "q-0705", "query": "How better is performance compared to competitive baselines?", "relevant_document_ids": ["doc-0201"], "difficulty": "unknown"}
+{"id": "q-0706", "query": "What 6 language pairs is experimented on?", "relevant_document_ids": ["doc-0201"], "difficulty": "unknown"}
+{"id": "q-0707", "query": "What are current state-of-the-art methods that consider the two tasks independently?", "relevant_document_ids": ["doc-0201"], "difficulty": "unknown"}
+{"id": "q-0708", "query": "What baseline do they compare to?", "relevant_document_ids": ["doc-0202"], "difficulty": "unknown"}
+{"id": "q-0709", "query": "Which pre-trained transformer do they use?", "relevant_document_ids": ["doc-0202"], "difficulty": "unknown"}
+{"id": "q-0710", "query": "What is the FEVER task?", "relevant_document_ids": ["doc-0202"], "difficulty": "unknown"}
+{"id": "q-0711", "query": "How is correctness of automatic derivation proved?", "relevant_document_ids": ["doc-0203"], "difficulty": "unknown"}
+{"id": "q-0712", "query": "Do they conduct any human evaluation?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0713", "query": "What dataset do they use for experiments?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0714", "query": "How do they enrich the positional embedding with length information", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0715", "query": "How do they condition the output to a given target-source class?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0716", "query": "Which languages do they focus on?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0717", "query": "What dataset do they use?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0718", "query": "Do they experiment with combining both methods?", "relevant_document_ids": ["doc-0204"], "difficulty": "unknown"}
+{"id": "q-0719", "query": "What state-of-the-art models are compared against?", "relevant_document_ids": ["doc-0205"], "difficulty": "unknown"}
+{"id": "q-0720", "query": "Does API provide ability to connect to models written in some other deep learning framework?", "relevant_document_ids": ["doc-0206"], "difficulty": "unknown"}
+{"id": "q-0721", "query": "Is this library implemented into Torch or is framework agnostic?", "relevant_document_ids": ["doc-0206"], "difficulty": "unknown"}
+{"id": "q-0722", "query": "What baselines are used in experiments?", "relevant_document_ids": ["doc-0206"], "difficulty": "unknown"}
+{"id": "q-0723", "query": "What general-purpose optimizations are included?", "relevant_document_ids": ["doc-0206"], "difficulty": "unknown"}
+{"id": "q-0724", "query": "what baseline do they compare to?", "relevant_document_ids": ["doc-0207"], "difficulty": "unknown"}
+{"id": "q-0725", "query": "How does this compare to traditional calibration methods like Platt Scaling?", "relevant_document_ids": ["doc-0208"], "difficulty": "unknown"}
+{"id": "q-0726", "query": "What's the input representation of OpenIE tuples into the model?", "relevant_document_ids": ["doc-0208"], "difficulty": "unknown"}
+{"id": "q-0727", "query": "What statistics on the VIST dataset are reported?", "relevant_document_ids": ["doc-0209"], "difficulty": "unknown"}
+{"id": "q-0728", "query": "What are puns?", "relevant_document_ids": ["doc-0211"], "difficulty": "unknown"}
+{"id": "q-0729", "query": "What are the categories of code-mixed puns?", "relevant_document_ids": ["doc-0211"], "difficulty": "unknown"}
+{"id": "q-0730", "query": "How is dialogue guided to avoid interactions that breach procedures and processes only known to experts?", "relevant_document_ids": ["doc-0212"], "difficulty": "unknown"}
+{"id": "q-0731", "query": "What is meant by semiguided dialogue, what part of dialogue is guided?", "relevant_document_ids": ["doc-0212"], "difficulty": "unknown"}
+{"id": "q-0732", "query": "Is CRWIZ already used for data collection, what are the results?", "relevant_document_ids": ["doc-0212"], "difficulty": "unknown"}
+{"id": "q-0733", "query": "How does framework made sure that dialogue will not breach procedures?", "relevant_document_ids": ["doc-0212"], "difficulty": "unknown"}
+{"id": "q-0734", "query": "How do they combine the models?", "relevant_document_ids": ["doc-0213"], "difficulty": "unknown"}
+{"id": "q-0735", "query": "What is their baseline?", "relevant_document_ids": ["doc-0213"], "difficulty": "unknown"}
+{"id": "q-0736", "query": "What context do they use?", "relevant_document_ids": ["doc-0213"], "difficulty": "unknown"}
+{"id": "q-0737", "query": "What is their definition of hate speech?", "relevant_document_ids": ["doc-0213"], "difficulty": "unknown"}
+{"id": "q-0738", "query": "What architecture has the neural network?", "relevant_document_ids": ["doc-0213"], "difficulty": "unknown"}
+{"id": "q-0739", "query": "How is human interaction consumed by the model?", "relevant_document_ids": ["doc-0214"], "difficulty": "unknown"}
+{"id": "q-0740", "query": "How do they evaluate generated stories?", "relevant_document_ids": ["doc-0214"], "difficulty": "unknown"}
+{"id": "q-0741", "query": "What are the baselines?", "relevant_document_ids": ["doc-0214"], "difficulty": "unknown"}
+{"id": "q-0742", "query": "What is used a baseline?", "relevant_document_ids": ["doc-0215"], "difficulty": "unknown"}
+{"id": "q-0743", "query": "What contextual features are used?", "relevant_document_ids": ["doc-0215"], "difficulty": "unknown"}
+{"id": "q-0744", "query": "Where are the cybersecurity articles used in the model sourced from?", "relevant_document_ids": ["doc-0215"], "difficulty": "unknown"}
+{"id": "q-0745", "query": "Do they compare DeepER against other approaches?", "relevant_document_ids": ["doc-0216"], "difficulty": "unknown"}
+{"id": "q-0746", "query": "How is the data in RAFAEL labelled?", "relevant_document_ids": ["doc-0216"], "difficulty": "unknown"}
+{"id": "q-0747", "query": "How do they handle polysemous words in their entity library?", "relevant_document_ids": ["doc-0216"], "difficulty": "unknown"}
+{"id": "q-0748", "query": "How is the fluctuation in the sense of the word and its neighbors measured?", "relevant_document_ids": ["doc-0217"], "difficulty": "unknown"}
+{"id": "q-0749", "query": "What is the architecture of the model?", "relevant_document_ids": ["doc-0219"], "difficulty": "unknown"}
+{"id": "q-0750", "query": "What language do they look at?", "relevant_document_ids": ["doc-0219"], "difficulty": "unknown"}
+{"id": "q-0751", "query": "Where does the vocabulary come from?", "relevant_document_ids": ["doc-0220"], "difficulty": "unknown"}
+{"id": "q-0752", "query": "What dataset did they use?", "relevant_document_ids": ["doc-0220"], "difficulty": "unknown"}
+{"id": "q-0753", "query": "How do they measure performance?", "relevant_document_ids": ["doc-0221"], "difficulty": "unknown"}
+{"id": "q-0754", "query": "Which four QA systems do they use?", "relevant_document_ids": ["doc-0221"], "difficulty": "unknown"}
+{"id": "q-0755", "query": "Do they test performance of their approaches using human judgements?", "relevant_document_ids": ["doc-0221"], "difficulty": "unknown"}
+{"id": "q-0756", "query": "What are the sizes of both datasets?", "relevant_document_ids": ["doc-0222"], "difficulty": "unknown"}
+{"id": "q-0757", "query": "What are lyrical topics present in the metal genre?", "relevant_document_ids": ["doc-0223"], "difficulty": "unknown"}
+{"id": "q-0758", "query": "By how much does SPNet outperforms state-of-the-art abstractive summarization methods on evaluation metrics?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0759", "query": "What automatic and human evaluation metrics are used to compare SPNet to its counterparts?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0760", "query": "Is it expected to have speaker role, semantic slot and dialog domain annotations in real world datasets?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0761", "query": "How does SPNet utilize additional speaker role, semantic slot and dialog domain annotations?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0762", "query": "What are previous state-of-the-art document summarization methods used?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0763", "query": "How does new evaluation metric considers critical informative entities?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0764", "query": "Is new evaluation metric extension of ROGUE?", "relevant_document_ids": ["doc-0224"], "difficulty": "unknown"}
+{"id": "q-0765", "query": "What measures were used for human evaluation?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0766", "query": "What automatic metrics are used for this task?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0767", "query": "Are the models required to also generate rationales?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0768", "query": "Are the rationales generated after the sentences were written?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0769", "query": "Are the sentences in the dataset written by humans who were shown the concept-sets?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0770", "query": "Where do the concept sets come from?", "relevant_document_ids": ["doc-0225"], "difficulty": "unknown"}
+{"id": "q-0771", "query": "How big are improvements of MMM over state of the art?", "relevant_document_ids": ["doc-0226"], "difficulty": "unknown"}
+{"id": "q-0772", "query": "What out of domain datasets authors used for coarse-tuning stage?", "relevant_document_ids": ["doc-0226"], "difficulty": "unknown"}
+{"id": "q-0773", "query": "What are state of the art methods MMM is compared to?", "relevant_document_ids": ["doc-0226"], "difficulty": "unknown"}
+{"id": "q-0774", "query": "What four representative datasets are used for bechmark?", "relevant_document_ids": ["doc-0226"], "difficulty": "unknown"}
+{"id": "q-0775", "query": "What baselines did they consider?", "relevant_document_ids": ["doc-0227"], "difficulty": "unknown"}
+{"id": "q-0776", "query": "What are the problems related to ambiguity in PICO sentence prediction tasks?", "relevant_document_ids": ["doc-0227"], "difficulty": "unknown"}
+{"id": "q-0777", "query": "How is knowledge retrieved in the memory?", "relevant_document_ids": ["doc-0228"], "difficulty": "unknown"}
+{"id": "q-0778", "query": "How is knowledge stored in the memory?", "relevant_document_ids": ["doc-0228"], "difficulty": "unknown"}
+{"id": "q-0779", "query": "What are the relative improvements observed over existing methods?", "relevant_document_ids": ["doc-0228"], "difficulty": "unknown"}
+{"id": "q-0780", "query": "What is the architecture of the neural network?", "relevant_document_ids": ["doc-0228"], "difficulty": "unknown"}
+{"id": "q-0781", "query": "What methods is RelNet compared to?", "relevant_document_ids": ["doc-0228"], "difficulty": "unknown"}
+{"id": "q-0782", "query": "How do they measure the diversity of inferences?", "relevant_document_ids": ["doc-0229"], "difficulty": "unknown"}
+{"id": "q-0783", "query": "By how much do they improve the accuracy of inferences over state-of-the-art methods?", "relevant_document_ids": ["doc-0229"], "difficulty": "unknown"}
+{"id": "q-0784", "query": "Which models do they use as baselines on the Atomic dataset?", "relevant_document_ids": ["doc-0229"], "difficulty": "unknown"}
+{"id": "q-0785", "query": "How does the context-aware variational autoencoder learn event background information?", "relevant_document_ids": ["doc-0229"], "difficulty": "unknown"}
+{"id": "q-0786", "query": "what standard speech transcription pipeline was used?", "relevant_document_ids": ["doc-0230"], "difficulty": "unknown"}
+{"id": "q-0787", "query": "How much improvement does their method get over the fine tuning baseline?", "relevant_document_ids": ["doc-0231"], "difficulty": "unknown"}
+{"id": "q-0788", "query": "What kinds of neural networks did they use in this paper?", "relevant_document_ids": ["doc-0231"], "difficulty": "unknown"}
+{"id": "q-0789", "query": "How did they use the domain tags?", "relevant_document_ids": ["doc-0231"], "difficulty": "unknown"}
+{"id": "q-0790", "query": "Why mixed initiative multi-turn dialogs are the greatest challenge in building open-domain conversational agents?", "relevant_document_ids": ["doc-0232"], "difficulty": "unknown"}
+{"id": "q-0791", "query": "How is speed measured?", "relevant_document_ids": ["doc-0233"], "difficulty": "unknown"}
+{"id": "q-0792", "query": "What is the architecture of their model?", "relevant_document_ids": ["doc-0233"], "difficulty": "unknown"}
+{"id": "q-0793", "query": "What are the nine types?", "relevant_document_ids": ["doc-0233"], "difficulty": "unknown"}
+{"id": "q-0794", "query": "How do they represent input features of their model to train embeddings?", "relevant_document_ids": ["doc-0234"], "difficulty": "unknown"}
+{"id": "q-0795", "query": "Which dimensionality do they use for their embeddings?", "relevant_document_ids": ["doc-0234"], "difficulty": "unknown"}
+{"id": "q-0796", "query": "Which dataset do they use?", "relevant_document_ids": ["doc-0234"], "difficulty": "unknown"}
+{"id": "q-0797", "query": "By how much do they outpeform previous results on the word discrimination task?", "relevant_document_ids": ["doc-0234"], "difficulty": "unknown"}
+{"id": "q-0798", "query": "How does Frege's holistic and functional approach to meaning relates to general distributional hypothesis?", "relevant_document_ids": ["doc-0235"], "difficulty": "unknown"}
+{"id": "q-0799", "query": "What does Frege's holistic and functional approach to meaning states?", "relevant_document_ids": ["doc-0235"], "difficulty": "unknown"}
+{"id": "q-0800", "query": "How many paraphrases are generated per question?", "relevant_document_ids": ["doc-0236"], "difficulty": "unknown"}
+{"id": "q-0801", "query": "What latent variables are modeled in the PCFG?", "relevant_document_ids": ["doc-0236"], "difficulty": "unknown"}
+{"id": "q-0802", "query": "What are the baselines?", "relevant_document_ids": ["doc-0236"], "difficulty": "unknown"}
+{"id": "q-0803", "query": "Do they evaluate only on English data?", "relevant_document_ids": ["doc-0237"], "difficulty": "unknown"}
+{"id": "q-0804", "query": "How strong was the correlation between exercise and diabetes?", "relevant_document_ids": ["doc-0237"], "difficulty": "unknown"}
+{"id": "q-0805", "query": "How were topics of interest about DDEO identified?", "relevant_document_ids": ["doc-0237"], "difficulty": "unknown"}
+{"id": "q-0806", "query": "What datasets are used for evaluation?", "relevant_document_ids": ["doc-0238"], "difficulty": "unknown"}
+{"id": "q-0807", "query": "How do their train their embeddings?", "relevant_document_ids": ["doc-0238"], "difficulty": "unknown"}
+{"id": "q-0808", "query": "How do they model travel behavior?", "relevant_document_ids": ["doc-0238"], "difficulty": "unknown"}
+{"id": "q-0809", "query": "How do their interpret the coefficients?", "relevant_document_ids": ["doc-0238"], "difficulty": "unknown"}
+{"id": "q-0810", "query": "By how much do they outperform previous state-of-the-art models?", "relevant_document_ids": ["doc-0239"], "difficulty": "unknown"}
+{"id": "q-0811", "query": "Do they use pretrained word embeddings?", "relevant_document_ids": ["doc-0239"], "difficulty": "unknown"}
+{"id": "q-0812", "query": "How is the lexicon of trafficking flags expanded?", "relevant_document_ids": ["doc-0239"], "difficulty": "unknown"}
+{"id": "q-0813", "query": "Do they experiment with the dataset?", "relevant_document_ids": ["doc-0240"], "difficulty": "unknown"}
+{"id": "q-0814", "query": "Do they use a crowdsourcing platform for annotation?", "relevant_document_ids": ["doc-0240"], "difficulty": "unknown"}
+{"id": "q-0815", "query": "What is an example of a difficult-to-classify case?", "relevant_document_ids": ["doc-0240"], "difficulty": "unknown"}
+{"id": "q-0816", "query": "What potential solutions are suggested?", "relevant_document_ids": ["doc-0240"], "difficulty": "unknown"}
+{"id": "q-0817", "query": "What is the size of the dataset?", "relevant_document_ids": ["doc-0240"], "difficulty": "unknown"}
+{"id": "q-0818", "query": "How strong is negative correlation between compound divergence and accuracy in performed experiment?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0819", "query": "What are results of comparison between novel method to other approaches for creating compositional generalization benchmarks?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0820", "query": "How authors justify that question answering dataset presented is realistic?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0821", "query": "What three machine architectures are analyzed?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0822", "query": "How big is new question answering dataset?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0823", "query": "What are other approaches into creating compositional generalization benchmarks?", "relevant_document_ids": ["doc-0241"], "difficulty": "unknown"}
+{"id": "q-0824", "query": "What problem do they apply transfer learning to?", "relevant_document_ids": ["doc-0242"], "difficulty": "unknown"}
+{"id": "q-0825", "query": "What are the baselines?", "relevant_document_ids": ["doc-0242"], "difficulty": "unknown"}
+{"id": "q-0826", "query": "What languages are considered?", "relevant_document_ids": ["doc-0242"], "difficulty": "unknown"}
+{"id": "q-0827", "query": "What is the performance difference between proposed method and state-of-the-arts on these datasets?", "relevant_document_ids": ["doc-0243"], "difficulty": "unknown"}
+{"id": "q-0828", "query": "What non autoregressive NMT models are used for comparison?", "relevant_document_ids": ["doc-0243"], "difficulty": "unknown"}
+{"id": "q-0829", "query": "What are three neural machine translation (NMT) benchmark datasets used for evaluation?", "relevant_document_ids": ["doc-0243"], "difficulty": "unknown"}
+{"id": "q-0830", "query": "What is result of their attention distribution analysis?", "relevant_document_ids": ["doc-0244"], "difficulty": "unknown"}
+{"id": "q-0831", "query": "What is result of their Principal Component Analysis?", "relevant_document_ids": ["doc-0244"], "difficulty": "unknown"}
+{"id": "q-0832", "query": "What are 3 novel fusion techniques that are proposed?", "relevant_document_ids": ["doc-0244"], "difficulty": "unknown"}
+{"id": "q-0833", "query": "What are two models' architectures in proposed solution?", "relevant_document_ids": ["doc-0245"], "difficulty": "unknown"}
+{"id": "q-0834", "query": "How do two models cooperate to select the most confident chains?", "relevant_document_ids": ["doc-0245"], "difficulty": "unknown"}
+{"id": "q-0835", "query": "What benchmarks are created?", "relevant_document_ids": ["doc-0245"], "difficulty": "unknown"}
+{"id": "q-0836", "query": "What empricial investigations do they reference?", "relevant_document_ids": ["doc-0246"], "difficulty": "unknown"}
+{"id": "q-0837", "query": "What languages do they investigate for machine translation?", "relevant_document_ids": ["doc-0246"], "difficulty": "unknown"}
+{"id": "q-0838", "query": "What recommendations do they offer?", "relevant_document_ids": ["doc-0246"], "difficulty": "unknown"}
+{"id": "q-0839", "query": "What percentage fewer errors did professional translations make?", "relevant_document_ids": ["doc-0246"], "difficulty": "unknown"}
+{"id": "q-0840", "query": "What was the weakness in Hassan et al's evaluation design?", "relevant_document_ids": ["doc-0246"], "difficulty": "unknown"}
+{"id": "q-0841", "query": "By how much they improve over the previous state-of-the-art?", "relevant_document_ids": ["doc-0247"], "difficulty": "unknown"}
+{"id": "q-0842", "query": "Is there any evidence that encoders with latent structures work well on other tasks?", "relevant_document_ids": ["doc-0247"], "difficulty": "unknown"}
+{"id": "q-0843", "query": "What evidence do they present that the model attends to shallow context clues?", "relevant_document_ids": ["doc-0248"], "difficulty": "unknown"}
+{"id": "q-0844", "query": "In what way is the input restructured?", "relevant_document_ids": ["doc-0248"], "difficulty": "unknown"}
+{"id": "q-0845", "query": "What are their results on the entity recognition task?", "relevant_document_ids": ["doc-0249"], "difficulty": "unknown"}
+{"id": "q-0846", "query": "What task-specific features are used?", "relevant_document_ids": ["doc-0249"], "difficulty": "unknown"}
+{"id": "q-0847", "query": "What kind of corpus-based features are taken into account?", "relevant_document_ids": ["doc-0249"], "difficulty": "unknown"}
+{"id": "q-0848", "query": "Which machine learning algorithms did the explore?", "relevant_document_ids": ["doc-0249"], "difficulty": "unknown"}
+{"id": "q-0849", "query": "What language is the Twitter content in?", "relevant_document_ids": ["doc-0249"], "difficulty": "unknown"}
+{"id": "q-0850", "query": "What is the architecture of the siamese neural network?", "relevant_document_ids": ["doc-0250"], "difficulty": "unknown"}
+{"id": "q-0851", "query": "Which are the four Arabic dialects?", "relevant_document_ids": ["doc-0250"], "difficulty": "unknown"}
+{"id": "q-0852", "query": "What factors contribute to interpretive biases according to this research?", "relevant_document_ids": ["doc-0251"], "difficulty": "unknown"}
+{"id": "q-0853", "query": "Which interpretative biases are analyzed in this paper?", "relevant_document_ids": ["doc-0251"], "difficulty": "unknown"}
+{"id": "q-0854", "query": "How many words are coded in the dictionary?", "relevant_document_ids": ["doc-0252"], "difficulty": "unknown"}
+{"id": "q-0855", "query": "Is the model evaluated on the graphemes-to-phonemes task?", "relevant_document_ids": ["doc-0252"], "difficulty": "unknown"}
+{"id": "q-0856", "query": "How does the QuaSP+Zero model work?", "relevant_document_ids": ["doc-0253"], "difficulty": "unknown"}
+{"id": "q-0857", "query": "Which off-the-shelf tools do they use on QuaRel?", "relevant_document_ids": ["doc-0253"], "difficulty": "unknown"}
+{"id": "q-0858", "query": "How do they obtain the logical forms of their questions in their dataset?", "relevant_document_ids": ["doc-0253"], "difficulty": "unknown"}
+{"id": "q-0859", "query": "Do all questions in the dataset allow the answers to pick from 2 options?", "relevant_document_ids": ["doc-0253"], "difficulty": "unknown"}
+{"id": "q-0860", "query": "What is shared in the joint model?", "relevant_document_ids": ["doc-0254"], "difficulty": "unknown"}
+{"id": "q-0861", "query": "Are the intent labels imbalanced in the dataset?", "relevant_document_ids": ["doc-0254"], "difficulty": "unknown"}
+{"id": "q-0862", "query": "What dataset is used?", "relevant_document_ids": ["doc-0255"], "difficulty": "unknown"}
+{"id": "q-0863", "query": "What metrics are considered?", "relevant_document_ids": ["doc-0255"], "difficulty": "unknown"}
+{"id": "q-0864", "query": "Did the authors evaluate their system output for coherence?", "relevant_document_ids": ["doc-0256"], "difficulty": "unknown"}
+{"id": "q-0865", "query": "What evaluations did the authors use on their system?", "relevant_document_ids": ["doc-0256"], "difficulty": "unknown"}
+{"id": "q-0866", "query": "What accuracy does CNN model achieve?", "relevant_document_ids": ["doc-0257"], "difficulty": "unknown"}
+{"id": "q-0867", "query": "How many documents are in the Indiscapes dataset?", "relevant_document_ids": ["doc-0257"], "difficulty": "unknown"}
+{"id": "q-0868", "query": "What metrics are used to evaluation revision detection?", "relevant_document_ids": ["doc-0258"], "difficulty": "unknown"}
+{"id": "q-0869", "query": "How large is the Wikipedia revision dump dataset?", "relevant_document_ids": ["doc-0258"], "difficulty": "unknown"}
+{"id": "q-0870", "query": "What are simulated datasets collected?", "relevant_document_ids": ["doc-0258"], "difficulty": "unknown"}
+{"id": "q-0871", "query": "Which are the state-of-the-art models?", "relevant_document_ids": ["doc-0258"], "difficulty": "unknown"}
+{"id": "q-0872", "query": "Where did this model place in the final evaluation of the shared task?", "relevant_document_ids": ["doc-0259"], "difficulty": "unknown"}
+{"id": "q-0873", "query": "What in-domain data is used to continue pre-training?", "relevant_document_ids": ["doc-0259"], "difficulty": "unknown"}
+{"id": "q-0874", "query": "What dialect is used in the Google BERT model and what is used in the task data?", "relevant_document_ids": ["doc-0259"], "difficulty": "unknown"}
+{"id": "q-0875", "query": "What are the tasks used in the mulit-task learning setup?", "relevant_document_ids": ["doc-0259"], "difficulty": "unknown"}
+{"id": "q-0876", "query": "What human evaluation metrics were used in the paper?", "relevant_document_ids": ["doc-0260"], "difficulty": "unknown"}
+{"id": "q-0877", "query": "For the purposes of this paper, how is something determined to be domain specific knowledge?", "relevant_document_ids": ["doc-0261"], "difficulty": "unknown"}
+{"id": "q-0878", "query": "Does the fact that GCNs can perform well on this tell us that the task is simpler than previously thought?", "relevant_document_ids": ["doc-0261"], "difficulty": "unknown"}
+{"id": "q-0879", "query": "Are there conceptual benefits to using GCNs over more complex architectures like attention?", "relevant_document_ids": ["doc-0261"], "difficulty": "unknown"}
+{"id": "q-0880", "query": "Do they evaluate only on English?", "relevant_document_ids": ["doc-0262"], "difficulty": "unknown"}
+{"id": "q-0881", "query": "What are the 7 different datasets?", "relevant_document_ids": ["doc-0262"], "difficulty": "unknown"}
+{"id": "q-0882", "query": "What are the three different sources of data?", "relevant_document_ids": ["doc-0262"], "difficulty": "unknown"}
+{"id": "q-0883", "query": "What type of model are the ELMo representations used in?", "relevant_document_ids": ["doc-0262"], "difficulty": "unknown"}
+{"id": "q-0884", "query": "Which morphosyntactic features are thought to indicate irony or sarcasm?", "relevant_document_ids": ["doc-0262"], "difficulty": "unknown"}
+{"id": "q-0885", "query": "Is the model evaluated on other datasets?", "relevant_document_ids": ["doc-0263"], "difficulty": "unknown"}
+{"id": "q-0886", "query": "Does the model incorporate coreference and entailment?", "relevant_document_ids": ["doc-0263"], "difficulty": "unknown"}
+{"id": "q-0887", "query": "Which frozen acoustic model do they use?", "relevant_document_ids": ["doc-0264"], "difficulty": "unknown"}
+{"id": "q-0888", "query": "By how much does using phonetic feedback improve state-of-the-art systems?", "relevant_document_ids": ["doc-0264"], "difficulty": "unknown"}
+{"id": "q-0889", "query": "What features are used?", "relevant_document_ids": ["doc-0265"], "difficulty": "unknown"}
+{"id": "q-0890", "query": "Do they compare to previous models?", "relevant_document_ids": ["doc-0265"], "difficulty": "unknown"}
+{"id": "q-0891", "query": "How do they incorporate sentiment analysis?", "relevant_document_ids": ["doc-0265"], "difficulty": "unknown"}
+{"id": "q-0892", "query": "What is the dataset used?", "relevant_document_ids": ["doc-0265"], "difficulty": "unknown"}
+{"id": "q-0893", "query": "How do they extract topics?", "relevant_document_ids": ["doc-0265"], "difficulty": "unknown"}
+{"id": "q-0894", "query": "What translationese effects are seen in the analysis?", "relevant_document_ids": ["doc-0267"], "difficulty": "unknown"}
+{"id": "q-0895", "query": "What languages are seen in the news and TED datasets?", "relevant_document_ids": ["doc-0267"], "difficulty": "unknown"}
+{"id": "q-0896", "query": "How are the (possibly incorrect) coreference chains in the MT outputs annotated?", "relevant_document_ids": ["doc-0267"], "difficulty": "unknown"}
+{"id": "q-0897", "query": "Which three neural machine translation systems are analyzed?", "relevant_document_ids": ["doc-0267"], "difficulty": "unknown"}
+{"id": "q-0898", "query": "Which coreference phenomena are analyzed?", "relevant_document_ids": ["doc-0267"], "difficulty": "unknown"}
+{"id": "q-0899", "query": "What new interesting tasks can be solved based on the uncanny semantic structures of the embedding space?", "relevant_document_ids": ["doc-0268"], "difficulty": "unknown"}
+{"id": "q-0900", "query": "What are the uncanny semantic structures of the embedding space?", "relevant_document_ids": ["doc-0268"], "difficulty": "unknown"}
+{"id": "q-0901", "query": "What is the general framework for data exploration by semantic queries?", "relevant_document_ids": ["doc-0268"], "difficulty": "unknown"}
+{"id": "q-0902", "query": "What data exploration is supported by the analysis of these semantic structures?", "relevant_document_ids": ["doc-0268"], "difficulty": "unknown"}
+{"id": "q-0903", "query": "what are the existing models they compared with?", "relevant_document_ids": ["doc-0269"], "difficulty": "unknown"}
+{"id": "q-0904", "query": "What conclusions do the authors draw from their detailed analyses?", "relevant_document_ids": ["doc-0270"], "difficulty": "unknown"}
+{"id": "q-0905", "query": "Do the BERT-based embeddings improve results?", "relevant_document_ids": ["doc-0270"], "difficulty": "unknown"}
+{"id": "q-0906", "query": "What were the traditional linguistic feature-based models?", "relevant_document_ids": ["doc-0270"], "difficulty": "unknown"}
+{"id": "q-0907", "query": "What type of baseline are established for the two datasets?", "relevant_document_ids": ["doc-0270"], "difficulty": "unknown"}
+{"id": "q-0908", "query": "What model achieves state of the art performance on this task?", "relevant_document_ids": ["doc-0271"], "difficulty": "unknown"}
+{"id": "q-0909", "query": "Which multitask annotated corpus is used?", "relevant_document_ids": ["doc-0271"], "difficulty": "unknown"}
+{"id": "q-0910", "query": "What are the tasks in the multitask learning setup?", "relevant_document_ids": ["doc-0271"], "difficulty": "unknown"}
+{"id": "q-0911", "query": "how are rare words defined?", "relevant_document_ids": ["doc-0272"], "difficulty": "unknown"}
+{"id": "q-0912", "query": "which public datasets were used?", "relevant_document_ids": ["doc-0272"], "difficulty": "unknown"}
+{"id": "q-0913", "query": "what are the baselines?", "relevant_document_ids": ["doc-0272"], "difficulty": "unknown"}
+{"id": "q-0914", "query": "What are the results of the experiment?", "relevant_document_ids": ["doc-0273"], "difficulty": "unknown"}
+{"id": "q-0915", "query": "How was the dataset collected?", "relevant_document_ids": ["doc-0273"], "difficulty": "unknown"}
+{"id": "q-0916", "query": "What is the size of the dataset?", "relevant_document_ids": ["doc-0273"], "difficulty": "unknown"}
+{"id": "q-0917", "query": "How many annotators participated?", "relevant_document_ids": ["doc-0273"], "difficulty": "unknown"}
+{"id": "q-0918", "query": "How long is the dataset?", "relevant_document_ids": ["doc-0273"], "difficulty": "unknown"}
+{"id": "q-0919", "query": "Do the authors mention any possible confounds in their study?", "relevant_document_ids": ["doc-0274"], "difficulty": "unknown"}
+{"id": "q-0920", "query": "What is the relationship between the co-voting and retweeting patterns?", "relevant_document_ids": ["doc-0274"], "difficulty": "unknown"}
+{"id": "q-0921", "query": "Does the analysis find that coalitions are formed in the same way for different policy areas?", "relevant_document_ids": ["doc-0274"], "difficulty": "unknown"}
+{"id": "q-0922", "query": "What insights does the analysis give about the cohesion of political groups in the European parliament?", "relevant_document_ids": ["doc-0274"], "difficulty": "unknown"}
+{"id": "q-0923", "query": "Do they authors account for differences in usage of Twitter amongst MPs into their model?", "relevant_document_ids": ["doc-0274"], "difficulty": "unknown"}
+{"id": "q-0924", "query": "How do they show their model discovers underlying syntactic structure?", "relevant_document_ids": ["doc-0275"], "difficulty": "unknown"}
+{"id": "q-0925", "query": "Which dataset do they experiment with?", "relevant_document_ids": ["doc-0275"], "difficulty": "unknown"}
+{"id": "q-0926", "query": "How do they measure performance of language model tasks?", "relevant_document_ids": ["doc-0275"], "difficulty": "unknown"}
+{"id": "q-0927", "query": "How are content clusters used to improve the prediction of incident severity?", "relevant_document_ids": ["doc-0276"], "difficulty": "unknown"}
+{"id": "q-0928", "query": "What cluster identification method is used in this paper?", "relevant_document_ids": ["doc-0276"], "difficulty": "unknown"}
+{"id": "q-0929", "query": "How can a neural model be used for a retrieval if the input is the entire Wikipedia?", "relevant_document_ids": ["doc-0277"], "difficulty": "unknown"}
+{"id": "q-0930", "query": "Which algorithm is used in the UDS-DFKI system?", "relevant_document_ids": ["doc-0278"], "difficulty": "unknown"}
+{"id": "q-0931", "query": "Does the use of out-of-domain data improve the performance of the method?", "relevant_document_ids": ["doc-0278"], "difficulty": "unknown"}
+{"id": "q-0932", "query": "Do they impose any grammatical constraints over the generated output?", "relevant_document_ids": ["doc-0279"], "difficulty": "unknown"}
+{"id": "q-0933", "query": "Why did they think this was a good idea?", "relevant_document_ids": ["doc-0279"], "difficulty": "unknown"}
+{"id": "q-0934", "query": "What QA models were used?", "relevant_document_ids": ["doc-0281"], "difficulty": "unknown"}
+{"id": "q-0935", "query": "Can this approach model n-ary relations?", "relevant_document_ids": ["doc-0281"], "difficulty": "unknown"}
+{"id": "q-0936", "query": "Was this benchmark automatically created from an existing dataset?", "relevant_document_ids": ["doc-0281"], "difficulty": "unknown"}
+{"id": "q-0937", "query": "How does morphological analysis differ from morphological inflection?", "relevant_document_ids": ["doc-0282"], "difficulty": "unknown"}
+{"id": "q-0938", "query": "What are the architectures used for the three tasks?", "relevant_document_ids": ["doc-0282"], "difficulty": "unknown"}
+{"id": "q-0939", "query": "Which language family does Chatino belong to?", "relevant_document_ids": ["doc-0282"], "difficulty": "unknown"}
+{"id": "q-0940", "query": "What system is used as baseline?", "relevant_document_ids": ["doc-0282"], "difficulty": "unknown"}
+{"id": "q-0941", "query": "How was annotation done?", "relevant_document_ids": ["doc-0282"], "difficulty": "unknown"}
+{"id": "q-0942", "query": "How do their results compare against other competitors in the PAN 2017 shared task on Author Profiling?", "relevant_document_ids": ["doc-0283"], "difficulty": "unknown"}
+{"id": "q-0943", "query": "On which task does do model do worst?", "relevant_document_ids": ["doc-0283"], "difficulty": "unknown"}
+{"id": "q-0944", "query": "On which task does do model do best?", "relevant_document_ids": ["doc-0283"], "difficulty": "unknown"}
+{"id": "q-0945", "query": "How is Super Character method modified to handle tabular data also?", "relevant_document_ids": ["doc-0284"], "difficulty": "unknown"}
+{"id": "q-0946", "query": "How are the substitution rules built?", "relevant_document_ids": ["doc-0285"], "difficulty": "unknown"}
+{"id": "q-0947", "query": "Which dataset do they use?", "relevant_document_ids": ["doc-0285"], "difficulty": "unknown"}
+{"id": "q-0948", "query": "What baseline is used to compare the experimental results against?", "relevant_document_ids": ["doc-0286"], "difficulty": "unknown"}
+{"id": "q-0949", "query": "How does counterfactual data augmentation aim to tackle bias?", "relevant_document_ids": ["doc-0286"], "difficulty": "unknown"}
+{"id": "q-0950", "query": "In the targeted data collection approach, what type of data is targetted?", "relevant_document_ids": ["doc-0286"], "difficulty": "unknown"}
+{"id": "q-0951", "query": "Which language models do they compare against?", "relevant_document_ids": ["doc-0287"], "difficulty": "unknown"}
+{"id": "q-0952", "query": "Is their approach similar to making an averaged weighted sum of word vectors, where weights reflect word frequencies?", "relevant_document_ids": ["doc-0287"], "difficulty": "unknown"}
+{"id": "q-0953", "query": "How do they determine which words are informative?", "relevant_document_ids": ["doc-0287"], "difficulty": "unknown"}
+{"id": "q-0954", "query": "How does soft contextual data augmentation work?", "relevant_document_ids": ["doc-0288"], "difficulty": "unknown"}
+{"id": "q-0955", "query": "How does muli-agent dual learning work?", "relevant_document_ids": ["doc-0288"], "difficulty": "unknown"}
+{"id": "q-0956", "query": "Which language directions are machine translation systems of WMT evaluated on?", "relevant_document_ids": ["doc-0288"], "difficulty": "unknown"}
+{"id": "q-0957", "query": "What improvement does the MOE model make over the SOTA on machine translation?", "relevant_document_ids": ["doc-0289"], "difficulty": "unknown"}
+{"id": "q-0958", "query": "What improvement does the MOE model make over the SOTA on language modelling?", "relevant_document_ids": ["doc-0289"], "difficulty": "unknown"}
+{"id": "q-0959", "query": "How is the correct number of experts to use decided?", "relevant_document_ids": ["doc-0289"], "difficulty": "unknown"}
+{"id": "q-0960", "query": "What equations are used for the trainable gating network?", "relevant_document_ids": ["doc-0289"], "difficulty": "unknown"}
+{"id": "q-0961", "query": "What is the difference in performance between the interpretable system (e.g. vectors and cosine distance) and LSTM with ELMo system?", "relevant_document_ids": ["doc-0290"], "difficulty": "unknown"}
+{"id": "q-0962", "query": "How is PIEWi annotated?", "relevant_document_ids": ["doc-0290"], "difficulty": "unknown"}
+{"id": "q-0963", "query": "What methods are tested in PIEWi?", "relevant_document_ids": ["doc-0290"], "difficulty": "unknown"}
+{"id": "q-0964", "query": "Which specific error correction solutions have been proposed for specialized corpora in the past?", "relevant_document_ids": ["doc-0290"], "difficulty": "unknown"}
+{"id": "q-0965", "query": "What was the criteria for human evaluation?", "relevant_document_ids": ["doc-0291"], "difficulty": "unknown"}
+{"id": "q-0966", "query": "What automatic metrics are used to measure performance of the system?", "relevant_document_ids": ["doc-0291"], "difficulty": "unknown"}
+{"id": "q-0967", "query": "What existing methods is SC-GPT compared to?", "relevant_document_ids": ["doc-0291"], "difficulty": "unknown"}
+{"id": "q-0968", "query": "Which language-pair had the better performance?", "relevant_document_ids": ["doc-0292"], "difficulty": "unknown"}
+{"id": "q-0969", "query": "Which datasets were used in the experiment?", "relevant_document_ids": ["doc-0292"], "difficulty": "unknown"}
+{"id": "q-0970", "query": "What evaluation metrics did they use?", "relevant_document_ids": ["doc-0292"], "difficulty": "unknown"}
+{"id": "q-0971", "query": "What are the differences in the use of emojis between gang member and the rest of the Twitter population?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0972", "query": "What are the differences in the use of YouTube links between gang member and the rest of the Twitter population?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0973", "query": "What are the differences in the use of images between gang member and the rest of the Twitter population?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0974", "query": "What are the differences in language use between gang member and the rest of the Twitter population?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0975", "query": "How is gang membership verified?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0976", "query": "Do the authors provide evidence that 'most' street gang members use Twitter to intimidate others?", "relevant_document_ids": ["doc-0293"], "difficulty": "unknown"}
+{"id": "q-0977", "query": "What is English mixed with in the TRAC dataset?", "relevant_document_ids": ["doc-0294"], "difficulty": "unknown"}
+{"id": "q-0978", "query": "Which psycholinguistic and basic linguistic features are used?", "relevant_document_ids": ["doc-0294"], "difficulty": "unknown"}
+{"id": "q-0979", "query": "How have the differences in communication styles between Twitter and Facebook increase the complexity of the problem?", "relevant_document_ids": ["doc-0294"], "difficulty": "unknown"}
+{"id": "q-0980", "query": "What data/studies do the authors provide to support the assertion that the majority of aggressive conversations contain code-mixed languages?", "relevant_document_ids": ["doc-0294"], "difficulty": "unknown"}
+{"id": "q-0981", "query": "What is the baseline?", "relevant_document_ids": ["doc-0295"], "difficulty": "unknown"}
+{"id": "q-0982", "query": "What datasets did they use?", "relevant_document_ids": ["doc-0295"], "difficulty": "unknown"}
+{"id": "q-0983", "query": "What scoring function does the model use to score triples?", "relevant_document_ids": ["doc-0296"], "difficulty": "unknown"}
+{"id": "q-0984", "query": "What datasets are used to evaluate the model?", "relevant_document_ids": ["doc-0296"], "difficulty": "unknown"}
+{"id": "q-0985", "query": "How better are results for pmra algorithm than Doc2Vec in human evaluation?", "relevant_document_ids": ["doc-0297"], "difficulty": "unknown"}
+{"id": "q-0986", "query": "What Doc2Vec architectures other than PV-DBOW have been tried?", "relevant_document_ids": ["doc-0297"], "difficulty": "unknown"}
+{"id": "q-0987", "query": "What four evaluation tasks are defined to determine what influences proximity?", "relevant_document_ids": ["doc-0297"], "difficulty": "unknown"}
+{"id": "q-0988", "query": "What six parameters were optimized with grid search?", "relevant_document_ids": ["doc-0297"], "difficulty": "unknown"}
+{"id": "q-0989", "query": "What baseline models do they compare against?", "relevant_document_ids": ["doc-0298"], "difficulty": "unknown"}
+{"id": "q-0990", "query": "What are the differences with previous applications of neural networks for this task?", "relevant_document_ids": ["doc-0299"], "difficulty": "unknown"}
+{"id": "q-0991", "query": "How much improvement is gained from the proposed approaches?", "relevant_document_ids": ["doc-0300"], "difficulty": "unknown"}
+{"id": "q-0992", "query": "Is infinite-length sequence generation a result of training with maximum likelihood?", "relevant_document_ids": ["doc-0300"], "difficulty": "unknown"}
+{"id": "q-0993", "query": "What metrics are used in challenge?", "relevant_document_ids": ["doc-0301"], "difficulty": "unknown"}
+{"id": "q-0994", "query": "What model was winner of the Visual Dialog challenge 2018?", "relevant_document_ids": ["doc-0301"], "difficulty": "unknown"}
+{"id": "q-0995", "query": "Which method for integration peforms better ensemble or consensus dropout fusion with shared parameters?", "relevant_document_ids": ["doc-0301"], "difficulty": "unknown"}
+{"id": "q-0996", "query": "How big is dataset for this challenge?", "relevant_document_ids": ["doc-0301"], "difficulty": "unknown"}
+{"id": "q-0997", "query": "What open relation extraction tasks did they experiment on?", "relevant_document_ids": ["doc-0302"], "difficulty": "unknown"}
+{"id": "q-0998", "query": "How is Logician different from traditional seq2seq models?", "relevant_document_ids": ["doc-0302"], "difficulty": "unknown"}
+{"id": "q-0999", "query": "What's the size of the previous largest OpenIE dataset?", "relevant_document_ids": ["doc-0302"], "difficulty": "unknown"}
+{"id": "q-1000", "query": "How better is performance of proposed model compared to baselines?", "relevant_document_ids": ["doc-0303"], "difficulty": "unknown"}
