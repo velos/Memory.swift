@@ -121,6 +121,7 @@ class CorpusEvalMetrics:
     recall_score: float
     memory_score: float
     latency_ms: float
+    recall_query_count: int = 0
     type_accuracy: float = 0.0
     macro_f1: float = 0.0
     span_coverage: float = 0.0
@@ -301,20 +302,25 @@ def _aggregate_corpus_metrics(
     weighted_mrr = 0.0
     weighted_ndcg = 0.0
     total_weight = 0.0
+    recall_weight = 0.0
     for corpus, metrics in corpus_metrics.items():
         weight = COMPONENT_CORPUS_SCORE_WEIGHTS.get(component, {}).get(corpus, 0.0)
         if weight <= 0:
             continue
         total_weight += weight
         weighted_storage += metrics.storage_score * weight
-        weighted_recall += metrics.recall_score * weight
         weighted_type_accuracy += metrics.type_accuracy * weight
         weighted_macro_f1 += metrics.macro_f1 * weight
         weighted_span_coverage += metrics.span_coverage * weight
-        weighted_hit_rate += metrics.hit_rate_at_10 * weight
-        weighted_recall_at_10 += metrics.recall_at_10 * weight
-        weighted_mrr += metrics.mrr_at_10 * weight
-        weighted_ndcg += metrics.ndcg_at_10 * weight
+
+        include_recall = component != "typing" or metrics.recall_query_count > 0
+        if include_recall:
+            weighted_recall += metrics.recall_score * weight
+            weighted_hit_rate += metrics.hit_rate_at_10 * weight
+            weighted_recall_at_10 += metrics.recall_at_10 * weight
+            weighted_mrr += metrics.mrr_at_10 * weight
+            weighted_ndcg += metrics.ndcg_at_10 * weight
+            recall_weight += weight
 
     if total_weight == 0:
         hit_rate, recall, mrr, ndcg = _parse_recall_metrics(fallback_report)
@@ -342,8 +348,14 @@ def _aggregate_corpus_metrics(
         )
 
     storage_score = weighted_storage / total_weight
-    recall_score = weighted_recall / total_weight
-    memory_score = build_memory_score(component, storage_score, recall_score)
+    if component == "typing":
+        recall_score = (weighted_recall / recall_weight) if recall_weight > 0 else 0.0
+        memory_score = storage_score if recall_weight == 0 else build_memory_score(component, storage_score, recall_score)
+        recall_denom = recall_weight if recall_weight > 0 else None
+    else:
+        recall_score = weighted_recall / total_weight
+        memory_score = build_memory_score(component, storage_score, recall_score)
+        recall_denom = total_weight
     total_latency = max(
         (metrics.latency_ms for metrics in corpus_metrics.values() if metrics.latency_ms > 0),
         default=0.0,
@@ -358,10 +370,10 @@ def _aggregate_corpus_metrics(
         type_accuracy=weighted_type_accuracy / total_weight,
         macro_f1=weighted_macro_f1 / total_weight,
         span_coverage=weighted_span_coverage / total_weight,
-        hit_rate_at_10=weighted_hit_rate / total_weight,
-        recall_at_10=weighted_recall_at_10 / total_weight,
-        mrr_at_10=weighted_mrr / total_weight,
-        ndcg_at_10=weighted_ndcg / total_weight,
+        hit_rate_at_10=(weighted_hit_rate / recall_denom) if recall_denom else 0.0,
+        recall_at_10=(weighted_recall_at_10 / recall_denom) if recall_denom else 0.0,
+        mrr_at_10=(weighted_mrr / recall_denom) if recall_denom else 0.0,
+        ndcg_at_10=(weighted_ndcg / recall_denom) if recall_denom else 0.0,
     )
 
 
@@ -383,6 +395,7 @@ def _build_corpus_metrics(
     )
     output: dict[str, CorpusEvalMetrics] = {}
     for corpus in corpus_names:
+        filtered_query_results = [result for result in query_results if _record_corpus(result["id"]) == corpus]
         storage_score, type_accuracy, macro_f1, span_coverage = _build_corpus_storage_metrics(
             component=component,
             corpus=corpus,
@@ -390,16 +403,22 @@ def _build_corpus_metrics(
             storage_metadata=storage_metadata,
             typing_per_corpus=typing_per_corpus,
         )
-        hit_rate, recall, mrr, ndcg = _build_corpus_recall_metrics(corpus=corpus, query_results=query_results)
-        stage_latency_p95 = _build_stage_latency_p95(corpus=corpus, query_results=query_results)
-        latency = stage_latency_p95.get("totalMs", _build_latency_p95(corpus=corpus, query_results=query_results))
+        hit_rate, recall, mrr, ndcg = _build_recall_metrics(filtered_query_results)
+        stage_latency_p95 = _build_stage_latency_p95(filtered_query_results)
+        latency = stage_latency_p95.get("totalMs", _build_latency_p95(filtered_query_results))
         recall_score = compute_recall_score(hit_rate, recall, mrr, ndcg)
+        memory_score = (
+            storage_score
+            if component == "typing" and not filtered_query_results
+            else build_memory_score(component, storage_score, recall_score)
+        )
         output[corpus] = CorpusEvalMetrics(
             corpus=corpus,
             storage_score=storage_score,
             recall_score=recall_score,
-            memory_score=build_memory_score(component, storage_score, recall_score),
+            memory_score=memory_score,
             latency_ms=latency,
+            recall_query_count=len(filtered_query_results),
             type_accuracy=type_accuracy,
             macro_f1=macro_f1,
             span_coverage=span_coverage,
@@ -456,20 +475,19 @@ def _build_corpus_storage_metrics(
     )
 
 
-def _build_corpus_recall_metrics(corpus: str, query_results: list[dict]) -> tuple[float, float, float, float]:
-    filtered = [result for result in query_results if _record_corpus(result["id"]) == corpus]
-    if not filtered:
+def _build_recall_metrics(query_results: list[dict]) -> tuple[float, float, float, float]:
+    if not query_results:
         return 0.0, 0.0, 0.0, 0.0
     hit_total = 0.0
     recall_total = 0.0
     mrr_total = 0.0
     ndcg_total = 0.0
-    for result in filtered:
+    for result in query_results:
         hit_total += 1.0 if result.get("hitByK", {}).get("10") or result.get("hitByK", {}).get(10) else 0.0
         recall_total += float(result.get("recallByK", {}).get("10") or result.get("recallByK", {}).get(10) or 0.0)
         mrr_total += float(result.get("mrrByK", {}).get("10") or result.get("mrrByK", {}).get(10) or 0.0)
         ndcg_total += float(result.get("ndcgByK", {}).get("10") or result.get("ndcgByK", {}).get(10) or 0.0)
-    count = len(filtered)
+    count = len(query_results)
     return (
         hit_total / count,
         recall_total / count,
@@ -478,16 +496,12 @@ def _build_corpus_recall_metrics(corpus: str, query_results: list[dict]) -> tupl
     )
 
 
-def _build_latency_p95(corpus: str, query_results: list[dict]) -> float:
-    latencies = [
-        float(result["latencyMs"])
-        for result in query_results
-        if _record_corpus(result["id"]) == corpus and result.get("latencyMs") is not None
-    ]
+def _build_latency_p95(query_results: list[dict]) -> float:
+    latencies = [float(result["latencyMs"]) for result in query_results if result.get("latencyMs") is not None]
     return _p95(latencies)
 
 
-def _build_stage_latency_p95(corpus: str, query_results: list[dict]) -> dict[str, float]:
+def _build_stage_latency_p95(query_results: list[dict]) -> dict[str, float]:
     stages = (
         "analysisMs",
         "expansionMs",
@@ -503,8 +517,7 @@ def _build_stage_latency_p95(corpus: str, query_results: list[dict]) -> dict[str
         values = [
             float(result["stageTimings"][stage])
             for result in query_results
-            if _record_corpus(result["id"]) == corpus
-            and isinstance(result.get("stageTimings"), dict)
+            if isinstance(result.get("stageTimings"), dict)
             and result["stageTimings"].get(stage) is not None
         ]
         if values:

@@ -68,9 +68,13 @@ def _ensure_prepared() -> dict[str, Path]:
 def _load_previous_metrics(component: str) -> EvalMetrics | None:
     report = _load_previous_report(component)
     if report is not None:
+        if component == "typing" and "typing_gold_v1" not in report.get("full", {}).get("corpora", {}):
+            return None
         aggregate = report.get("full", {}).get("aggregate")
         if isinstance(aggregate, dict):
             return EvalMetrics(**aggregate)
+    if component == "typing":
+        return None
     path = metrics_path(component)
     if not path.exists():
         return None

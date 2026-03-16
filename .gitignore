@@ -11,11 +11,8 @@ Evals/**/runs/
 Evals/**/cache/
 Evals/**/*.sqlite
 Evals/local_nc/
-.pycache/
-.opencode-data/
-.opencode-config/
-.opencode-cache/
 Evals/_audit/
 .env
 .pycache
 .codex
+.opencode-*

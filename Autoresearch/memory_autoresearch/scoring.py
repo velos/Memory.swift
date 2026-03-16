@@ -85,6 +85,12 @@ def decide_candidate_status(
             f"latency_ms={quick_metrics.latency_ms:.1f}"
         )
 
+    if quick_metrics.component == "typing":
+        if baseline_report is None:
+            return "keep", "no compatible typing baseline report present; establishing new product-aligned baseline"
+        if "typing_gold_v1" not in baseline_report.get("full", {}).get("corpora", {}):
+            return "keep", "incompatible baseline: typing_gold_v1 not present; establishing new product-aligned baseline"
+
     if baseline_metrics is None:
         return "keep", "no baseline summary present; establishing first product-aligned baseline"
 
