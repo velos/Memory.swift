@@ -1,0 +1,23 @@
+{
+  "dataset": "tech_v2",
+  "mode": "queries",
+  "generated_at": "2026-03-16T04:20:21Z",
+  "counts": {
+    "input_queries": 290,
+    "processed_queries": 250,
+    "kept_queries": 284,
+    "dropped_queries": 6,
+    "updated_queries": 244,
+    "rewritten_queries": 244,
+    "unresolved_queries": 0
+  },
+  "dropped_query_ids": [
+    "q-0163",
+    "q-0164",
+    "q-0165",
+    "q-0166",
+    "q-0167",
+    "q-0168"
+  ],
+  "unresolved_query_ids": []
+}

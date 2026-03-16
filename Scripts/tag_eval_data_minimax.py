@@ -82,6 +82,27 @@ def merge_manifest_defaults(manifest: Dict[str, Any], *, model: str, backend_mod
     return merged
 
 
+def resolve_backend_mode(
+    manifest: Dict[str, Any],
+    *,
+    mode: str,
+    agreement_passes: int,
+) -> str:
+    default_query_storage_policy = "single_pass_query_and_storage" if agreement_passes == 1 else "double_pass_query_and_storage"
+    existing_policy = ""
+    tagging = manifest.get("tagging")
+    if isinstance(tagging, dict):
+        existing_policy = str(tagging.get("auto_accept_policy", "")).strip()
+
+    query_storage_policy = default_query_storage_policy
+    if mode not in {"query-tags", "storage-cases"} and existing_policy:
+        parts = [part.strip() for part in existing_policy.split(",") if part.strip()]
+        if len(parts) >= 2:
+            query_storage_policy = parts[1]
+
+    return f"single_pass_document,{query_storage_policy}"
+
+
 def minimax_items(
     client: MiniMaxAnthropicClient,
     *,
@@ -701,11 +722,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     manifest_path = dataset_root / "manifest.json"
-    query_storage_policy = "single_pass_query_and_storage" if args.agreement_passes == 1 else "double_pass_query_and_storage"
+    existing_manifest = load_manifest(manifest_path)
     manifest = merge_manifest_defaults(
-        load_manifest(manifest_path),
+        existing_manifest,
         model=model,
-        backend_mode=f"single_pass_document,{query_storage_policy}",
+        backend_mode=resolve_backend_mode(
+            existing_manifest,
+            mode=args.mode,
+            agreement_passes=args.agreement_passes,
+        ),
     )
     write_manifest(manifest_path, manifest)
 

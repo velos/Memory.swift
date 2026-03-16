@@ -281,6 +281,7 @@ Build audit packets and run model-assisted review:
 python3 Scripts/build_audit_packet.py \
   --dataset-root ./Evals/general_v2 \
   --dataset-root ./Evals/tech_v2 \
+  --dataset-root ./Evals/academic_v2 \
   --dataset-root ./Evals/longmemeval_v2
 
 python3 Scripts/audit_eval_data.py \
@@ -298,6 +299,7 @@ Convert public eval corpora:
 python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Evals/raw_multidoc2dial
 python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Evals/raw_repliqa --splits repliqa_0
 python3 Scripts/convert_qasper_to_eval.py --output-dir ./Evals/raw_qasper --splits train,dev
+python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Evals/raw_swebench_verified --max-instances 250
 ```
 
 Merge converted corpora into a staged dataset:
@@ -308,6 +310,13 @@ python3 Scripts/merge_eval_corpora.py \
   --output-dir ./Evals/general_v2 \
   --source multidoc2dial=./Evals/raw_multidoc2dial \
   --source repliqa=./Evals/raw_repliqa
+
+python3 Scripts/merge_eval_corpora.py \
+  --dataset-name tech_v2 \
+  --output-dir ./Evals/tech_v2 \
+  --source swebench_verified=./Evals/raw_swebench_verified \
+  --primary-use software_engineering_retrieval \
+  --recommended-weight secondary
 ```
 
 Initialize dataset templates:

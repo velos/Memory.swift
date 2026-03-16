@@ -52,6 +52,7 @@ QUERY_REPAIR_SCHEMA: Dict[str, Any] = {
                 "properties": {
                     "id": {"type": "string", "minLength": 1},
                     "action": {"type": "string", "enum": ["keep", "drop"]},
+                    "query": {"type": ["string", "null"]},
                     "memory_types": {
                         "type": ["array", "null"],
                         "items": {"type": "string"},
@@ -194,6 +195,7 @@ def sanitize_query_repair(
     *,
     query_ids: set[str],
     allowed_doc_ids_by_query: Dict[str, set[str]],
+    rewrite_query_text: bool,
 ) -> Optional[Dict[str, Any]]:
     record_id = str(raw.get("id", "")).strip()
     action = str(raw.get("action", "")).strip().lower()
@@ -208,11 +210,16 @@ def sanitize_query_repair(
     if action == "drop":
         return result
 
+    rewritten_query = normalize_spaces(str(raw.get("query", "")))
     memory_types = sanitize_memory_types(raw.get("memory_types"))
     difficulty = sanitize_difficulty(raw.get("difficulty"))
     relevant_raw = raw.get("relevant_document_ids")
     if not memory_types or not difficulty or not isinstance(relevant_raw, list):
         return None
+    if rewrite_query_text:
+        word_count = len(rewritten_query.split())
+        if word_count < 3 or word_count > 32:
+            return None
 
     allowed_doc_ids = allowed_doc_ids_by_query.get(record_id, set())
     relevant_document_ids: List[str] = []
@@ -226,6 +233,8 @@ def sanitize_query_repair(
     result["memory_types"] = memory_types[:3]
     result["difficulty"] = difficulty
     result["relevant_document_ids"] = relevant_document_ids
+    if rewrite_query_text:
+        result["query"] = rewritten_query
     return result
 
 
@@ -318,6 +327,7 @@ def repair_queries(
     max_records: Optional[int],
     max_tokens: int,
     id_filter: Optional[set[str]],
+    rewrite_query_text: bool,
 ) -> Dict[str, Any]:
     docs_path = dataset_root / "recall_documents.jsonl"
     queries_path = dataset_root / "recall_queries.jsonl"
@@ -347,6 +357,13 @@ def repair_queries(
         "Drop vague, contextless, off-topic, or unanswerable queries.\n"
         "Never invent new document ids and never refer to documents not provided in the item."
     )
+    if rewrite_query_text:
+        system_prompt += (
+            "\nRewrite kept queries into short search-style queries that an engineer would realistically type."
+            "\nKeep them concise, specific, and natural."
+            "\nDo not paste issue bodies, stack traces, code blocks, or long descriptions into the rewritten query."
+            "\nTarget roughly 6-18 words, but prioritize a clean realistic search query over exact word count."
+        )
 
     for batch_index, batch in enumerate(chunked(pending, batch_size), start=1):
         user_prompt = (
@@ -357,6 +374,18 @@ def repair_queries(
             "Queries (JSON lines):\n"
             f"{build_query_batch(batch, docs_by_id)}"
         )
+        if rewrite_query_text:
+            user_prompt = (
+                "Return one item per query id.\n"
+                f"Allowed memory types: {', '.join(MEMORY_TYPES)}.\n"
+                f"Allowed difficulty values: {', '.join(DIFFICULTY_LEVELS)}.\n"
+                "Use action=drop when the query is broken or none of the provided documents support it.\n"
+                "For kept items, rewrite the query into a concise search query.\n"
+                "Good rewrites are short, issue-focused, and realistic for code or bug search.\n"
+                "Avoid filler words, long quotations, stack traces, environment dumps, and exact issue-body restatements.\n\n"
+                "Queries (JSON lines):\n"
+                f"{build_query_batch(batch, docs_by_id)}"
+            )
         try:
             rows = minimax_items(
                 client,
@@ -382,6 +411,7 @@ def repair_queries(
                 raw,
                 query_ids=batch_query_ids,
                 allowed_doc_ids_by_query=batch_allowed_doc_ids_by_query,
+                rewrite_query_text=rewrite_query_text,
             )
             if not repair:
                 continue
@@ -399,15 +429,21 @@ def repair_queries(
 
     kept_queries: List[Dict[str, Any]] = []
     updated_count = 0
+    rewritten_count = 0
     for query in queries:
         query_id = str(query["id"])
         if query_id in dropped_ids:
             continue
         repair = updates.get(query_id)
         if repair:
+            previous_query = str(query.get("query", ""))
             query["memory_types"] = repair["memory_types"]
             query["difficulty"] = repair["difficulty"]
             query["relevant_document_ids"] = repair["relevant_document_ids"]
+            if rewrite_query_text and repair.get("query"):
+                query["query"] = repair["query"]
+                if normalize_spaces(previous_query) != normalize_spaces(repair["query"]):
+                    rewritten_count += 1
             updated_count += 1
         kept_queries.append(query)
 
@@ -422,6 +458,7 @@ def repair_queries(
             "kept_queries": len(kept_queries),
             "dropped_queries": len(dropped_ids),
             "updated_queries": updated_count,
+            "rewritten_queries": rewritten_count,
             "unresolved_queries": len(sorted(set(unresolved_ids))),
         },
         "dropped_query_ids": sorted(dropped_ids),
@@ -577,6 +614,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--max-retries-per-request", type=int, default=2, help="HTTP retries per API request.")
     parser.add_argument("--max-tokens", type=int, default=4096, help="Max tokens per API response.")
     parser.add_argument("--id-file", default=None, help="Optional file with record ids to process (one per line or JSON array).")
+    parser.add_argument("--rewrite-query-text", action="store_true", help="Rewrite kept queries into concise search-style queries.")
     return parser.parse_args(argv)
 
 
@@ -600,6 +638,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             max_records=args.max_records,
             max_tokens=args.max_tokens,
             id_filter=id_filter,
+            rewrite_query_text=args.rewrite_query_text,
         )
     else:
         report = repair_storage_review_queue(
