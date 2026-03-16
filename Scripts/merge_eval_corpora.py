@@ -143,25 +143,48 @@ def build_manifest(
     recommended_weight: str,
 ) -> Dict[str, Any]:
     source_datasets: List[Any] = []
+    source_license_scopes: List[str] = []
+    inherited_limits: List[str] = []
     for manifest in source_manifests:
         sources = manifest.get("source_datasets")
         if isinstance(sources, list):
             source_datasets.extend(sources)
+        license_scope = str(manifest.get("license_scope", "")).strip()
+        if license_scope:
+            source_license_scopes.append(license_scope)
+        known_limits = manifest.get("known_limits")
+        if isinstance(known_limits, list):
+            inherited_limits.extend(str(item) for item in known_limits if str(item).strip())
     if not source_datasets:
         source_datasets = list(source_names)
+
+    normalized_license_scopes = [scope for scope in source_license_scopes if scope]
+    if not normalized_license_scopes:
+        license_scope = "license_review_required"
+    elif all(scope == "commercial_safe" for scope in normalized_license_scopes):
+        license_scope = "commercial_safe"
+    elif len(set(normalized_license_scopes)) == 1:
+        license_scope = normalized_license_scopes[0]
+    else:
+        license_scope = "mixed_or_review_required"
+
+    known_limits = list(dict.fromkeys(
+        inherited_limits
+        + [
+            "Merged from multiple public corpora with document-level deduplication.",
+            "Merged queries preserve relevant-document mapping but not source-specific identifiers.",
+            "Use tag_eval_data_minimax.py or tag_eval_data_codex.py to add or refresh memory tags and adversarial coverage.",
+        ]
+    ))
 
     return {
         "dataset": dataset_name,
         "provenance": "merged_public_corpora",
         "synthetic_status": "mixed_external",
         "primary_use": primary_use,
-        "license_scope": "commercial_safe",
+        "license_scope": license_scope,
         "source_datasets": source_datasets,
-        "known_limits": [
-            "Merged from multiple public corpora with document-level deduplication.",
-            "Merged queries preserve relevant-document mapping but not source-specific identifiers.",
-            "Use tag_eval_data_codex.py to add or refresh memory tags and adversarial coverage.",
-        ],
+        "known_limits": known_limits,
         "recommended_weight": recommended_weight,
         "promotion_status": "draft",
     }

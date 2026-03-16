@@ -1,0 +1,25 @@
+{
+  "dataset": "swebench_verified",
+  "provenance": "external_swebench_verified",
+  "synthetic_status": "external",
+  "primary_use": "software_engineering_retrieval",
+  "license_scope": "license_review_required",
+  "source_datasets": [
+    {
+      "name": "princeton-nlp/SWE-bench_Verified",
+      "split": "test",
+      "difficulty_filter": [
+        "<15 min fix",
+        "15 min - 1 hour"
+      ],
+      "max_instances": 250
+    }
+  ],
+  "known_limits": [
+    "This is a simplified issue-centric conversion, not the full SWE-bench task with repo snapshots and executable patches.",
+    "Queries are derived from issue titles and should be augmented with harder paraphrases before promotion.",
+    "Hugging Face metadata did not expose a clear license in local lookup, so review licensing before treating this corpus as default-commercial-safe."
+  ],
+  "recommended_weight": "secondary",
+  "promotion_status": "draft"
+}
