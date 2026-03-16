@@ -7,21 +7,21 @@
 {"id": "q-0007", "query": "pprint unicode subscripts Greek letters not working sympy", "relevant_document_ids": ["doc-0007"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0008", "query": "matplotlib patch linestyle dash offset not working", "relevant_document_ids": ["doc-0008"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0009", "query": "sympy geometry Point multiplication order exception", "relevant_document_ids": ["doc-0009"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0010", "query": "django formset nonform CSS class for non-form errors", "relevant_document_ids": ["doc-0010"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
+{"id": "q-0010", "query": "django formset nonform CSS class for non-form errors", "relevant_document_ids": ["doc-0010"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0011", "query": "sympy matrix determinant NaN comparison error symbolic", "relevant_document_ids": ["doc-0011"], "difficulty": "hard", "memory_types": ["factual"]}
 {"id": "q-0012", "query": "astropy quantity_input decorator None return type hint fails", "relevant_document_ids": ["doc-0012"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0013", "query": "MOD operator output_field not resolved for Decimal and Integer types", "relevant_document_ids": ["doc-0013"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0014", "query": "TimeSeries misleading exception when removing required column", "relevant_document_ids": ["doc-0014"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0015", "query": "loaddata crashes SQLite when table name is SQL keyword", "relevant_document_ids": ["doc-0015"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0016", "query": "export_text IndexError with single feature decision tree", "relevant_document_ids": ["doc-0016"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0017", "query": "aggregate over window functions fails after Django 4.2 upgrade", "relevant_document_ids": ["doc-0017"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0018", "query": "simplify DatabaseOperations.execute_sql_flush signature", "relevant_document_ids": ["doc-0018"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0019", "query": "FITSDiff reports differences identical files VLA columns", "relevant_document_ids": ["doc-0019"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0020", "query": "ManagementUtility CommandParser prog argument sys.argv", "relevant_document_ids": ["doc-0020"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0021", "query": "Django migration enum default uses value not name", "relevant_document_ids": ["doc-0021"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0022", "query": "squashed migration not marked unapplied Django", "relevant_document_ids": ["doc-0022"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0023", "query": "roc_curve thresholds exceed 1 probability estimate", "relevant_document_ids": ["doc-0023"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0024", "query": "TensorProduct power expand tensor_product_simp SymPy", "relevant_document_ids": ["doc-0024"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0013", "query": "MOD operator output_field not resolved for Decimal and Integer types", "relevant_document_ids": ["doc-0013"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0014", "query": "TimeSeries misleading exception when removing required column", "relevant_document_ids": ["doc-0014"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0015", "query": "loaddata crashes SQLite when table name is SQL keyword", "relevant_document_ids": ["doc-0015"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0016", "query": "export_text IndexError with single feature decision tree", "relevant_document_ids": ["doc-0016"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0017", "query": "aggregate over window functions fails after Django 4.2 upgrade", "relevant_document_ids": ["doc-0017"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0018", "query": "simplify DatabaseOperations.execute_sql_flush signature", "relevant_document_ids": ["doc-0018"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0019", "query": "FITSDiff reports differences identical files VLA columns", "relevant_document_ids": ["doc-0019"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0020", "query": "ManagementUtility CommandParser prog argument sys.argv", "relevant_document_ids": ["doc-0020"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0021", "query": "Django migration enum default uses value not name", "relevant_document_ids": ["doc-0021"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0022", "query": "squashed migration not marked unapplied Django", "relevant_document_ids": ["doc-0022"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0023", "query": "roc_curve thresholds exceed 1 probability estimate", "relevant_document_ids": ["doc-0023"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0024", "query": "TensorProduct power expand tensor_product_simp SymPy", "relevant_document_ids": ["doc-0024"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0025", "query": "django auto-reloader pass -X options to subprocess", "relevant_document_ids": ["doc-0025"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0026", "query": "django m2m serialization fails custom manager select_related", "relevant_document_ids": ["doc-0026"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0027", "query": "django AutocompleteJsonView add extra fields to response", "relevant_document_ids": ["doc-0027"], "difficulty": "medium", "memory_types": ["factual"]}
@@ -39,13 +39,13 @@
 {"id": "q-0039", "query": "limit_choices_to Q object creates duplicate form options", "relevant_document_ids": ["doc-0039"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0040", "query": "Model.objects.all().delete() generates slow subquery", "relevant_document_ids": ["doc-0040"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0041", "query": "ModelAdmin radio_fields ignores custom empty_label", "relevant_document_ids": ["doc-0041"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0042", "query": "xarray handle signed bytes from OPeNDAP pydap", "relevant_document_ids": ["doc-0042"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0043", "query": "sylow_subgroup IndexError DihedralGroup", "relevant_document_ids": ["doc-0043"], "difficulty": "hard", "memory_types": ["procedural"]}
+{"id": "q-0042", "query": "xarray handle signed bytes from OPeNDAP pydap", "relevant_document_ids": ["doc-0042"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0043", "query": "sylow_subgroup IndexError DihedralGroup", "relevant_document_ids": ["doc-0043"], "difficulty": "hard", "memory_types": ["factual"]}
 {"id": "q-0044", "query": "ModelAdmin lookup_allowed foreign key primary key", "relevant_document_ids": ["doc-0044"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0045", "query": "Quantity __array_ufunc__ NotImplemented ValueError", "relevant_document_ids": ["doc-0045"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0046", "query": "pytest 5.1.2 ImportError conftest Windows path casing", "relevant_document_ids": ["doc-0046"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0047", "query": "MultiOutputClassifier cross_val_predict predict_proba AttributeError classes_", "relevant_document_ids": ["doc-0047"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0048", "query": "Django migration autodetector rename model field crash", "relevant_document_ids": ["doc-0048"], "difficulty": "medium", "memory_types": ["procedural"]}
+{"id": "q-0046", "query": "pytest 5.1.2 ImportError conftest Windows path casing", "relevant_document_ids": ["doc-0046"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0047", "query": "MultiOutputClassifier cross_val_predict predict_proba AttributeError classes_", "relevant_document_ids": ["doc-0047"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0048", "query": "Django migration autodetector rename model field crash", "relevant_document_ids": ["doc-0048"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0049", "query": "in_bulk UniqueConstraint unique field django", "relevant_document_ids": ["doc-0049"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0050", "query": "formset add_fields None index TypeError can_delete", "relevant_document_ids": ["doc-0050"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0051", "query": "autodoc_type_aliases autodoc_typehints description not working", "relevant_document_ids": ["doc-0051"], "difficulty": "medium", "memory_types": ["factual"]}
@@ -64,7 +64,7 @@
 {"id": "q-0064", "query": "posify ignores finite assumption", "relevant_document_ids": ["doc-0064"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0065", "query": "sum of identity matrix elements returns zero", "relevant_document_ids": ["doc-0065"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0066", "query": "diophantine incomplete results syms order permute True", "relevant_document_ids": ["doc-0066"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0067", "query": "inspect.signature returns wrong params on Django manager methods", "relevant_document_ids": ["doc-0067"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
+{"id": "q-0067", "query": "inspect.signature returns wrong params on Django manager methods", "relevant_document_ids": ["doc-0067"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0068", "query": "runshell doesn't use os.environ PostgreSQL client", "relevant_document_ids": ["doc-0068"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0069", "query": "set_visible not working 3d subplot matplotlib", "relevant_document_ids": ["doc-0069"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0070", "query": "migration autodetector KeyError FK field hardcoded to", "relevant_document_ids": ["doc-0070"], "difficulty": "medium", "memory_types": ["factual"]}
@@ -82,12 +82,12 @@
 {"id": "q-0082", "query": "ReadOnlyPasswordHashField set disabled prop default", "relevant_document_ids": ["doc-0082"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0083", "query": "annotate xy array parameter mutation updates arrow", "relevant_document_ids": ["doc-0083"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0084", "query": "runserver 0 address display 0.0.0.0 instead of 0", "relevant_document_ids": ["doc-0084"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0085", "query": "BytesWarning --setup-show bytes parameter", "relevant_document_ids": ["doc-0085"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0086", "query": "method_decorator preserve wrapper __name__ attributes", "relevant_document_ids": ["doc-0086"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0087", "query": "codegen.ast String argument invariance", "relevant_document_ids": ["doc-0087"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0088", "query": "Field.__hash__ immutable model class assignment", "relevant_document_ids": ["doc-0088"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0089", "query": "add --skip-checks option runserver command", "relevant_document_ids": ["doc-0089"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0090", "query": "latex mul_symbol custom arbitrary symbol", "relevant_document_ids": ["doc-0090"], "difficulty": "medium", "memory_types": ["procedural"]}
+{"id": "q-0085", "query": "BytesWarning --setup-show bytes parameter", "relevant_document_ids": ["doc-0085"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0086", "query": "method_decorator preserve wrapper __name__ attributes", "relevant_document_ids": ["doc-0086"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0087", "query": "codegen.ast String argument invariance", "relevant_document_ids": ["doc-0087"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0088", "query": "Field.__hash__ immutable model class assignment", "relevant_document_ids": ["doc-0088"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0089", "query": "add --skip-checks option runserver command", "relevant_document_ids": ["doc-0089"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0090", "query": "latex mul_symbol custom arbitrary symbol", "relevant_document_ids": ["doc-0090"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0091", "query": "UnrecognizedUnit == None raises TypeError astropy", "relevant_document_ids": ["doc-0091"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0092", "query": "hist density not auto-scaled with histtype step matplotlib", "relevant_document_ids": ["doc-0092"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0093", "query": "Sphinx autodoc tuple default argument broken", "relevant_document_ids": ["doc-0093"], "difficulty": "medium", "memory_types": ["factual"]}
@@ -106,7 +106,7 @@
 {"id": "q-0106", "query": "MiddlewareNotUsed causes handler corruption in ASGI", "relevant_document_ids": ["doc-0106"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0107", "query": "twinx stackplot causes dataLims to become infinity", "relevant_document_ids": ["doc-0107"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0108", "query": "Matrix hstack returns wrong column count with empty matrices", "relevant_document_ids": ["doc-0108"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0109", "query": "OPTICS min_samples float not converted to int causing NearestNeighbors error", "relevant_document_ids": ["doc-0109"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0109", "query": "OPTICS min_samples float not converted to int causing NearestNeighbors error", "relevant_document_ids": ["doc-0109"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0110", "query": "Sphinx nitpick warns about Literal annotation values as missing py:class", "relevant_document_ids": ["doc-0110"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0111", "query": "Django debug view doesn't respect __suppress_context__ in exception chaining", "relevant_document_ids": ["doc-0111"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0112", "query": "single element tuple rendered without trailing comma in Sphinx AST", "relevant_document_ids": ["doc-0112"], "difficulty": "easy", "memory_types": ["factual"]}
@@ -118,60 +118,60 @@
 {"id": "q-0118", "query": "minversion TypeError LooseVersion comparison failed", "relevant_document_ids": ["doc-0118"], "difficulty": "medium", "memory_types": ["episodic"]}
 {"id": "q-0119", "query": "sympify Point2D evaluate False ValueError", "relevant_document_ids": ["doc-0119"], "difficulty": "medium", "memory_types": ["episodic"]}
 {"id": "q-0120", "query": "xarray weighted mean boolean weights wrong result", "relevant_document_ids": ["doc-0120"], "difficulty": "medium", "memory_types": ["episodic"]}
-{"id": "q-0121", "query": "Django template tag keyword-only argument TemplateSyntaxError", "relevant_document_ids": ["doc-0121"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0122", "query": "requests library UnicodeError instead of InvalidUrl for invalid domain", "relevant_document_ids": ["doc-0122"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0123", "query": "xarray DataArray dimension named method causes .loc error", "relevant_document_ids": ["doc-0123"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0124", "query": "Django SECURE_REFERRER_POLICY default value change to same-origin", "relevant_document_ids": ["doc-0124"], "difficulty": "easy", "memory_types": ["factual", "semantic"]}
-{"id": "q-0125", "query": "sympy kahane_simplify reverses order of leading gamma matrices", "relevant_document_ids": ["doc-0125"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0126", "query": "sympy Matrix col_insert places identity matrix in wrong rows", "relevant_document_ids": ["doc-0126"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0121", "query": "Django template tag keyword-only argument TemplateSyntaxError", "relevant_document_ids": ["doc-0121"], "difficulty": "medium", "memory_types": ["episodic"]}
+{"id": "q-0122", "query": "requests library UnicodeError instead of InvalidUrl for invalid domain", "relevant_document_ids": ["doc-0122"], "difficulty": "medium", "memory_types": ["episodic"]}
+{"id": "q-0123", "query": "xarray DataArray dimension named method causes .loc error", "relevant_document_ids": ["doc-0123"], "difficulty": "medium", "memory_types": ["episodic"]}
+{"id": "q-0124", "query": "Django SECURE_REFERRER_POLICY default value change to same-origin", "relevant_document_ids": ["doc-0124"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0125", "query": "sympy kahane_simplify reverses order of leading gamma matrices", "relevant_document_ids": ["doc-0125"], "difficulty": "medium", "memory_types": ["episodic"]}
+{"id": "q-0126", "query": "sympy Matrix col_insert places identity matrix in wrong rows", "relevant_document_ids": ["doc-0126"], "difficulty": "medium", "memory_types": ["episodic"]}
 {"id": "q-0127", "query": "matplotlib subfigures wspace hspace not working", "relevant_document_ids": ["doc-0127"], "difficulty": "medium", "memory_types": ["episodic"]}
 {"id": "q-0128", "query": "xarray Coarsen construct demotes coordinates to variables", "relevant_document_ids": ["doc-0128"], "difficulty": "medium", "memory_types": ["episodic"]}
 {"id": "q-0129", "query": "Django DEFAULT_AUTO_FIELD BigAutoField subclass check fails", "relevant_document_ids": ["doc-0129"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0130", "query": "Sympy Quaternion to_rotation_matrix incorrect result", "relevant_document_ids": ["doc-0130"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0131", "query": "SparseCoder max_iter parameter not exposed for Lasso", "relevant_document_ids": ["doc-0131"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0132", "query": "Django AuthenticationForm username maxlength HTML attribute missing", "relevant_document_ids": ["doc-0132"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0133", "query": "django get_format lazy string TypeError", "relevant_document_ids": ["doc-0133"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0133", "query": "django get_format lazy string TypeError", "relevant_document_ids": ["doc-0133"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0134", "query": "Mod(3*i, 2) simplify to Mod(i, 2)", "relevant_document_ids": ["doc-0134"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0135", "query": "ColumnTransformer set_output ignores remainder estimator", "relevant_document_ids": ["doc-0135"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0135", "query": "ColumnTransformer set_output ignores remainder estimator", "relevant_document_ids": ["doc-0135"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0136", "query": "viewcode creates epub pages when viewcode_enable_epub False", "relevant_document_ids": ["doc-0136"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0137", "query": "linkcheck not checking local internal links", "relevant_document_ids": ["doc-0137"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0138", "query": "astropy HTML table write formats parameter ignored", "relevant_document_ids": ["doc-0138"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0139", "query": "SpanSelector interactive forces axes limits to include 0", "relevant_document_ids": ["doc-0139"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0137", "query": "linkcheck not checking local internal links", "relevant_document_ids": ["doc-0137"], "difficulty": "medium", "memory_types": ["procedural"]}
+{"id": "q-0138", "query": "astropy HTML table write formats parameter ignored", "relevant_document_ids": ["doc-0138"], "difficulty": "medium", "memory_types": ["procedural"]}
+{"id": "q-0139", "query": "SpanSelector interactive forces axes limits to include 0", "relevant_document_ids": ["doc-0139"], "difficulty": "easy", "memory_types": ["procedural"]}
 {"id": "q-0140", "query": "IterativeImputer missing fill_value parameter", "relevant_document_ids": ["doc-0140"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0141", "query": "ManifestStaticFilesStorage crash max_post_process_passes 0", "relevant_document_ids": ["doc-0141"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0142", "query": "autodoc_typehints None link missing in signature mode", "relevant_document_ids": ["doc-0142"], "difficulty": "medium", "memory_types": ["procedural"]}
 {"id": "q-0143", "query": "gettext Message locations duplicated", "relevant_document_ids": ["doc-0143"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0144", "query": "KBinsDiscretizer kmeans unsorted bin_edges error", "relevant_document_ids": ["doc-0144"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0145", "query": "add __iter__ method to Paginator class", "relevant_document_ids": ["doc-0145"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0145", "query": "add __iter__ method to Paginator class", "relevant_document_ids": ["doc-0145"], "difficulty": "medium", "memory_types": ["procedural"]}
 {"id": "q-0146", "query": "AnnotationBbox gid not passed to SVG renderer", "relevant_document_ids": ["doc-0146"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0147", "query": "use Python stdlib html.escape in django.utils.html", "relevant_document_ids": ["doc-0147"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0147", "query": "use Python stdlib html.escape in django.utils.html", "relevant_document_ids": ["doc-0147"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0148", "query": "ModelForm meta formfield_callback not used by modelform_factory", "relevant_document_ids": ["doc-0148"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0149", "query": "Product function gives incorrect result", "relevant_document_ids": ["doc-0149"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0150", "query": "ModelBackend authenticate makes DB query when username is None", "relevant_document_ids": ["doc-0150"], "difficulty": "medium", "memory_types": ["procedural"]}
+{"id": "q-0149", "query": "Product function gives incorrect result", "relevant_document_ids": ["doc-0149"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0150", "query": "ModelBackend authenticate makes DB query when username is None", "relevant_document_ids": ["doc-0150"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0151", "query": "CheckConstraint OR operator generates incorrect SQL on SQLite", "relevant_document_ids": ["doc-0151"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0152", "query": "xarray zarr chunks attribute loads data into memory", "relevant_document_ids": ["doc-0152"], "difficulty": "hard", "memory_types": ["factual"]}
-{"id": "q-0153", "query": "AdminSite catch_all_view drops query string in redirect", "relevant_document_ids": ["doc-0153"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0153", "query": "AdminSite catch_all_view drops query string in redirect", "relevant_document_ids": ["doc-0153"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0154", "query": "autodoc_typehints_description_target not working with Napoleon", "relevant_document_ids": ["doc-0154"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0155", "query": "posix fcntl.flock returns None instead of True on success", "relevant_document_ids": ["doc-0155"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0156", "query": "Use subprocess.run and PGPASSWORD in postgres client", "relevant_document_ids": ["doc-0156"], "difficulty": "medium", "memory_types": ["procedural"]}
-{"id": "q-0157", "query": "return NotImplemented instead of False in sympy rich comparison", "relevant_document_ids": ["doc-0157"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0155", "query": "posix fcntl.flock returns None instead of True on success", "relevant_document_ids": ["doc-0155"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0156", "query": "Use subprocess.run and PGPASSWORD in postgres client", "relevant_document_ids": ["doc-0156"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0157", "query": "return NotImplemented instead of False in sympy rich comparison", "relevant_document_ids": ["doc-0157"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0158", "query": "LassoLarsIC copy_X parameter ignored in fit method", "relevant_document_ids": ["doc-0158"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0159", "query": "Django union values_list returns wrong columns on second call", "relevant_document_ids": ["doc-0159"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0160", "query": "parse_expr evaluate=False ignored for relational expressions", "relevant_document_ids": ["doc-0160"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0161", "query": "S(0.0) == S.false returns True but S.false == S(0.0) returns False", "relevant_document_ids": ["doc-0161"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0162", "query": "Django abstract model fields compare equal across different models", "relevant_document_ids": ["doc-0162"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0169", "query": "Django i18n_patterns not working with language tag containing script and region like en-latn-us", "relevant_document_ids": ["doc-0169"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0170", "query": "matplotlib HPacker align top bottom reversed", "relevant_document_ids": ["doc-0170"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0171", "query": "matplotlib test_huge_range_log failing ValueError invalid vmin vmax", "relevant_document_ids": ["doc-0171"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0172", "query": "sklearn Pipeline __len__ method not implemented", "relevant_document_ids": ["doc-0172"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0173", "query": "Django simplify_regexp trailing named group not replaced", "relevant_document_ids": ["doc-0173"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0174", "query": "Sphinx locale translation override not working", "relevant_document_ids": ["doc-0174"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0175", "query": "makemigrations --check should exit without creating migrations", "relevant_document_ids": ["doc-0175"], "difficulty": "easy", "memory_types": ["factual", "procedural"]}
-{"id": "q-0176", "query": "matplotlib figure DPI doubles after unpickling on M1 Mac", "relevant_document_ids": ["doc-0176"], "difficulty": "hard", "memory_types": ["factual", "procedural", "contextual"]}
-{"id": "q-0177", "query": "requests builtin_str converts method b'GET to literal string", "relevant_document_ids": ["doc-0177"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0178", "query": "autodoc_docstring_signature not handling overloaded methods", "relevant_document_ids": ["doc-0178"], "difficulty": "medium", "memory_types": ["factual", "semantic"]}
-{"id": "q-0179", "query": "xr.where keep_attrs overwrites coordinate attributes", "relevant_document_ids": ["doc-0179"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
-{"id": "q-0180", "query": "makemigrations crashes ForeignKey mixed-case app name", "relevant_document_ids": ["doc-0180"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0159", "query": "Django union values_list returns wrong columns on second call", "relevant_document_ids": ["doc-0159"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0160", "query": "parse_expr evaluate=False ignored for relational expressions", "relevant_document_ids": ["doc-0160"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0161", "query": "S(0.0) == S.false returns True but S.false == S(0.0) returns False", "relevant_document_ids": ["doc-0161"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0162", "query": "Django abstract model fields compare equal across different models", "relevant_document_ids": ["doc-0162"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0169", "query": "Django i18n_patterns not working with language tag containing script and region like en-latn-us", "relevant_document_ids": ["doc-0169"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0170", "query": "matplotlib HPacker align top bottom reversed", "relevant_document_ids": ["doc-0170"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0171", "query": "matplotlib test_huge_range_log failing ValueError invalid vmin vmax", "relevant_document_ids": ["doc-0171"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0172", "query": "sklearn Pipeline __len__ method not implemented", "relevant_document_ids": ["doc-0172"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0173", "query": "Django simplify_regexp trailing named group not replaced", "relevant_document_ids": ["doc-0173"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0174", "query": "Sphinx locale translation override not working", "relevant_document_ids": ["doc-0174"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0175", "query": "makemigrations --check should exit without creating migrations", "relevant_document_ids": ["doc-0175"], "difficulty": "easy", "memory_types": ["factual"]}
+{"id": "q-0176", "query": "matplotlib figure DPI doubles after unpickling on M1 Mac", "relevant_document_ids": ["doc-0176"], "difficulty": "hard", "memory_types": ["factual"]}
+{"id": "q-0177", "query": "requests builtin_str converts method b'GET to literal string", "relevant_document_ids": ["doc-0177"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0178", "query": "autodoc_docstring_signature not handling overloaded methods", "relevant_document_ids": ["doc-0178"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0179", "query": "xr.where keep_attrs overwrites coordinate attributes", "relevant_document_ids": ["doc-0179"], "difficulty": "medium", "memory_types": ["factual"]}
+{"id": "q-0180", "query": "makemigrations crashes ForeignKey mixed-case app name", "relevant_document_ids": ["doc-0180"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0181", "query": "Dagger IdentityOperator simplification bug", "relevant_document_ids": ["doc-0181"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0182", "query": "ForeignKey validation use base manager not default", "relevant_document_ids": ["doc-0182"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0183", "query": "fowlkes_mallows_score overflow RuntimeWarning", "relevant_document_ids": ["doc-0183"], "difficulty": "easy", "memory_types": ["factual"]}
@@ -197,12 +197,12 @@
 {"id": "q-0203", "query": "RenameModel with db_table should be noop", "relevant_document_ids": ["doc-0203"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0204", "query": "migration optimizer not reducing multiple AlterField on same field", "relevant_document_ids": ["doc-0204"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0205", "query": "Django LEVEL_TAGS not updated with override_settings", "relevant_document_ids": ["doc-0205"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0206", "query": "Sphinx autodoc private-members specific arguments", "relevant_document_ids": ["doc-0206"], "difficulty": "medium", "memory_types": ["semantic"]}
+{"id": "q-0206", "query": "Sphinx autodoc private-members specific arguments", "relevant_document_ids": ["doc-0206"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0207", "query": "Django Q object deconstruct crashes with Exists", "relevant_document_ids": ["doc-0207"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0208", "query": "Django sitemap empty items ValueError callable lastmod", "relevant_document_ids": ["doc-0208"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0209", "query": "sklearn SequentialFeatureSelector cv splits iterator error", "relevant_document_ids": ["doc-0209"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0210", "query": "Django DateFormat Y year zero padding before 1000", "relevant_document_ids": ["doc-0210"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0211", "query": "parse_http_date two digit year check incorrect", "relevant_document_ids": ["doc-0211"], "difficulty": "medium", "memory_types": ["semantic"]}
+{"id": "q-0211", "query": "parse_http_date two digit year check incorrect", "relevant_document_ids": ["doc-0211"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0212", "query": "Add joblib to show_versions dependencies", "relevant_document_ids": ["doc-0212"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0213", "query": "QuerySet.none() on combined queries returns all results", "relevant_document_ids": ["doc-0213"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0214", "query": "unittest skip decorator tearDown runs with --pdb", "relevant_document_ids": ["doc-0214"], "difficulty": "easy", "memory_types": ["factual"]}
@@ -224,9 +224,9 @@
 {"id": "q-0230", "query": "Q object OR causes subquery must return only one column error", "relevant_document_ids": ["doc-0230"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0231", "query": "unicode method name causes UnicodeDecodeError in requests", "relevant_document_ids": ["doc-0231"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0232", "query": "SkyCoord subclass misleading attribute error message", "relevant_document_ids": ["doc-0232"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0233", "query": "autoreloader python -m dotted module name detection", "relevant_document_ids": ["doc-0233"], "difficulty": "medium", "memory_types": ["semantic"]}
+{"id": "q-0233", "query": "autoreloader python -m dotted module name detection", "relevant_document_ids": ["doc-0233"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0234", "query": "RidgeClassifierCV store_cv_values parameter missing", "relevant_document_ids": ["doc-0234"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0235", "query": "matplotlib Text set_antialiased getter setter per-artist", "relevant_document_ids": ["doc-0235"], "difficulty": "medium", "memory_types": ["semantic"]}
+{"id": "q-0235", "query": "matplotlib Text set_antialiased getter setter per-artist", "relevant_document_ids": ["doc-0235"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0236", "query": "pytest test name bracket replacement dot bracket bug", "relevant_document_ids": ["doc-0236"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0237", "query": "xarray Dataset merge DataArray method AttributeError", "relevant_document_ids": ["doc-0237"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0238", "query": "django SplitArrayField BooleanField widget checked state bug", "relevant_document_ids": ["doc-0238"], "difficulty": "easy", "memory_types": ["factual"]}
@@ -234,9 +234,9 @@
 {"id": "q-0240", "query": "django cache db backend cull NoneType fetchone", "relevant_document_ids": ["doc-0240"], "difficulty": "easy", "memory_types": ["factual"]}
 {"id": "q-0241", "query": "Django FIXTURE_DIRS Path instance duplicate detection", "relevant_document_ids": ["doc-0241"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0242", "query": "requests Digest Auth qop options quoting RFC2617", "relevant_document_ids": ["doc-0242"], "difficulty": "easy", "memory_types": ["factual"]}
-{"id": "q-0243", "query": "ContourSet set_paths method matplotlib", "relevant_document_ids": ["doc-0243"], "difficulty": "medium", "memory_types": ["factual", "procedural"]}
+{"id": "q-0243", "query": "ContourSet set_paths method matplotlib", "relevant_document_ids": ["doc-0243"], "difficulty": "medium", "memory_types": ["factual"]}
 {"id": "q-0244", "query": "Django FILE_UPLOAD_PERMISSION default 0o644", "relevant_document_ids": ["doc-0244"], "difficulty": "medium", "memory_types": ["factual"]}
-{"id": "q-0245", "query": "Django migration field to model subclass FieldError", "relevant_document_ids": ["doc-0245"], "difficulty": "hard", "memory_types": ["factual", "procedural"]}
+{"id": "q-0245", "query": "Django migration field to model subclass FieldError", "relevant_document_ids": ["doc-0245"], "difficulty": "hard", "memory_types": ["factual"]}
 {"id": "q-0246", "query": "SymPy subs PolynomialError hyperbolic Piecewise", "relevant_document_ids": ["doc-0246"], "difficulty": "hard", "memory_types": ["factual"]}
 {"id": "q-0247", "query": "django foreign key charfield primary key not updated on save", "relevant_document_ids": ["doc-0247"], "difficulty": "hard", "memory_types": ["factual"]}
 {"id": "q-0248", "query": "sympy srepr dict set not printing correctly", "relevant_document_ids": ["doc-0248"], "difficulty": "medium", "memory_types": ["factual"]}
@@ -251,7 +251,7 @@
 {"id": "q-0257", "query": "Matrix horizontal stacking behavior changed between SymPy versions returning incorrect shape dimensions", "relevant_document_ids": ["doc-0108"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0258", "query": "The partitions() iterator in SymPy reuses output dictionaries which causes unexpected side effects when collecting results", "relevant_document_ids": ["doc-0062"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0259", "query": "When creating polynomial expressions using sympy's itermonomials function with minimum degree constraints, the output only contains single variable powers instead of all monomials matching the total degree specification", "relevant_document_ids": ["doc-0248"], "memory_types": ["factual"], "difficulty": "hard"}
-{"id": "q-0260", "query": "The xr.where method with keep_attrs enabled appears to lose coordinate metadata while preserving variable attributes in the output dataset structure", "relevant_document_ids": ["doc-0179"], "memory_types": ["episodic"], "difficulty": "hard"}
+{"id": "q-0260", "query": "The xr.where method with keep_attrs enabled appears to lose coordinate metadata while preserving variable attributes in the output dataset structure", "relevant_document_ids": ["doc-0179"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0261", "query": "In Django's ORM layer, attempting to filter using __in lookups with subqueries returns multiple unexpected columns causing database errors while the __id__in variant works correctly", "relevant_document_ids": ["doc-0049"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0262", "query": "After updating to Django 4.2, window function queries combined with aggregate operations now fail with psycopg2 errors regarding window function containment in aggregate calls", "relevant_document_ids": ["doc-0017"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0263", "query": "The Posify function in sympy seems to strip finite assumptions from symbolic variables when converting them to positive-only symbols during transformation", "relevant_document_ids": ["doc-0064"], "memory_types": ["factual"], "difficulty": "hard"}
@@ -266,13 +266,13 @@
 {"id": "q-0272", "query": "Q objects with __in lookups generate subqueries returning all columns instead of just the id, causing ProgrammingError in Django 3.2", "relevant_document_ids": ["doc-0230"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0273", "query": "Sphinx autodoc fails to properly document classes that inherit from mocked base classes in versions 3.0 and above", "relevant_document_ids": ["doc-0216"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0274", "query": "RFC2617 requires qop-options in Digest Authentication to be quoted with double quotes but the requests library doesn't quote them", "relevant_document_ids": ["doc-0242"], "memory_types": ["factual"], "difficulty": "hard"}
-{"id": "q-0275", "query": "When using Q objects in ForeignKey limit_choices_to with joins, form fields show repeated dropdown entries - how does this relate to Django's ORM query deduplication?", "relevant_document_ids": ["doc-0039", "doc-0213"], "memory_types": ["factual", "procedural"], "difficulty": "hard"}
-{"id": "q-0276", "query": "Django migration system fails to properly handle squashed migrations during unapply operations, leaving inconsistent state in the migration executor", "relevant_document_ids": ["doc-0022", "doc-0175"], "memory_types": ["factual", "episodic"], "difficulty": "hard"}
+{"id": "q-0275", "query": "When using Q objects in ForeignKey limit_choices_to with joins, form fields show repeated dropdown entries - how does this relate to Django's ORM query deduplication?", "relevant_document_ids": ["doc-0039", "doc-0213"], "memory_types": ["factual"], "difficulty": "hard"}
+{"id": "q-0276", "query": "Django migration system fails to properly handle squashed migrations during unapply operations, leaving inconsistent state in the migration executor", "relevant_document_ids": ["doc-0022", "doc-0175"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0277", "query": "SymPy subs() method throws PolynomialError for certain hyperbolic sine expressions with piecewise arguments during mathematical simplification", "relevant_document_ids": ["doc-0246", "doc-0220"], "memory_types": ["factual"], "difficulty": "hard"}
-{"id": "q-0278", "query": "Django's static files hash mixing implementation yields duplicate file processing in post_process across multiple passes for nested references", "relevant_document_ids": ["doc-0060", "doc-0047"], "memory_types": ["procedural", "factual"], "difficulty": "hard"}
+{"id": "q-0278", "query": "Django's static files hash mixing implementation yields duplicate file processing in post_process across multiple passes for nested references", "relevant_document_ids": ["doc-0060", "doc-0047"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0279", "query": "PostgreSQL client environment variables ignored causing empty dict passed to subprocess instead of inheriting os.environ in Django database backend", "relevant_document_ids": ["doc-0068", "doc-0177"], "memory_types": ["factual"], "difficulty": "hard"}
-{"id": "q-0280", "query": "i18n URL patterns fail with locale identifiers containing both script and region components like en-latn-us in Django 4.1", "relevant_document_ids": ["doc-0169", "doc-0174"], "memory_types": ["factual", "semantic"], "difficulty": "hard"}
-{"id": "q-0281", "query": "ModelChoiceIteratorValue wrapper object in Django forms causes unhashable type errors when attempting to use as dictionary keys for custom data attributes", "relevant_document_ids": ["doc-0095", "doc-0132"], "memory_types": ["factual", "contextual"], "difficulty": "hard"}
+{"id": "q-0280", "query": "i18n URL patterns fail with locale identifiers containing both script and region components like en-latn-us in Django 4.1", "relevant_document_ids": ["doc-0169", "doc-0174"], "memory_types": ["factual"], "difficulty": "hard"}
+{"id": "q-0281", "query": "ModelChoiceIteratorValue wrapper object in Django forms causes unhashable type errors when attempting to use as dictionary keys for custom data attributes", "relevant_document_ids": ["doc-0095", "doc-0132"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0282", "query": "Symbol class in SymPy 1.7+ now has __dict__ attribute causing AttributeError for code that relied on symbols being slot-based objects without instance dictionaries", "relevant_document_ids": ["doc-0250", "doc-0038"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0283", "query": "Django form field validation produces duplicate entries when using Q objects with joins on ForeignKey relationships that involve multiple tables", "relevant_document_ids": ["doc-0039"], "memory_types": ["factual"], "difficulty": "hard"}
 {"id": "q-0284", "query": "How to make Django auto-reloader recognize Python modules started with custom dotted path notation like python -m foo.bar.baz instead of just foo.bar package structure", "relevant_document_ids": ["doc-0233"], "memory_types": ["factual"], "difficulty": "hard"}

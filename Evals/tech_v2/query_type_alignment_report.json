@@ -1,0 +1,364 @@
+{
+  "dataset": "tech_v2",
+  "generated_at": "2026-03-16T04:57:34Z",
+  "dry_run": false,
+  "counts": {
+    "total_queries": 284,
+    "updated_queries": 73,
+    "unresolved_queries": 0
+  },
+  "pattern_counts": {
+    "('factual', 'procedural') -> ('factual',)": 35,
+    "('procedural',) -> ('factual',)": 12,
+    "('factual', 'semantic') -> ('factual',)": 8,
+    "('factual',) -> ('episodic',)": 5,
+    "('semantic',) -> ('factual',)": 4,
+    "('factual',) -> ('procedural',)": 2,
+    "('factual', 'semantic') -> ('procedural',)": 1,
+    "('factual', 'procedural') -> ('procedural',)": 1,
+    "('factual', 'procedural', 'contextual') -> ('factual',)": 1,
+    "('episodic',) -> ('factual',)": 1,
+    "('factual', 'episodic') -> ('factual',)": 1,
+    "('procedural', 'factual') -> ('factual',)": 1,
+    "('factual', 'contextual') -> ('factual',)": 1
+  },
+  "unresolved_query_ids": [],
+  "changed_examples": [
+    {
+      "id": "q-0010",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0010"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "django formset nonform CSS class for non-form errors"
+    },
+    {
+      "id": "q-0013",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0013"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "MOD operator output_field not resolved for Decimal and Integer types"
+    },
+    {
+      "id": "q-0014",
+      "before": [
+        "factual",
+        "semantic"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0014"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "TimeSeries misleading exception when removing required column"
+    },
+    {
+      "id": "q-0015",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0015"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "loaddata crashes SQLite when table name is SQL keyword"
+    },
+    {
+      "id": "q-0016",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0016"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "export_text IndexError with single feature decision tree"
+    },
+    {
+      "id": "q-0017",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0017"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "aggregate over window functions fails after Django 4.2 upgrade"
+    },
+    {
+      "id": "q-0018",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0018"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "simplify DatabaseOperations.execute_sql_flush signature"
+    },
+    {
+      "id": "q-0019",
+      "before": [
+        "factual",
+        "semantic"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0019"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "FITSDiff reports differences identical files VLA columns"
+    },
+    {
+      "id": "q-0020",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0020"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "ManagementUtility CommandParser prog argument sys.argv"
+    },
+    {
+      "id": "q-0021",
+      "before": [
+        "factual",
+        "semantic"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0021"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "Django migration enum default uses value not name"
+    },
+    {
+      "id": "q-0022",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0022"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "squashed migration not marked unapplied Django"
+    },
+    {
+      "id": "q-0023",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0023"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "roc_curve thresholds exceed 1 probability estimate"
+    },
+    {
+      "id": "q-0024",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0024"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "TensorProduct power expand tensor_product_simp SymPy"
+    },
+    {
+      "id": "q-0042",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0042"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "xarray handle signed bytes from OPeNDAP pydap"
+    },
+    {
+      "id": "q-0043",
+      "before": [
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0043"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "sylow_subgroup IndexError DihedralGroup"
+    },
+    {
+      "id": "q-0046",
+      "before": [
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0046"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "pytest 5.1.2 ImportError conftest Windows path casing"
+    },
+    {
+      "id": "q-0047",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0047"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "MultiOutputClassifier cross_val_predict predict_proba AttributeError classes_"
+    },
+    {
+      "id": "q-0048",
+      "before": [
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0048"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "Django migration autodetector rename model field crash"
+    },
+    {
+      "id": "q-0067",
+      "before": [
+        "factual",
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0067"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "inspect.signature returns wrong params on Django manager methods"
+    },
+    {
+      "id": "q-0085",
+      "before": [
+        "procedural"
+      ],
+      "after": [
+        "factual"
+      ],
+      "relevant_document_ids": [
+        "doc-0085"
+      ],
+      "document_types": [
+        "factual"
+      ],
+      "query": "BytesWarning --setup-show bytes parameter"
+    }
+  ]
+}
