@@ -6,3 +6,4 @@ commit	component	memory_score	storage_score	recall_score	model_mb	latency_ms	sta
 5af82d8	embedding	0.271299	0.378871	0.244406	11.0	209.6	discard	embedding ckpt=sentence-transformers/all-MiniLM-L6-v2 lr=0.0003 steps=609 loss=2.1900
 5af82d8	reranker	0.293891	0.378871	0.272646	11.0	67.5	discard_full	reranker ckpt=cross-encoder/ms-marco-MiniLM-L-6-v2 lr=0.0003 steps=2638 loss=0.6770
 5af82d8	typing	0.738558	0.938235	0.272646	8.4	4.6	discard_full	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0005 steps=8361 loss=0.0866
+33f99b6	typing	0.428230	0.448355	0.381270	8.4	4.3	discard	typing ckpt=google/bert_uncased_L-2_H-128_A-2 lr=0.0005 steps=6879 loss=0.0908 reason=memory_score regressed or improved too little (delta=-0.2042)
