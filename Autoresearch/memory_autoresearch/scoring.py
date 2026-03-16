@@ -152,16 +152,22 @@ def _primary_dataset_guard(
     if long_reason is not None:
         return False, f"{phase} fail: {long_reason}"
 
+    if current_report.get("component") == "typing":
+        gold_reason = _corpus_memory_check("typing_gold_v1", current_corpora, baseline_corpora)
+        if gold_reason is not None:
+            return False, f"{phase} fail: {gold_reason}"
+
     latency_reason = _latency_guard(phase, current_corpora, baseline_corpora)
     if latency_reason is not None:
         return False, f"{phase} fail: {latency_reason}"
 
     general_delta = _corpus_delta("general", current_corpora, baseline_corpora, "memory_score")
     long_delta = _corpus_delta("longmemeval", current_corpora, baseline_corpora, "memory_score")
-    return (
-        True,
-        f"{phase} pass: general_delta={general_delta:.4f}, longmemeval_delta={long_delta:.4f}",
-    )
+    gold_delta = _corpus_delta("typing_gold_v1", current_corpora, baseline_corpora, "memory_score")
+    detail = f"{phase} pass: general_delta={general_delta:.4f}, longmemeval_delta={long_delta:.4f}"
+    if current_report.get("component") == "typing" and gold_delta is not None:
+        detail += f", typing_gold_delta={gold_delta:.4f}"
+    return (True, detail)
 
 
 def _corpus_memory_check(

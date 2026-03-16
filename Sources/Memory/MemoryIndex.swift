@@ -167,17 +167,11 @@ public actor MemoryIndex {
             allowedChunkIDs = nil
         }
 
-        let allowedMemoryTypes: Set<String>?
-        if let requestedTypes = query.memoryTypes {
-            let normalizedTypes = Set(requestedTypes.map(\.rawValue))
-            if normalizedTypes.isEmpty {
-                events?(.completed(count: 0))
-                return []
-            }
-            allowedMemoryTypes = normalizedTypes
-        } else {
-            allowedMemoryTypes = nil
+        if let requestedTypes = query.memoryTypes, requestedTypes.isEmpty {
+            events?(.completed(count: 0))
+            return []
         }
+        let allowedMemoryTypes: Set<String>? = nil
 
         let analysisStart = DispatchTime.now().uptimeNanoseconds
         let queryAnalysis = configuration.queryAnalyzer?.analyze(query: normalizedText)
@@ -281,6 +275,7 @@ public actor MemoryIndex {
             primaryQueryText: normalizedText,
             queryTags: queryTags
         )
+        fused = applyRequestedMemoryTypeFilter(fused, requestedTypes: query.memoryTypes)
         events?(.stageTiming(stage: .fusion, durationMs: elapsedMilliseconds(since: fusionStart)))
         events?(.fusedCandidates(count: fused.count))
 
@@ -597,8 +592,6 @@ public actor MemoryIndex {
         events: SearchEventHandler? = nil
     ) async throws -> MemoryRecallResponse {
         let effectiveLimit = max(1, limit)
-        let memoryTypeFilter = memoryTypes?.map(\.rawValue)
-
         switch mode {
         case let .hybrid(query):
             var queryText = query
@@ -681,18 +674,28 @@ public actor MemoryIndex {
             }
 
             let rows: [StoredChunkMetadata]
+            let fetchLimit: Int
+            if memoryTypes == nil {
+                fetchLimit = effectiveLimit
+            } else {
+                fetchLimit = min(max(effectiveLimit * 50, effectiveLimit), 1_000)
+            }
             do {
                 rows = try await storage.listMemoryMetadata(
-                    limit: effectiveLimit,
+                    limit: fetchLimit,
                     sort: sortMode,
                     memoryCategory: categoryFilter,
-                    allowedMemoryTypes: memoryTypeFilter.map(Set.init)
+                    allowedMemoryTypes: nil
                 )
             } catch {
                 throw normalizeError(error)
             }
 
-            let records = rows.map { makeMemoryRecord(from: $0, score: nil) }
+            let filteredRows = Array(
+                applyRequestedMemoryTypeFilter(rows, requestedTypes: memoryTypes)
+                    .prefix(effectiveLimit)
+            )
+            let records = filteredRows.map { makeMemoryRecord(from: $0, score: nil) }
             do {
                 try await storage.recordChunkAccesses(records.map { $0.chunkID })
             } catch {
@@ -1517,6 +1520,63 @@ public actor MemoryIndex {
             }
             .prefix(candidatePoolLimit(for: query))
             .map { $0 }
+    }
+
+    private func applyRequestedMemoryTypeFilter(
+        _ results: [SearchResult],
+        requestedTypes: Set<MemoryType>?
+    ) -> [SearchResult] {
+        guard let requestedTypes, !requestedTypes.isEmpty else { return results }
+        return results.filter { result in
+            shouldIncludeInTypedResults(
+                assignment: MemoryTypeAssignment(
+                    type: result.memoryType,
+                    source: result.memoryTypeSource,
+                    confidence: result.memoryTypeConfidence,
+                    classifierID: nil
+                ),
+                requestedTypes: requestedTypes
+            )
+        }
+    }
+
+    private func applyRequestedMemoryTypeFilter(
+        _ rows: [StoredChunkMetadata],
+        requestedTypes: Set<MemoryType>?
+    ) -> [StoredChunkMetadata] {
+        guard let requestedTypes, !requestedTypes.isEmpty else { return rows }
+        return rows.filter { row in
+            shouldIncludeInTypedResults(
+                assignment: resolveMemoryAssignment(
+                    typeRaw: row.memoryType,
+                    sourceRaw: row.memoryTypeSource,
+                    confidence: row.memoryTypeConfidence
+                ),
+                requestedTypes: requestedTypes
+            )
+        }
+    }
+
+    private func shouldIncludeInTypedResults(
+        assignment: MemoryTypeAssignment,
+        requestedTypes: Set<MemoryType>
+    ) -> Bool {
+        guard !requestedTypes.isEmpty else { return true }
+        if requestedTypes.contains(assignment.type) {
+            return true
+        }
+
+        switch assignment.source {
+        case .manual:
+            return false
+        case .fallback:
+            return true
+        case .automatic:
+            guard let confidence = assignment.confidence, confidence.isFinite else {
+                return true
+            }
+            return confidence < configuration.memoryTyping.minimumConfidenceForFilter
+        }
     }
 
     private func buildExpandedQueries(

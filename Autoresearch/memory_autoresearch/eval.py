@@ -9,7 +9,7 @@ import coremltools as ct
 import numpy as np
 
 from .cache import metrics_path
-from .config import CORPUS_SCORE_WEIGHTS, MEMORY_TYPE_TO_INDEX
+from .config import COMPONENT_CORPUS_SCORE_WEIGHTS, MEMORY_TYPE_TO_INDEX
 from .scoring import EvalMetrics, build_memory_score, compute_recall_score, compute_storage_score
 from .tokenization import BertTokenizerAdapter
 from .upstream import install_artifact_into_upstream, restore_baseline_artifacts, run_memory_eval
@@ -302,7 +302,7 @@ def _aggregate_corpus_metrics(
     weighted_ndcg = 0.0
     total_weight = 0.0
     for corpus, metrics in corpus_metrics.items():
-        weight = CORPUS_SCORE_WEIGHTS.get(corpus, 0.0)
+        weight = COMPONENT_CORPUS_SCORE_WEIGHTS.get(component, {}).get(corpus, 0.0)
         if weight <= 0:
             continue
         total_weight += weight

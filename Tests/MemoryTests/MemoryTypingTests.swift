@@ -205,6 +205,84 @@ struct MemoryTypingTests {
     }
 
     @Test
+    func lowConfidenceAutomaticTypingDoesNotOverConstrainTypedSearch() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("note.md"),
+            "Shared keyword alpha appears in this architecture migration note."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                memoryTyping: MemoryTypingConfiguration(
+                    mode: .automatic,
+                    classifier: StaticMemoryTypeClassifier(
+                        assignment: MemoryTypeAssignment(
+                            type: .procedural,
+                            source: .automatic,
+                            confidence: 0.42
+                        )
+                    ),
+                    fallbackType: .factual,
+                    minimumConfidenceForFilter: 0.75
+                )
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let filtered = try await index.search(
+            SearchQuery(text: "shared keyword alpha", limit: 20, memoryTypes: [.semantic])
+        )
+
+        #expect(filtered.isEmpty == false)
+        #expect(filtered.contains(where: { $0.documentPath.hasSuffix("note.md") }))
+        #expect(filtered.first?.memoryType == .procedural)
+    }
+
+    @Test
+    func highConfidenceAutomaticTypingStillConstrainsTypedSearch() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("note.md"),
+            "Shared keyword alpha appears in this architecture migration note."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                memoryTyping: MemoryTypingConfiguration(
+                    mode: .automatic,
+                    classifier: StaticMemoryTypeClassifier(
+                        assignment: MemoryTypeAssignment(
+                            type: .procedural,
+                            source: .automatic,
+                            confidence: 0.96
+                        )
+                    ),
+                    fallbackType: .factual,
+                    minimumConfidenceForFilter: 0.75
+                )
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let filtered = try await index.search(
+            SearchQuery(text: "shared keyword alpha", limit: 20, memoryTypes: [.semantic])
+        )
+
+        #expect(filtered.isEmpty)
+    }
+
+    @Test
     func setDocumentMemoryTypeUpdatesAllChunksForThatDocument() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

@@ -94,11 +94,14 @@ let config = MemoryConfiguration(
     memoryTyping: MemoryTypingConfiguration(
         mode: .automatic,
         classifier: typing,
-        fallbackType: .factual
+        fallbackType: .factual,
+        minimumConfidenceForFilter: 0.75
     )
 )
 let index = try MemoryIndex(configuration: config)
 ```
+
+Typed retrieval treats low-confidence automatic labels as advisory. Manual labels still filter strictly, but low-confidence automatic or fallback labels remain eligible so weak typing does not hide relevant memories.
 
 ## Recommended Public API Surface
 

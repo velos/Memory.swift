@@ -10,9 +10,11 @@ from typing import Iterable
 
 from .cache import datasets_root
 from .config import (
+    FULL_EVAL_CORPORA,
     MEMORY_TYPE_TO_INDEX,
     QUICK_EVAL_CORPORA,
     RANDOM_SEED,
+    TYPING_GOLD_CORPORA,
     TRAINING_CORPORA,
 )
 
@@ -274,6 +276,14 @@ def build_eval_splits(root: Path) -> tuple[dict[str, list], dict[str, list], dic
         storage_cases = load_storage_cases(root, corpus)
         recall_documents = load_recall_documents(root, corpus)
         recall_queries = load_recall_queries(root, corpus)
+        if corpus in TYPING_GOLD_CORPORA:
+            quick_storage.extend(storage_cases)
+            full_storage.extend(storage_cases)
+            quick_documents.extend(recall_documents)
+            quick_queries.extend(recall_queries)
+            full_documents.extend(recall_documents)
+            full_queries.extend(recall_queries)
+            continue
         _, held_storage = _stratified_split(
             storage_cases,
             key_fn=lambda item: item.expected_memory_type,
@@ -303,7 +313,9 @@ def build_eval_splits(root: Path) -> tuple[dict[str, list], dict[str, list], dic
         full_documents.extend(full_documents_for_corpus)
         full_queries.extend(full_queries_for_corpus)
 
-    for corpus in ("tech",):
+    for corpus in FULL_EVAL_CORPORA:
+        if corpus in QUICK_EVAL_CORPORA:
+            continue
         full_storage.extend(load_storage_cases(root, corpus))
         full_documents.extend(load_recall_documents(root, corpus))
         full_queries.extend(load_recall_queries(root, corpus))

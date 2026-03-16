@@ -1362,8 +1362,11 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     let recallQueries: [RecallQueryCase] = try loadJSONLines(from: recallQueriesURL)
 
     guard !storageCases.isEmpty else { throw ValidationError("storage_cases.jsonl must contain at least one case.") }
-    guard !recallDocuments.isEmpty else { throw ValidationError("recall_documents.jsonl must contain at least one document.") }
-    guard !recallQueries.isEmpty else { throw ValidationError("recall_queries.jsonl must contain at least one query.") }
+    if recallDocuments.isEmpty != recallQueries.isEmpty {
+        throw ValidationError(
+            "recall_documents.jsonl and recall_queries.jsonl must both be empty or both contain records."
+        )
+    }
 
     return DatasetBundle(
         storageCases: storageCases,
@@ -1717,6 +1720,23 @@ private func runRecallSuite(
     verbose: Bool,
     responseCache: EvalResponseCache?
 ) async throws -> RecallSuiteRunOutput {
+    if documents.isEmpty || queries.isEmpty {
+        return RecallSuiteRunOutput(
+            report: RecallSuiteReport(
+                totalQueries: 0,
+                kValues: kValues,
+                metricsByK: kValues.map { RecallPerKMetric(k: $0, hitRate: 0, recall: 0, mrr: 0, ndcg: 0) },
+                queryResults: [],
+                perTypeMetrics: nil,
+                perDifficultyMetrics: nil,
+                latencyStats: nil,
+                stageLatencyStats: nil,
+                candidateCountStats: nil
+            ),
+            notes: ["No recall documents or queries were provided; recall suite skipped."]
+        )
+    }
+
     let indexSeed = recallIndexCacheSeed(profile: profile, documents: documents)
     let workspace = try prepareIndexWorkspace(
         suite: .recall,

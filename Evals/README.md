@@ -180,6 +180,14 @@ Useful MiniMax modes:
 - `longmemeval-typed-queries`: add `memory_types` and `difficulty` labels to an existing converted LongMemEval dataset.
 - `adversarial-augment`: append hard retrieval queries to an existing dataset.
 
+Build the curated typing gold set from staged corpora:
+
+```bash
+python3 Scripts/build_typing_gold.py
+```
+
+This writes `Evals/typing_gold_v1`, a small storage-only benchmark with two audited cases per memory type.
+
 Generate datasets with Codex (ChatGPT-authenticated) using small atomic batches:
 
 ```bash

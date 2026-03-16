@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import Memory
 import MemoryAppleIntelligence
+import MemoryCoreMLEmbedding
 import MemoryNaturalLanguage
 
 struct StoredCollection: Codable, Hashable {
@@ -102,13 +103,14 @@ struct CLIContext {
     func makeIndex() throws -> MemoryIndex {
         var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
         var typingConfiguration = configuration.memoryTyping
+        let baseTypingClassifier = makePreferredTypingClassifier()
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
             typingConfiguration.classifier = FallbackMemoryTypeClassifier(
                 primary: AppleIntelligenceMemoryTypeClassifier(),
-                fallback: HeuristicMemoryTypeClassifier()
+                fallback: baseTypingClassifier
             )
         } else {
-            typingConfiguration.classifier = HeuristicMemoryTypeClassifier()
+            typingConfiguration.classifier = baseTypingClassifier
         }
         configuration.memoryTyping = typingConfiguration
 
@@ -128,6 +130,35 @@ struct CLIContext {
         }
         return collection
     }
+}
+
+private enum CLIDefaultCoreMLModels {
+    static let typing = "typing-v1"
+}
+
+private func makePreferredTypingClassifier() -> any MemoryTypeClassifier {
+    guard let modelURL = resolveDefaultTypingModelURL() else {
+        return HeuristicMemoryTypeClassifier()
+    }
+    return (try? CoreMLMemoryTypeClassifier(modelURL: modelURL)) ?? HeuristicMemoryTypeClassifier()
+}
+
+private func resolveDefaultTypingModelURL() -> URL? {
+    let fileManager = FileManager.default
+    let environment = ProcessInfo.processInfo.environment
+    if let raw = environment["MEMORY_TYPING_MODEL_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !raw.isEmpty,
+       fileManager.fileExists(atPath: raw) {
+        return URL(fileURLWithPath: raw)
+    }
+
+    let filename = "\(CLIDefaultCoreMLModels.typing).mlpackage"
+    let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+    let candidates = [
+        cwd.appendingPathComponent("Models").appendingPathComponent(filename),
+        cwd.deletingLastPathComponent().appendingPathComponent("Models").appendingPathComponent(filename),
+    ]
+    return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
 }
 
 @main

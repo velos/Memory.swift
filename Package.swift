@@ -72,6 +72,7 @@ let package = Package(
                 "Memory",
                 "MemoryNaturalLanguage",
                 "MemoryAppleIntelligence",
+                "MemoryCoreMLEmbedding",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/MemoryCLI"

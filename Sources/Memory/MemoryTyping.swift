@@ -64,22 +64,26 @@ public struct MemoryTypingConfiguration: Sendable {
     public var mode: MemoryTypingMode
     public var classifier: (any MemoryTypeClassifier)?
     public var fallbackType: MemoryType
+    public var minimumConfidenceForFilter: Double
 
     public init(
         mode: MemoryTypingMode = .automatic,
         classifier: (any MemoryTypeClassifier)? = HeuristicMemoryTypeClassifier(),
-        fallbackType: MemoryType = .factual
+        fallbackType: MemoryType = .factual,
+        minimumConfidenceForFilter: Double = 0.75
     ) {
         self.mode = mode
         self.classifier = classifier
         self.fallbackType = fallbackType
+        self.minimumConfidenceForFilter = min(1, max(0, minimumConfidenceForFilter))
     }
 
     public static var `default`: MemoryTypingConfiguration {
         MemoryTypingConfiguration(
             mode: .automatic,
             classifier: HeuristicMemoryTypeClassifier(),
-            fallbackType: .factual
+            fallbackType: .factual,
+            minimumConfidenceForFilter: 0.75
         )
     }
 }

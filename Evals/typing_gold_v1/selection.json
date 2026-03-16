@@ -1,0 +1,122 @@
+[
+  {
+    "id": "factual-001",
+    "source_corpus": "tech_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0001"
+  },
+  {
+    "id": "factual-002",
+    "source_corpus": "general_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0003"
+  },
+  {
+    "id": "procedural-001",
+    "source_corpus": "tech_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0112"
+  },
+  {
+    "id": "procedural-002",
+    "source_corpus": "general_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0013"
+  },
+  {
+    "id": "episodic-001",
+    "source_corpus": "general_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0009"
+  },
+  {
+    "id": "episodic-002",
+    "source_corpus": "longmemeval_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-answer_39900a0a_1"
+  },
+  {
+    "id": "semantic-001",
+    "source_corpus": "general_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0081"
+  },
+  {
+    "id": "semantic-002",
+    "source_corpus": "longmemeval_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-answer_555dfb94"
+  },
+  {
+    "id": "contextual-001",
+    "source_corpus": "general_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-0152"
+  },
+  {
+    "id": "contextual-002",
+    "source_corpus": "longmemeval_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-answer_a7b44747_1"
+  },
+  {
+    "id": "temporal-001",
+    "source_corpus": "longmemeval_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-answer_e936197f_1"
+  },
+  {
+    "id": "temporal-002",
+    "source_corpus": "longmemeval_v2",
+    "source_kind": "storage_case",
+    "source_id": "storage-answer_6ea1541e_2"
+  },
+  {
+    "id": "emotional-001",
+    "source_corpus": "general_v2",
+    "source_kind": "recall_document",
+    "source_id": "doc-0463",
+    "expected_memory_type": "emotional",
+    "required_spans": [
+      "Veteran suicide prevention",
+      "You re not alone",
+      "Veterans Crisis Line"
+    ]
+  },
+  {
+    "id": "emotional-002",
+    "source_corpus": "general_v2",
+    "source_kind": "recall_document",
+    "source_id": "doc-0672",
+    "expected_memory_type": "emotional",
+    "required_spans": [
+      "battle with anxiety",
+      "Mind Matters",
+      "Real People, Real Stories"
+    ]
+  },
+  {
+    "id": "social-001",
+    "source_corpus": "general_v2",
+    "source_kind": "recall_document",
+    "source_id": "doc-0679",
+    "expected_memory_type": "social",
+    "required_spans": [
+      "Multicultural Summer Fiesta",
+      "The Harmony Project",
+      "crosscultural empathy and unity"
+    ]
+  },
+  {
+    "id": "social-002",
+    "source_corpus": "general_v2",
+    "source_kind": "recall_document",
+    "source_id": "doc-0798",
+    "expected_memory_type": "social",
+    "required_spans": [
+      "Support Your Local Amateur Sports Teams",
+      "our collective identity",
+      "Roseville Ravens"
+    ]
+  }
+]
