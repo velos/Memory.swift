@@ -287,6 +287,9 @@ python3 Scripts/audit_eval_data.py \
   --packet ./Evals/_audit/general_v2/packet.jsonl \
   --backend opencode \
   --model opencode/nemotron-3-super-free
+
+python3 Scripts/merge_audit_results.py \
+  --packet ./Evals/_audit/general_v2/packet.jsonl
 ```
 
 Convert public eval corpora:

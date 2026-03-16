@@ -124,6 +124,23 @@ python3 Scripts/audit_eval_data.py \
 
 `audit_eval_data.py` writes `audit_results.<backend>.jsonl` beside the packet. It does not modify the datasets. Use the audit results to decide which rows should be manually corrected or regenerated with `tag_eval_data_minimax.py`.
 
+Merge review queues plus both model outputs into one triage report:
+
+```bash
+python3 Scripts/merge_audit_results.py \
+  --packet ./Evals/_audit/tech_v2/packet.jsonl
+```
+
+This writes:
+- `triage.jsonl`
+- `triage.md`
+- `triage.summary.json`
+
+Use `triage.md` as the manual review inbox. The merge step prioritizes:
+- any row already in `review_queue.jsonl`
+- any `needs_edit` or `reject` verdict
+- any disagreement between `opencode` and MiniMax
+
 ## Staged Public Corpus Workflow
 
 Use this when replacing or upgrading the default synthetic corpora with public, commercially safe datasets:

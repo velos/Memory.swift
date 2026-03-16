@@ -1,0 +1,23 @@
+{
+  "dataset": "longmemeval_v2",
+  "mode": "queries",
+  "generated_at": "2026-03-15T23:54:11Z",
+  "counts": {
+    "input_queries": 188,
+    "processed_queries": 9,
+    "kept_queries": 181,
+    "dropped_queries": 7,
+    "updated_queries": 2,
+    "unresolved_queries": 0
+  },
+  "dropped_query_ids": [
+    "q-69fee5aa",
+    "q-e3fc4d6e",
+    "q-e47becba",
+    "q-e48988bc",
+    "q-e56a43b9",
+    "q-e5ba910e_abs",
+    "q-e6041065"
+  ],
+  "unresolved_query_ids": []
+}
