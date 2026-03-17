@@ -1,0 +1,2502 @@
+{
+  "activityEntities" : [
+    "evaluationStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T05:26:14Z",
+        "event" : "evaluationStarted",
+        "id" : "60AFAA90-A95E-482E-93EA-AE9BD9571063",
+        "subtitle" : "Balanced BERT 80 Iterations",
+        "title" : "Testing Started"
+      }
+    ],
+    "trainingDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T05:24:06Z",
+        "event" : "trainingDataAdded",
+        "id" : "539F2BAC-1005-43E4-A8BB-4360DDC0B4F2",
+        "subtitle" : "typing_train_balanced_createml.csv",
+        "title" : "Training Data Added"
+      }
+    ],
+    "experimentCreated",
+    [
+      {
+        "createdDate" : "2026-03-17T05:24:06Z",
+        "event" : "experimentCreated",
+        "id" : "4AAEBA6E-F4AE-4CD4-B5BB-9FE7073A8816",
+        "subtitle" : "Balanced BERT 80 Iterations",
+        "title" : "Model Source Created"
+      }
+    ],
+    "trainingFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T05:26:12Z",
+        "event" : "trainingFinished",
+        "id" : "2534B3DE-3E6D-4379-A54C-6D5A4003756F",
+        "subtitle" : "80 iterations",
+        "title" : "Training Completed"
+      }
+    ],
+    "evaluationFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T05:26:16Z",
+        "event" : "evaluationFinished",
+        "id" : "C4785D5B-D7B2-4747-879D-3EE71590E9ED",
+        "subtitle" : "Balanced BERT 80 Iterations",
+        "title" : "Testing Completed"
+      }
+    ],
+    "evaluationDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T05:24:06Z",
+        "event" : "evaluationDataAdded",
+        "id" : "588A8B81-8439-464D-B550-C954BE6F3E2E",
+        "subtitle" : "typing_test_balanced_createml.csv",
+        "title" : "Testing Data Added"
+      }
+    ],
+    "trainingStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T05:24:19Z",
+        "event" : "trainingStarted",
+        "id" : "EEC2A24D-7151-4CA5-A075-74955B16F3FF",
+        "subtitle" : "80 iterations",
+        "title" : "Training Started"
+      }
+    ]
+  ],
+  "contentDataResult" : {
+    "createdDate" : "2026-03-17T04:42:51Z"
+  },
+  "createdDate" : "2026-03-17T05:24:06Z",
+  "evaluationContainerEntity" : {
+    "createdDate" : "2026-03-17T05:26:16Z",
+    "evaluationEntities" : [
+
+    ],
+    "id" : "b5087b06-49de-4e6c-b679-f2cfadfe442b",
+    "modifiedDate" : "2026-03-17T05:26:16Z",
+    "previewType" : "textClassifier",
+    "testingEvaluationEntity" : {
+      "accuracy" : 0.6875,
+      "analysedDataType" : "datasource",
+      "createdDate" : "2026-03-17T05:24:06Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T05:24:06Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 24,
+              "emotional" : 24,
+              "episodic" : 24,
+              "factual" : 24,
+              "procedural" : 24,
+              "semantic" : 24,
+              "social" : 24,
+              "temporal" : 24
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including contextual, emotional, social",
+              "severity" : "debug"
+            },
+            {
+              "description" : "192 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"procedural\" with 24 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"contextual\" with 24 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 192
+          }
+        },
+        "dataSourceID" : "BF0C4AE7-3DB0-49C2-B107-D96D9BCC21CE",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_balanced_createml.csv",
+        "itemsCount" : 192
+      },
+      "dataSourceID" : "BF0C4AE7-3DB0-49C2-B107-D96D9BCC21CE",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.6875,
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.375,
+                  "recall" : 0.5
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.7037037037037037,
+                  "recall" : 0.7916666666666666
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5,
+                  "recall" : 0.625
+                }
+              }
+            },
+            "factual" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9166666666666666,
+                  "recall" : 0.9166666666666666
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.96,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.75,
+                  "recall" : 0.625
+                }
+              }
+            },
+            "social" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9375,
+                  "recall" : 0.625
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5555555555555556,
+                  "recall" : 0.4166666666666667
+                }
+              }
+            }
+          }
+        }
+      },
+      "finishTime" : "2026-03-17T05:26:16Z",
+      "id" : "af334736-cda5-4bb9-ad7e-4f40fb52fbac",
+      "startTime" : "2026-03-17T05:26:14Z"
+    },
+    "trainingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-03-17T05:24:06Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T05:24:06Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 218,
+              "emotional" : 218,
+              "episodic" : 218,
+              "factual" : 218,
+              "procedural" : 218,
+              "semantic" : 218,
+              "social" : 218,
+              "temporal" : 218
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including contextual, emotional, social",
+              "severity" : "debug"
+            },
+            {
+              "description" : "1744 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"factual\" with 218 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"contextual\" with 218 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 1744
+          }
+        },
+        "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_balanced_createml.csv",
+        "itemsCount" : 1744
+      },
+      "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.987929993964997,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 189,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 6,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 5,
+              "expected" : "social"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 206,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 207,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "factual",
+              "count" : 208,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 213,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 204,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 1,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "social",
+              "count" : 1,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "social",
+              "count" : 207,
+              "expected" : "social"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 6,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 203,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 201,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9947368421052631,
+                  "recall" : 0.9402985074626866
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 206,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9951690821256038,
+                  "recall" : 1
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 207,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9409090909090909,
+                  "recall" : 1
+                }
+              }
+            },
+            "factual" : {
+              "count" : 208,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 213,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 204,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "social" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9764150943396226,
+                  "recall" : 0.9904306220095693
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 0.9712918660287081
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "d20b6f1e-f797-401f-abc6-8c2840d86845"
+    },
+    "validationEvaluationEntity" : {
+      "analysedDataType" : "auto",
+      "createdDate" : "2026-03-17T05:24:06Z",
+      "dataResult" : {
+        "createdDate" : "2026-03-17T05:24:06Z"
+      },
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.7126436781609196,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 7,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 3,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 3,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 10,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 2,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 10,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "factual",
+              "count" : 10,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 5,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 14,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "social",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "social",
+              "count" : 2,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "social",
+              "count" : 3,
+              "expected" : "social"
+            },
+            {
+              "actual" : "social",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 3,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 17,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.6363636363636364,
+                  "recall" : 0.4117647058823529
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 12,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5882352941176471,
+                  "recall" : 0.8333333333333334
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 11,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5263157894736842,
+                  "recall" : 0.9090909090909091
+                }
+              }
+            },
+            "factual" : {
+              "count" : 10,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 5,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.7142857142857143,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 14,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "social" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 0.3333333333333333
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5,
+                  "recall" : 0.3333333333333333
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "76b8e4b6-f6a1-41a5-92e7-2efb90b57628"
+    }
+  },
+  "evaluationEntity" : {
+    "analysedDataType" : "none",
+    "dataResult" : {
+
+    },
+    "id" : "cacf9902-76b8-40bc-ae37-e16d194f5473"
+  },
+  "evaluationState" : "evaluated",
+  "id" : "0C8B8DA6-677B-4FD2-AD71-457CC1F86E44",
+  "modelEntity" : {
+    "createdDate" : "2026-03-17T05:24:06Z",
+    "experimentID" : "576FD79A-C9F5-4B4D-BD1A-4FA50CFABF89",
+    "id" : "34928EED-0315-4A33-A2A4-4595EF3387C2",
+    "modelURL" : "Models/Balanced%20BERT%2080%20Iterations.mlmodel",
+    "modifiedDate" : "2026-03-17T05:24:06Z",
+    "title" : "",
+    "version" : "1.0"
+  },
+  "modifiedDate" : "2026-03-17T05:26:16Z",
+  "preferredFilename" : "Balanced BERT 80 Iterations",
+  "settingEntity" : {
+    "algorithmType" : "transferLearning",
+    "augmentations" : [
+
+    ],
+    "featureNames" : [
+
+    ],
+    "handActionClassifierAugmentations" : [
+
+    ],
+    "handPoseClassifierAugmentations" : [
+
+    ],
+    "harVideoAugmentations" : 0,
+    "iterationCount" : 80,
+    "seedType" : "default",
+    "styleTransferAlgorithmType" : "image",
+    "taskType" : "textClassifier",
+    "textClassifierArabicLanguage" : "automatic",
+    "textClassifierCJKLanguage" : "automatic",
+    "textClassifierCyrillicLanguage" : "automatic",
+    "textClassifierIndicLanguage" : "automatic",
+    "textClassifierLatin" : "english",
+    "textClassifierScript" : "latin",
+    "textClassifierThaiLanguage" : "automatic",
+    "transferLearningEmbeddingType" : "bert"
+  },
+  "snapshotRole" : {
+    "withoutSnapshots" : 0
+  },
+  "state" : "trained",
+  "title" : "Balanced BERT 40 Iterations copy",
+  "trainingEntity" : {
+    "analysedDataType" : "datasource",
+    "checkpointMetrics" : {
+
+    },
+    "dataResult" : {
+      "classesCount" : 8,
+      "createdDate" : "2026-03-17T05:24:06Z",
+      "dataAnalysis" : {
+        "classifierAnalysis" : {
+          "labelStats" : {
+            "contextual" : 218,
+            "emotional" : 218,
+            "episodic" : 218,
+            "factual" : 218,
+            "procedural" : 218,
+            "semantic" : 218,
+            "social" : 218,
+            "temporal" : 218
+          }
+        },
+        "issues" : [
+          {
+            "description" : "8 classes found, including contextual, emotional, social",
+            "severity" : "debug"
+          },
+          {
+            "description" : "1744 texts found, automatically creating validation set",
+            "severity" : "good"
+          },
+          {
+            "description" : "Smallest class is \"factual\" with 218 texts",
+            "severity" : "debug"
+          },
+          {
+            "description" : "Largest class is \"contextual\" with 218 text",
+            "severity" : "debug"
+          }
+        ],
+        "objectDetectorAnalysis" : {
+          "details" : {
+
+          }
+        },
+        "summary" : {
+          "canUseValidation" : 1,
+          "classCount" : 8,
+          "sampleCount" : 1744
+        }
+      },
+      "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+      "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_balanced_createml.csv",
+      "itemsCount" : 1744
+    },
+    "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+    "featureExtractionCheckpointMayBeAvailable" : false,
+    "finishTime" : "2026-03-17T05:26:12Z",
+    "progress" : [
+      {
+        "count" : 1,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 80,
+          "trainingAccuracy" : 0.3653381729125977,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 2,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 79,
+          "trainingAccuracy" : 0.4390096664428711,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 3,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 78,
+          "trainingAccuracy" : 0.5181159591674804,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 4,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 77,
+          "trainingAccuracy" : 0.565217399597168,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 5,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 76,
+          "trainingAccuracy" : 0.6092995071411133,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 6,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 75,
+          "trainingAccuracy" : 0.6092995071411133,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 7,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 74,
+          "trainingAccuracy" : 0.6449275207519531,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 8,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 73,
+          "trainingAccuracy" : 0.6449275207519531,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 9,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 72,
+          "trainingAccuracy" : 0.6721014404296874,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 10,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 71,
+          "trainingAccuracy" : 0.6721014404296874,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 11,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 70,
+          "trainingAccuracy" : 0.7107488250732422,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 12,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 69,
+          "trainingAccuracy" : 0.7107488250732422,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 13,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 68,
+          "trainingAccuracy" : 0.7107488250732422,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 14,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 67,
+          "trainingAccuracy" : 0.740338134765625,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 15,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 66,
+          "trainingAccuracy" : 0.7367150115966797,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 16,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 65,
+          "trainingAccuracy" : 0.7367150115966797,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 17,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 64,
+          "trainingAccuracy" : 0.7560386657714844,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 18,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 63,
+          "trainingAccuracy" : 0.7560386657714844,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 19,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 62,
+          "trainingAccuracy" : 0.7759661865234375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 20,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 61,
+          "trainingAccuracy" : 0.7814009857177734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 21,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 60,
+          "trainingAccuracy" : 0.7814009857177734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 22,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 59,
+          "trainingAccuracy" : 0.7814009857177734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 23,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 58,
+          "trainingAccuracy" : 0.7814009857177734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 24,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 57,
+          "trainingAccuracy" : 0.7946859741210938,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 25,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 56,
+          "trainingAccuracy" : 0.7946859741210938,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 26,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 55,
+          "trainingAccuracy" : 0.7946859741210938,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 27,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 54,
+          "trainingAccuracy" : 0.7946859741210938,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 28,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 53,
+          "trainingAccuracy" : 0.85386474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 29,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 52,
+          "trainingAccuracy" : 0.85386474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 30,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 51,
+          "trainingAccuracy" : 0.85386474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 31,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 50,
+          "trainingAccuracy" : 0.85386474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 32,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 49,
+          "trainingAccuracy" : 0.8460144805908203,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 33,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 48,
+          "trainingAccuracy" : 0.8460144805908203,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 34,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 47,
+          "trainingAccuracy" : 0.8460144805908203,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 35,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 46,
+          "trainingAccuracy" : 0.8435990142822266,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 36,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 45,
+          "trainingAccuracy" : 0.8435990142822266,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 37,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 44,
+          "trainingAccuracy" : 0.8544686126708985,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 38,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 43,
+          "trainingAccuracy" : 0.8544686126708985,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 39,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 42,
+          "trainingAccuracy" : 0.8140096282958984,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 40,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 41,
+          "trainingAccuracy" : 0.8454106140136719,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 41,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 40,
+          "trainingAccuracy" : 0.8454106140136719,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 42,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 39,
+          "trainingAccuracy" : 0.8454106140136719,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 43,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 38,
+          "trainingAccuracy" : 0.875,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 44,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 37,
+          "trainingAccuracy" : 0.9021739196777344,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 45,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 36,
+          "trainingAccuracy" : 0.9021739196777344,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 46,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 35,
+          "trainingAccuracy" : 0.9021739196777344,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 47,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 34,
+          "trainingAccuracy" : 0.9021739196777344,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 48,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 33,
+          "trainingAccuracy" : 0.9287439727783203,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 49,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 32,
+          "trainingAccuracy" : 0.9486714935302735,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 50,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 31,
+          "trainingAccuracy" : 0.9486714935302735,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 51,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 30,
+          "trainingAccuracy" : 0.9486714935302735,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 52,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 29,
+          "trainingAccuracy" : 0.9673912811279297,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 53,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 28,
+          "trainingAccuracy" : 0.9716183471679688,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 54,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 27,
+          "trainingAccuracy" : 0.9643719482421875,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 55,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 26,
+          "trainingAccuracy" : 0.9643719482421875,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 56,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 25,
+          "trainingAccuracy" : 0.9643719482421875,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 57,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 24,
+          "trainingAccuracy" : 0.9643719482421875,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 58,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 23,
+          "trainingAccuracy" : 0.97886474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 59,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 22,
+          "trainingAccuracy" : 0.97886474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 60,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 21,
+          "trainingAccuracy" : 0.97886474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 61,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 20,
+          "trainingAccuracy" : 0.97886474609375,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 62,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 19,
+          "trainingAccuracy" : 0.9758454132080078,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 63,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 18,
+          "trainingAccuracy" : 0.9758454132080078,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 64,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 17,
+          "trainingAccuracy" : 0.9758454132080078,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 65,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 16,
+          "trainingAccuracy" : 0.9794686126708985,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 66,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 15,
+          "trainingAccuracy" : 0.9794686126708985,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 67,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 14,
+          "trainingAccuracy" : 0.9909420013427734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 68,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 13,
+          "trainingAccuracy" : 0.9909420013427734,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 69,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 12,
+          "trainingAccuracy" : 0.9891304016113281,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 70,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 11,
+          "trainingAccuracy" : 0.9891304016113281,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 71,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 10,
+          "trainingAccuracy" : 0.9818840789794921,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 72,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 9,
+          "trainingAccuracy" : 0.9879226684570312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 73,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 8,
+          "trainingAccuracy" : 0.9879226684570312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 74,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 7,
+          "trainingAccuracy" : 0.9879226684570312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 75,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 6,
+          "trainingAccuracy" : 0.9879226684570312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 76,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 5,
+          "trainingAccuracy" : 0.9891304016113281,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 77,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 4,
+          "trainingAccuracy" : 0.9861111450195312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 78,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 3,
+          "trainingAccuracy" : 0.9861111450195312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 79,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 2,
+          "trainingAccuracy" : 0.9861111450195312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 80,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 1,
+          "trainingAccuracy" : 0.9861111450195312,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 157,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 257,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 357,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 457,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 557,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 657,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 757,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 857,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 957,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1057,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1157,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1257,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1357,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1457,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1557,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1657,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 0
+      }
+    ],
+    "snapshottableCheckpoints" : {
+
+    },
+    "startTime" : "2026-03-17T05:24:19Z",
+    "trainingAccuracy" : 0.987929993964997,
+    "trainingResults" : {
+      "textClassifier" : {
+        "accuracy" : 0.987929993964997,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 189,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 6,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 5,
+            "expected" : "social"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 206,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 207,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "factual",
+            "count" : 208,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 213,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 204,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 1,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "social",
+            "count" : 1,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "social",
+            "count" : 207,
+            "expected" : "social"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 6,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 203,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 201,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9947368421052631,
+                "recall" : 0.9402985074626866
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 206,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9951690821256038,
+                "recall" : 1
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 207,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9409090909090909,
+                "recall" : 1
+              }
+            }
+          },
+          "factual" : {
+            "count" : 208,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 213,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 204,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "social" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9764150943396226,
+                "recall" : 0.9904306220095693
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 0.9712918660287081
+              }
+            }
+          }
+        }
+      }
+    },
+    "validationAccuracy" : 0.7126436781609196,
+    "validationResults" : {
+      "textClassifier" : {
+        "accuracy" : 0.7126436781609196,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 7,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 3,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 3,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 10,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 2,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 10,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "factual",
+            "count" : 10,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 5,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 14,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "social",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "social",
+            "count" : 2,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "social",
+            "count" : 3,
+            "expected" : "social"
+          },
+          {
+            "actual" : "social",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 3,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 17,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.6363636363636364,
+                "recall" : 0.4117647058823529
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 12,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5882352941176471,
+                "recall" : 0.8333333333333334
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 11,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5263157894736842,
+                "recall" : 0.9090909090909091
+              }
+            }
+          },
+          "factual" : {
+            "count" : 10,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 5,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.7142857142857143,
+                "recall" : 1
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 14,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "social" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 0.3333333333333333
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5,
+                "recall" : 0.3333333333333333
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "validationEntity" : {
+    "analysedDataType" : "auto",
+    "dataResult" : {
+      "createdDate" : "2026-03-17T05:24:06Z"
+    },
+    "splitOptions" : {
+      "strategy" : {
+        "automatic" : {
+
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

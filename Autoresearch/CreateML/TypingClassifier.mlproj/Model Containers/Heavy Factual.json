@@ -1,0 +1,1929 @@
+{
+  "activityEntities" : [
+    "evaluationDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:08Z",
+        "event" : "evaluationDataAdded",
+        "id" : "619B507D-C1B3-4D5E-A51C-EB09A6C69B3A",
+        "subtitle" : "typing_test_split_createml.csv",
+        "title" : "Testing Data Added"
+      }
+    ],
+    "evaluationFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:31Z",
+        "event" : "evaluationFinished",
+        "id" : "61F9C48E-3DD1-4418-B099-53FAF6D19A72",
+        "subtitle" : "Heavy Factual",
+        "title" : "Testing Completed"
+      }
+    ],
+    "trainingDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T04:42:51Z",
+        "event" : "trainingDataAdded",
+        "id" : "07D7DCE4-9ED7-4C2B-B24A-92A0F880F993",
+        "subtitle" : "typing_train_split_createml.csv",
+        "title" : "Training Data Added"
+      }
+    ],
+    "trainingFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:28Z",
+        "event" : "trainingFinished",
+        "id" : "0E103F87-9BFB-4D5B-B024-145966B7E1DC",
+        "subtitle" : "Model converged at 5 iterations",
+        "title" : "Training Completed"
+      }
+    ],
+    "evaluationStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:30Z",
+        "event" : "evaluationStarted",
+        "id" : "F177BA58-F403-419D-A437-F83BF0A0C53C",
+        "subtitle" : "Heavy Factual",
+        "title" : "Testing Started"
+      }
+    ],
+    "experimentCreated",
+    [
+      {
+        "createdDate" : "2026-03-17T04:42:31Z",
+        "event" : "experimentCreated",
+        "id" : "FB955F59-9A56-45CC-AD4C-226BF01D73E0",
+        "subtitle" : "Heavy Factual",
+        "title" : "Model Source Created"
+      }
+    ],
+    "trainingStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:11Z",
+        "event" : "trainingStarted",
+        "id" : "2BDB4D59-0951-4CAF-87C0-A4F938E91FBB",
+        "subtitle" : "10 iterations",
+        "title" : "Training Started"
+      }
+    ]
+  ],
+  "contentDataResult" : {
+    "createdDate" : "2026-03-17T04:42:51Z"
+  },
+  "createdDate" : "2026-03-17T04:42:31Z",
+  "evaluationContainerEntity" : {
+    "createdDate" : "2026-03-17T04:46:38Z",
+    "evaluationEntities" : [
+
+    ],
+    "id" : "fa105112-3e31-4cef-a24c-013bc4ef6dd4",
+    "modifiedDate" : "2026-03-17T04:46:38Z",
+    "previewType" : "textClassifier",
+    "testingEvaluationEntity" : {
+      "accuracy" : 0.9487632508833922,
+      "analysedDataType" : "datasource",
+      "createdDate" : "2026-03-17T04:42:31Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T04:42:51Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 24,
+              "emotional" : 24,
+              "episodic" : 24,
+              "factual" : 964,
+              "procedural" : 24,
+              "semantic" : 24,
+              "social" : 24,
+              "temporal" : 24
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including factual, contextual, episodic",
+              "severity" : "debug"
+            },
+            {
+              "description" : "1132 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"procedural\" with 24 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"factual\" with 964 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 1132
+          }
+        },
+        "dataSourceID" : "B51F74CA-2197-4663-9991-118F2C45D780",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_split_createml.csv",
+        "itemsCount" : 1132
+      },
+      "dataSourceID" : "B51F74CA-2197-4663-9991-118F2C45D780",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.9487632508833922,
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.3333333333333333,
+                  "recall" : 0.25
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.7857142857142857,
+                  "recall" : 0.9166666666666666
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.6666666666666666,
+                  "recall" : 0.6666666666666666
+                }
+              }
+            },
+            "factual" : {
+              "count" : 964,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9825641025641025,
+                  "recall" : 0.9937759336099585
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9583333333333334,
+                  "recall" : 0.9583333333333334
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8235294117647058,
+                  "recall" : 0.5833333333333334
+                }
+              }
+            },
+            "social" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9047619047619048,
+                  "recall" : 0.7916666666666666
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.64,
+                  "recall" : 0.6666666666666666
+                }
+              }
+            }
+          }
+        }
+      },
+      "finishTime" : "2026-03-17T04:43:31Z",
+      "id" : "7fd4c21a-65f7-493e-9768-6ea88ed556cc",
+      "startTime" : "2026-03-17T04:43:30Z"
+    },
+    "trainingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-03-17T04:42:31Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T04:42:51Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 218,
+              "emotional" : 218,
+              "episodic" : 219,
+              "factual" : 8678,
+              "procedural" : 219,
+              "semantic" : 219,
+              "social" : 218,
+              "temporal" : 218
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including factual, procedural, semantic",
+              "severity" : "debug"
+            },
+            {
+              "description" : "10207 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"contextual\" with 218 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"factual\" with 8678 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 10207
+          }
+        },
+        "dataSourceID" : "B5B8FA8C-F0AE-4B11-A6EF-7E3F92F1E201",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_split_createml.csv",
+        "itemsCount" : 10207
+      },
+      "dataSourceID" : "B5B8FA8C-F0AE-4B11-A6EF-7E3F92F1E201",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 1,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 209,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 206,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 204,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "factual",
+              "count" : 8250,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 210,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 207,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 207,
+              "expected" : "social"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 204,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 206,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 204,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "factual" : {
+              "count" : 8250,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 210,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 207,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "social" : {
+              "count" : 207,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 204,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "8900487d-19d0-4dcd-9ecd-989eab1ea66b"
+    },
+    "validationEvaluationEntity" : {
+      "analysedDataType" : "auto",
+      "createdDate" : "2026-03-17T04:42:31Z",
+      "dataResult" : {
+        "createdDate" : "2026-03-17T04:42:51Z"
+      },
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.9411764705882353,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 3,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 3,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "social"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 12,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 10,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 1,
+              "expected" : "social"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "factual",
+              "count" : 427,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "factual",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 1,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 8,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 1,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 11,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "social",
+              "count" : 4,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "social",
+              "count" : 5,
+              "expected" : "social"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 4,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 4,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.3,
+                  "recall" : 0.3333333333333333
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 12,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.75,
+                  "recall" : 1
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 15,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5882352941176471,
+                  "recall" : 0.6666666666666666
+                }
+              }
+            },
+            "factual" : {
+              "count" : 428,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9861431870669746,
+                  "recall" : 0.9976635514018691
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8888888888888888,
+                  "recall" : 0.8888888888888888
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 12,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 0.9166666666666666
+                }
+              }
+            },
+            "social" : {
+              "count" : 11,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.7142857142857143,
+                  "recall" : 0.45454545454545453
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 14,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5714285714285714,
+                  "recall" : 0.2857142857142857
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "657052f6-eaf4-4bb7-b517-8e182cd35323"
+    }
+  },
+  "evaluationEntity" : {
+    "analysedDataType" : "none",
+    "dataResult" : {
+
+    },
+    "id" : "b3ea4efd-767e-4983-8c24-805b3c61435b"
+  },
+  "evaluationState" : "evaluated",
+  "id" : "1C167C39-5974-4F87-8EED-09235A86A6D0",
+  "modelEntity" : {
+    "createdDate" : "2026-03-17T04:42:31Z",
+    "experimentID" : "1C167C39-5974-4F87-8EED-09235A86A6D0",
+    "id" : "5B4E5B3D-4904-454D-BF5E-677CD1C662E5",
+    "modelURL" : "Models/Heavy%20Factual.mlmodel/",
+    "modifiedDate" : "2026-03-17T04:42:31Z",
+    "title" : "",
+    "version" : "1.0"
+  },
+  "modifiedDate" : "2026-03-17T04:46:38Z",
+  "preferredFilename" : "Heavy Factual",
+  "settingEntity" : {
+    "algorithmType" : "maxEnt",
+    "augmentations" : [
+
+    ],
+    "featureNames" : [
+
+    ],
+    "handActionClassifierAugmentations" : [
+
+    ],
+    "handPoseClassifierAugmentations" : [
+
+    ],
+    "harVideoAugmentations" : 0,
+    "iterationCount" : 10,
+    "seedType" : "default",
+    "styleTransferAlgorithmType" : "image",
+    "taskType" : "textClassifier",
+    "textClassifierArabicLanguage" : "automatic",
+    "textClassifierCJKLanguage" : "automatic",
+    "textClassifierCyrillicLanguage" : "automatic",
+    "textClassifierIndicLanguage" : "automatic",
+    "textClassifierLatin" : "automatic",
+    "textClassifierScript" : "latin",
+    "textClassifierThaiLanguage" : "automatic"
+  },
+  "snapshotRole" : {
+    "withoutSnapshots" : 0
+  },
+  "state" : "trained",
+  "title" : "TypingClassifier 2",
+  "trainingEntity" : {
+    "analysedDataType" : "datasource",
+    "checkpointMetrics" : {
+
+    },
+    "dataResult" : {
+      "classesCount" : 8,
+      "createdDate" : "2026-03-17T04:42:51Z",
+      "dataAnalysis" : {
+        "classifierAnalysis" : {
+          "labelStats" : {
+            "contextual" : 218,
+            "emotional" : 218,
+            "episodic" : 219,
+            "factual" : 8678,
+            "procedural" : 219,
+            "semantic" : 219,
+            "social" : 218,
+            "temporal" : 218
+          }
+        },
+        "issues" : [
+          {
+            "description" : "8 classes found, including factual, procedural, semantic",
+            "severity" : "debug"
+          },
+          {
+            "description" : "10207 texts found, automatically creating validation set",
+            "severity" : "good"
+          },
+          {
+            "description" : "Smallest class is \"contextual\" with 218 texts",
+            "severity" : "debug"
+          },
+          {
+            "description" : "Largest class is \"factual\" with 8678 text",
+            "severity" : "debug"
+          }
+        ],
+        "objectDetectorAnalysis" : {
+          "details" : {
+
+          }
+        },
+        "summary" : {
+          "canUseValidation" : 1,
+          "classCount" : 8,
+          "sampleCount" : 10207
+        }
+      },
+      "dataSourceID" : "B5B8FA8C-F0AE-4B11-A6EF-7E3F92F1E201",
+      "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_split_createml.csv",
+      "itemsCount" : 10207
+    },
+    "dataSourceID" : "B5B8FA8C-F0AE-4B11-A6EF-7E3F92F1E201",
+    "featureExtractionCheckpointMayBeAvailable" : false,
+    "finishTime" : "2026-03-17T04:43:28Z",
+    "progress" : [
+      {
+        "count" : 1,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 10,
+          "trainingAccuracy" : 0.8507785797119141,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 2,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 9,
+          "trainingAccuracy" : 0.8568629622459412,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 3,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 8,
+          "trainingAccuracy" : 0.9595751166343689,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 4,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 7,
+          "trainingAccuracy" : 0.9854594469070435,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 5,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 6,
+          "trainingAccuracy" : 0.9987624883651733,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 97,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 2997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 3997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 4997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 5997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 6997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 7997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8797,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8897,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 8997,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9097,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9197,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9297,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9397,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9497,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9597,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 9697,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 0
+      }
+    ],
+    "snapshottableCheckpoints" : {
+
+    },
+    "startTime" : "2026-03-17T04:43:11Z",
+    "trainingAccuracy" : 1,
+    "trainingResults" : {
+      "textClassifier" : {
+        "accuracy" : 1,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 209,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 206,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 204,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "factual",
+            "count" : 8250,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 210,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 207,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 207,
+            "expected" : "social"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 204,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 206,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 204,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "factual" : {
+            "count" : 8250,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 210,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 207,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "social" : {
+            "count" : 207,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 204,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "validationAccuracy" : 0.9411764705882353,
+    "validationResults" : {
+      "textClassifier" : {
+        "accuracy" : 0.9411764705882353,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 3,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 3,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "social"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 12,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 10,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 1,
+            "expected" : "social"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "factual",
+            "count" : 427,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "factual",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 1,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 8,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 1,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 11,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "social",
+            "count" : 4,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "social",
+            "count" : 5,
+            "expected" : "social"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 4,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 4,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.3,
+                "recall" : 0.3333333333333333
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 12,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.75,
+                "recall" : 1
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 15,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5882352941176471,
+                "recall" : 0.6666666666666666
+              }
+            }
+          },
+          "factual" : {
+            "count" : 428,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9861431870669746,
+                "recall" : 0.9976635514018691
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8888888888888888,
+                "recall" : 0.8888888888888888
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 12,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 0.9166666666666666
+              }
+            }
+          },
+          "social" : {
+            "count" : 11,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.7142857142857143,
+                "recall" : 0.45454545454545453
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 14,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5714285714285714,
+                "recall" : 0.2857142857142857
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "validationEntity" : {
+    "analysedDataType" : "auto",
+    "dataResult" : {
+      "createdDate" : "2026-03-17T04:42:51Z"
+    },
+    "splitOptions" : {
+      "strategy" : {
+        "automatic" : {
+
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -16,7 +16,11 @@ from memory_autoresearch.cache import (
     metrics_path,
     report_path,
 )
-from memory_autoresearch.checkpoints import checkpoint_config, load_pretrained_weights, save_mlx_weights
+from memory_autoresearch.checkpoints import (
+    checkpoint_config,
+    load_pretrained_weights,
+    save_mlx_weights,
+)
 from memory_autoresearch.config import DEFAULT_TIME_BUDGET_SECONDS, MODEL_SPECS
 from memory_autoresearch.data import load_retrieval_examples, load_typing_examples
 from memory_autoresearch.eval import EvalSummary, evaluate_candidate
@@ -36,6 +40,9 @@ ACTIVE_COMPONENT = "typing"
 LEARNING_RATE = 5e-4
 TIME_BUDGET_SECONDS = DEFAULT_TIME_BUDGET_SECONDS
 TYPING_CHECKPOINT_OVERRIDE = "google/bert_uncased_L-2_H-128_A-2"
+CLASS_WEIGHT_AMPLIFY = 0.0
+TYPING_SAMPLING = "balanced"
+FOCAL_GAMMA = None
 
 
 def _git_commit() -> str:
@@ -68,7 +75,9 @@ def _ensure_prepared() -> dict[str, Path]:
 def _load_previous_metrics(component: str) -> EvalMetrics | None:
     report = _load_previous_report(component)
     if report is not None:
-        if component == "typing" and "typing_gold_v1" not in report.get("full", {}).get("corpora", {}):
+        if component == "typing" and "typing_gold_v1" not in report.get("full", {}).get(
+            "corpora", {}
+        ):
             return None
         aggregate = report.get("full", {}).get("aggregate")
         if isinstance(aggregate, dict):
@@ -94,7 +103,9 @@ def _write_metrics(component: str, metrics: EvalMetrics) -> None:
     path.write_text(json.dumps(asdict(metrics), indent=2), encoding="utf-8")
 
 
-def _write_report(component: str, quick_summary: EvalSummary, full_summary: EvalSummary) -> None:
+def _write_report(
+    component: str, quick_summary: EvalSummary, full_summary: EvalSummary
+) -> None:
     path = report_path(component)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -167,7 +178,9 @@ def main() -> None:
     hardware = load_or_create_profile()
     spec = MODEL_SPECS[ACTIVE_COMPONENT]
     checkpoint = _resolved_checkpoint(ACTIVE_COMPONENT)
-    tokenizer = BertTokenizerAdapter(checkpoint, max_sequence_length=spec.max_sequence_length)
+    tokenizer = BertTokenizerAdapter(
+        checkpoint, max_sequence_length=spec.max_sequence_length
+    )
     model, config = _build_model(ACTIVE_COMPONENT, tokenizer.vocab_size)
     load_pretrained_weights(model, ACTIVE_COMPONENT, checkpoint)
 
@@ -180,6 +193,9 @@ def main() -> None:
             hardware=hardware,
             time_budget_seconds=TIME_BUDGET_SECONDS,
             learning_rate=LEARNING_RATE,
+            class_weight_amplify=CLASS_WEIGHT_AMPLIFY,
+            focal_gamma=FOCAL_GAMMA,
+            sampling_mode=TYPING_SAMPLING,
         )
     else:
         retrieval_examples = load_retrieval_examples(prepared["retrieval_train"])
@@ -218,10 +234,18 @@ def main() -> None:
             "training_seconds": f"{result.training_seconds:.2f}",
             "steps": str(result.steps),
             "average_loss": f"{result.average_loss:.6f}",
+            "class_weight_amplify": f"{CLASS_WEIGHT_AMPLIFY:.2f}",
+            "typing_sampling": TYPING_SAMPLING,
+            "focal_gamma": "none" if FOCAL_GAMMA is None else f"{FOCAL_GAMMA:.2f}",
         },
     )
 
-    artifact_path = export_coreml_model(ACTIVE_COMPONENT, result.model, config, candidate_artifact_path(ACTIVE_COMPONENT))
+    artifact_path = export_coreml_model(
+        ACTIVE_COMPONENT,
+        result.model,
+        config,
+        candidate_artifact_path(ACTIVE_COMPONENT),
+    )
     quick_summary, full_summary = evaluate_candidate(
         component=ACTIVE_COMPONENT,
         artifact_path=artifact_path,
@@ -246,13 +270,16 @@ def main() -> None:
     )
     keep = status == "keep"
     if keep:
-        _keep_candidate(ACTIVE_COMPONENT, artifact_path, full_metrics, quick_summary, full_summary)
+        _keep_candidate(
+            ACTIVE_COMPONENT, artifact_path, full_metrics, quick_summary, full_summary
+        )
     _append_results_row(
         quick_metrics,
         status=status,
         description=(
             f"{ACTIVE_COMPONENT} ckpt={checkpoint} "
-            f"lr={LEARNING_RATE} steps={result.steps} loss={result.average_loss:.4f} "
+            f"lr={LEARNING_RATE} cw_amp={CLASS_WEIGHT_AMPLIFY} sampler={TYPING_SAMPLING} "
+            f"focal_gamma={FOCAL_GAMMA} steps={result.steps} loss={result.average_loss:.4f} "
             f"reason={decision_reason}"
         ),
     )

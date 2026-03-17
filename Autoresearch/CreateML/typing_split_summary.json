@@ -1,0 +1,68 @@
+{
+  "seed": 42,
+  "test_fraction": 0.1,
+  "labels": {
+    "contextual": {
+      "total": 242,
+      "train": 218,
+      "test": 24
+    },
+    "emotional": {
+      "total": 242,
+      "train": 218,
+      "test": 24
+    },
+    "episodic": {
+      "total": 243,
+      "train": 219,
+      "test": 24
+    },
+    "factual": {
+      "total": 9642,
+      "train": 8678,
+      "test": 964
+    },
+    "procedural": {
+      "total": 243,
+      "train": 219,
+      "test": 24
+    },
+    "semantic": {
+      "total": 243,
+      "train": 219,
+      "test": 24
+    },
+    "social": {
+      "total": 242,
+      "train": 218,
+      "test": 24
+    },
+    "temporal": {
+      "total": 242,
+      "train": 218,
+      "test": 24
+    }
+  },
+  "train_total": 10207,
+  "test_total": 1132,
+  "train_counts": {
+    "factual": 8678,
+    "procedural": 219,
+    "episodic": 219,
+    "semantic": 219,
+    "contextual": 218,
+    "emotional": 218,
+    "social": 218,
+    "temporal": 218
+  },
+  "test_counts": {
+    "factual": 964,
+    "social": 24,
+    "emotional": 24,
+    "temporal": 24,
+    "semantic": 24,
+    "contextual": 24,
+    "episodic": 24,
+    "procedural": 24
+  }
+}

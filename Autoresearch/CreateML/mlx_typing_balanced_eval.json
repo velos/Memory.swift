@@ -1,0 +1,64 @@
+{
+  "checkpoint": "google/bert_uncased_L-2_H-128_A-2",
+  "learning_rate": 0.0005,
+  "time_budget_seconds": 300,
+  "train_examples": 1744,
+  "test_examples": 192,
+  "training_seconds": 300.0158998966217,
+  "steps": 6047,
+  "average_loss": 0.035198662481180636,
+  "accuracy": 0.7604166666666666,
+  "macro_precision": 0.7686598649757387,
+  "macro_recall": 0.7604166666666667,
+  "macro_f1": 0.75731961008825,
+  "per_class": {
+    "factual": {
+      "support": 24,
+      "precision": 1.0,
+      "recall": 0.9166666666666666,
+      "f1": 0.9565217391304348
+    },
+    "procedural": {
+      "support": 24,
+      "precision": 0.9130434782608695,
+      "recall": 0.875,
+      "f1": 0.8936170212765957
+    },
+    "episodic": {
+      "support": 24,
+      "precision": 0.6470588235294118,
+      "recall": 0.4583333333333333,
+      "f1": 0.5365853658536585
+    },
+    "semantic": {
+      "support": 24,
+      "precision": 0.8947368421052632,
+      "recall": 0.7083333333333334,
+      "f1": 0.7906976744186046
+    },
+    "emotional": {
+      "support": 24,
+      "precision": 0.7857142857142857,
+      "recall": 0.9166666666666666,
+      "f1": 0.8461538461538461
+    },
+    "social": {
+      "support": 24,
+      "precision": 0.72,
+      "recall": 0.75,
+      "f1": 0.7346938775510204
+    },
+    "contextual": {
+      "support": 24,
+      "precision": 0.5416666666666666,
+      "recall": 0.5416666666666666,
+      "f1": 0.5416666666666666
+    },
+    "temporal": {
+      "support": 24,
+      "precision": 0.6470588235294118,
+      "recall": 0.9166666666666666,
+      "f1": 0.7586206896551724
+    }
+  }
+}

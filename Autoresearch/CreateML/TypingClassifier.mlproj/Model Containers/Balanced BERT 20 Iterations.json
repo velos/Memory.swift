@@ -1,0 +1,1760 @@
+{
+  "activityEntities" : [
+    "trainingDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T05:04:49Z",
+        "event" : "trainingDataAdded",
+        "id" : "5F03A1EB-31A2-45E7-807C-E45AEFAE3F6A",
+        "subtitle" : "typing_train_balanced_createml.csv",
+        "title" : "Training Data Added"
+      }
+    ],
+    "experimentCreated",
+    [
+      {
+        "createdDate" : "2026-03-17T05:04:49Z",
+        "event" : "experimentCreated",
+        "id" : "5DF97627-A559-4869-9257-2E81B3779417",
+        "subtitle" : "Balanced BERT 20 Iterations",
+        "title" : "Model Source Created"
+      }
+    ],
+    "evaluationDataAdded",
+    [
+      {
+        "createdDate" : "2026-03-17T05:04:49Z",
+        "event" : "evaluationDataAdded",
+        "id" : "7BB58A62-B55E-447D-A5E2-01C5529FA593",
+        "subtitle" : "typing_test_balanced_createml.csv",
+        "title" : "Testing Data Added"
+      }
+    ],
+    "evaluationFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T05:06:20Z",
+        "event" : "evaluationFinished",
+        "id" : "7BE32491-6685-41E5-886F-9365D5F79C74",
+        "subtitle" : "Balanced BERT 20 Iterations",
+        "title" : "Testing Completed"
+      }
+    ],
+    "trainingStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T05:05:10Z",
+        "event" : "trainingStarted",
+        "id" : "AE89A5EC-8BEE-4216-941F-8D4A33C7884D",
+        "subtitle" : "20 iterations",
+        "title" : "Training Started"
+      }
+    ],
+    "trainingFinished",
+    [
+      {
+        "createdDate" : "2026-03-17T05:06:15Z",
+        "event" : "trainingFinished",
+        "id" : "FD44D712-F683-42CC-B9F0-C065692E9271",
+        "subtitle" : "20 iterations",
+        "title" : "Training Completed"
+      }
+    ],
+    "evaluationStarted",
+    [
+      {
+        "createdDate" : "2026-03-17T05:06:17Z",
+        "event" : "evaluationStarted",
+        "id" : "755C2D92-F6AB-4FB1-9946-0DEBFA0B3041",
+        "subtitle" : "Balanced BERT 20 Iterations",
+        "title" : "Testing Started"
+      }
+    ]
+  ],
+  "contentDataResult" : {
+    "createdDate" : "2026-03-17T04:42:51Z"
+  },
+  "createdDate" : "2026-03-17T05:04:49Z",
+  "evaluationContainerEntity" : {
+    "createdDate" : "2026-03-17T05:06:20Z",
+    "evaluationEntities" : [
+
+    ],
+    "id" : "252a7f12-0b69-492f-9bd2-218c0e7a391d",
+    "modifiedDate" : "2026-03-17T05:06:20Z",
+    "previewType" : "textClassifier",
+    "testingEvaluationEntity" : {
+      "accuracy" : 0.6302083333333334,
+      "analysedDataType" : "datasource",
+      "createdDate" : "2026-03-17T05:04:49Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T05:04:49Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 24,
+              "emotional" : 24,
+              "episodic" : 24,
+              "factual" : 24,
+              "procedural" : 24,
+              "semantic" : 24,
+              "social" : 24,
+              "temporal" : 24
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including contextual, emotional, social",
+              "severity" : "debug"
+            },
+            {
+              "description" : "192 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"factual\" with 24 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"contextual\" with 24 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 192
+          }
+        },
+        "dataSourceID" : "BF0C4AE7-3DB0-49C2-B107-D96D9BCC21CE",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_balanced_createml.csv",
+        "itemsCount" : 192
+      },
+      "dataSourceID" : "BF0C4AE7-3DB0-49C2-B107-D96D9BCC21CE",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.6302083333333334,
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.2857142857142857,
+                  "recall" : 0.16666666666666666
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.625,
+                  "recall" : 0.625
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.36363636363636365,
+                  "recall" : 0.5
+                }
+              }
+            },
+            "factual" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9545454545454546,
+                  "recall" : 0.875
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 0.9583333333333334
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.6666666666666666,
+                  "recall" : 0.75
+                }
+              }
+            },
+            "social" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.6818181818181818,
+                  "recall" : 0.625
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 24,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.48148148148148145,
+                  "recall" : 0.5416666666666666
+                }
+              }
+            }
+          }
+        }
+      },
+      "finishTime" : "2026-03-17T05:06:20Z",
+      "id" : "da5b1568-dee3-4794-a9a0-ef4ea7ab3342",
+      "startTime" : "2026-03-17T05:06:17Z"
+    },
+    "trainingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-03-17T05:04:49Z",
+      "dataResult" : {
+        "classesCount" : 8,
+        "createdDate" : "2026-03-17T05:04:49Z",
+        "dataAnalysis" : {
+          "classifierAnalysis" : {
+            "labelStats" : {
+              "contextual" : 218,
+              "emotional" : 218,
+              "episodic" : 218,
+              "factual" : 218,
+              "procedural" : 218,
+              "semantic" : 218,
+              "social" : 218,
+              "temporal" : 218
+            }
+          },
+          "issues" : [
+            {
+              "description" : "8 classes found, including contextual, emotional, social",
+              "severity" : "debug"
+            },
+            {
+              "description" : "1744 texts found, automatically creating validation set",
+              "severity" : "good"
+            },
+            {
+              "description" : "Smallest class is \"factual\" with 218 texts",
+              "severity" : "debug"
+            },
+            {
+              "description" : "Largest class is \"contextual\" with 218 text",
+              "severity" : "debug"
+            }
+          ],
+          "objectDetectorAnalysis" : {
+            "details" : {
+
+            }
+          },
+          "summary" : {
+            "canUseValidation" : 1,
+            "classCount" : 8,
+            "sampleCount" : 1744
+          }
+        },
+        "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+        "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_balanced_createml.csv",
+        "itemsCount" : 1744
+      },
+      "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.7809293904646952,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 51,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 10,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 51,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 11,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 24,
+              "expected" : "social"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 60,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 202,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 3,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 5,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 20,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 171,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 2,
+              "expected" : "social"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 11,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "factual",
+              "count" : 1,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "factual",
+              "count" : 204,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "factual",
+              "count" : 1,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 200,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 5,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 1,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 3,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 196,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 3,
+              "expected" : "social"
+            },
+            {
+              "actual" : "social",
+              "count" : 13,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "social",
+              "count" : 4,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "social",
+              "count" : 15,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "social",
+              "count" : 5,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 161,
+              "expected" : "social"
+            },
+            {
+              "actual" : "social",
+              "count" : 13,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 36,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 3,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 47,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 1,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 5,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 8,
+              "expected" : "social"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 109,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.4594594594594595,
+                  "recall" : 0.24401913875598086
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 205,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8451882845188284,
+                  "recall" : 0.9853658536585366
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5958188153310104,
+                  "recall" : 0.8181818181818182
+                }
+              }
+            },
+            "factual" : {
+              "count" : 206,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.9951219512195122,
+                  "recall" : 0.9902912621359223
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 200,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.970873786407767,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 208,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8990825688073395,
+                  "recall" : 0.9423076923076923
+                }
+              }
+            },
+            "social" : {
+              "count" : 211,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8131313131313131,
+                  "recall" : 0.7630331753554502
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 209,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5647668393782384,
+                  "recall" : 0.5215311004784688
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "ec12f58b-0eb9-44d7-9de4-cc1b023a4187"
+    },
+    "validationEvaluationEntity" : {
+      "analysedDataType" : "auto",
+      "createdDate" : "2026-03-17T05:04:49Z",
+      "dataResult" : {
+        "createdDate" : "2026-03-17T05:04:49Z"
+      },
+      "evaluationResult" : {
+        "textClassifier" : {
+          "accuracy" : 0.7701149425287356,
+          "confusionMatrix" : [
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 2,
+              "expected" : "social"
+            },
+            {
+              "actual" : "contextual",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 12,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "emotional",
+              "count" : 1,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 2,
+              "expected" : "emotional"
+            },
+            {
+              "actual" : "episodic",
+              "count" : 7,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "factual",
+              "count" : 11,
+              "expected" : "factual"
+            },
+            {
+              "actual" : "factual",
+              "count" : 1,
+              "expected" : "temporal"
+            },
+            {
+              "actual" : "procedural",
+              "count" : 18,
+              "expected" : "procedural"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "semantic",
+              "count" : 8,
+              "expected" : "semantic"
+            },
+            {
+              "actual" : "social",
+              "count" : 1,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "social",
+              "count" : 6,
+              "expected" : "social"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 2,
+              "expected" : "contextual"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 4,
+              "expected" : "episodic"
+            },
+            {
+              "actual" : "temporal",
+              "count" : 3,
+              "expected" : "temporal"
+            }
+          ],
+          "statsByLabel" : {
+            "contextual" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.2857142857142857,
+                  "recall" : 0.2222222222222222
+                }
+              }
+            },
+            "emotional" : {
+              "count" : 13,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8,
+                  "recall" : 0.9230769230769231
+                }
+              }
+            },
+            "episodic" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.5,
+                  "recall" : 0.7777777777777778
+                }
+              }
+            },
+            "factual" : {
+              "count" : 12,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 0.9166666666666666
+                }
+              }
+            },
+            "procedural" : {
+              "count" : 18,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 1,
+                  "recall" : 1
+                }
+              }
+            },
+            "semantic" : {
+              "count" : 10,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.8888888888888888,
+                  "recall" : 0.8
+                }
+              }
+            },
+            "social" : {
+              "count" : 7,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.75,
+                  "recall" : 0.8571428571428571
+                }
+              }
+            },
+            "temporal" : {
+              "count" : 9,
+              "precisionRecall" : {
+                "success" : {
+                  "precision" : 0.6,
+                  "recall" : 0.3333333333333333
+                }
+              }
+            }
+          }
+        }
+      },
+      "id" : "1536e5f8-dcf2-455d-a15e-8ea2f9a0c6db"
+    }
+  },
+  "evaluationEntity" : {
+    "analysedDataType" : "none",
+    "dataResult" : {
+
+    },
+    "id" : "78ec7f4a-f126-44d5-b9b0-acbd14724048"
+  },
+  "evaluationState" : "evaluated",
+  "id" : "13BC6323-260D-448E-BC0F-45D7EEE4FB58",
+  "modelEntity" : {
+    "createdDate" : "2026-03-17T05:04:49Z",
+    "experimentID" : "9E4A52D6-50F5-424C-9CC5-42CBF2F6585E",
+    "id" : "AC006E14-C2F6-4125-B8FC-D3FD58C1CCCD",
+    "modelURL" : "Models/Balanced%20BERT%2020%20Iterations.mlmodel",
+    "modifiedDate" : "2026-03-17T05:04:49Z",
+    "title" : "",
+    "version" : "1.0"
+  },
+  "modifiedDate" : "2026-03-17T05:06:20Z",
+  "preferredFilename" : "Balanced BERT 20 Iterations",
+  "settingEntity" : {
+    "algorithmType" : "transferLearning",
+    "augmentations" : [
+
+    ],
+    "featureNames" : [
+
+    ],
+    "handActionClassifierAugmentations" : [
+
+    ],
+    "handPoseClassifierAugmentations" : [
+
+    ],
+    "harVideoAugmentations" : 0,
+    "iterationCount" : 20,
+    "seedType" : "default",
+    "styleTransferAlgorithmType" : "image",
+    "taskType" : "textClassifier",
+    "textClassifierArabicLanguage" : "automatic",
+    "textClassifierCJKLanguage" : "automatic",
+    "textClassifierCyrillicLanguage" : "automatic",
+    "textClassifierIndicLanguage" : "automatic",
+    "textClassifierLatin" : "english",
+    "textClassifierScript" : "latin",
+    "textClassifierThaiLanguage" : "automatic",
+    "transferLearningEmbeddingType" : "bert"
+  },
+  "snapshotRole" : {
+    "withoutSnapshots" : 0
+  },
+  "state" : "trained",
+  "title" : "Balanced BERT copy",
+  "trainingEntity" : {
+    "analysedDataType" : "datasource",
+    "checkpointMetrics" : {
+
+    },
+    "dataResult" : {
+      "classesCount" : 8,
+      "createdDate" : "2026-03-17T05:04:49Z",
+      "dataAnalysis" : {
+        "classifierAnalysis" : {
+          "labelStats" : {
+            "contextual" : 218,
+            "emotional" : 218,
+            "episodic" : 218,
+            "factual" : 218,
+            "procedural" : 218,
+            "semantic" : 218,
+            "social" : 218,
+            "temporal" : 218
+          }
+        },
+        "issues" : [
+          {
+            "description" : "8 classes found, including contextual, emotional, social",
+            "severity" : "debug"
+          },
+          {
+            "description" : "1744 texts found, automatically creating validation set",
+            "severity" : "good"
+          },
+          {
+            "description" : "Smallest class is \"factual\" with 218 texts",
+            "severity" : "debug"
+          },
+          {
+            "description" : "Largest class is \"contextual\" with 218 text",
+            "severity" : "debug"
+          }
+        ],
+        "objectDetectorAnalysis" : {
+          "details" : {
+
+          }
+        },
+        "summary" : {
+          "canUseValidation" : 1,
+          "classCount" : 8,
+          "sampleCount" : 1744
+        }
+      },
+      "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+      "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_train_balanced_createml.csv",
+      "itemsCount" : 1744
+    },
+    "dataSourceID" : "F630F17A-5E1A-43B3-B7EC-FA3852434A3E",
+    "featureExtractionCheckpointMayBeAvailable" : false,
+    "finishTime" : "2026-03-17T05:06:15Z",
+    "progress" : [
+      {
+        "count" : 1,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 20,
+          "trainingAccuracy" : 0.3653381729125977,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 2,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 19,
+          "trainingAccuracy" : 0.4371980667114258,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 3,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 18,
+          "trainingAccuracy" : 0.48671497344970704,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 4,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 17,
+          "trainingAccuracy" : 0.5754830932617188,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 5,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 16,
+          "trainingAccuracy" : 0.5754830932617188,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 6,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 15,
+          "trainingAccuracy" : 0.5754830932617188,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 7,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 14,
+          "trainingAccuracy" : 0.578502426147461,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 8,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 13,
+          "trainingAccuracy" : 0.6268115997314453,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 9,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 12,
+          "trainingAccuracy" : 0.6268115997314453,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 10,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 11,
+          "trainingAccuracy" : 0.6660627746582031,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 11,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 10,
+          "trainingAccuracy" : 0.6630434417724609,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 12,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 9,
+          "trainingAccuracy" : 0.7041062927246093,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 13,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 8,
+          "trainingAccuracy" : 0.7264492797851563,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 14,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 7,
+          "trainingAccuracy" : 0.7264492797851563,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 15,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 6,
+          "trainingAccuracy" : 0.7264492797851563,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 16,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 5,
+          "trainingAccuracy" : 0.7439613342285156,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 17,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 4,
+          "trainingAccuracy" : 0.7493961334228516,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 18,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 3,
+          "trainingAccuracy" : 0.7493961334228516,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 19,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 2,
+          "trainingAccuracy" : 0.780797119140625,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 20,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 1,
+        "tcTrainingColumnHeader" : {
+          "elapsedTime" : 0,
+          "hasTraining" : true,
+          "hasValidation" : false,
+          "remainingIterationCount" : 1,
+          "trainingAccuracy" : 0.780797119140625,
+          "validationAccuracy" : 0
+        }
+      },
+      {
+        "count" : 57,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 157,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 257,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 357,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 457,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 557,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 657,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 757,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 857,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 957,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1057,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1157,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1257,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1357,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1457,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1557,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : false,
+        "tableIndex" : 0
+      },
+      {
+        "count" : 1657,
+        "currentRowIndex" : 0,
+        "isLast" : false,
+        "percentComplete" : 0,
+        "tableDone" : true,
+        "tableIndex" : 0
+      }
+    ],
+    "snapshottableCheckpoints" : {
+
+    },
+    "startTime" : "2026-03-17T05:05:10Z",
+    "trainingAccuracy" : 0.7809293904646952,
+    "trainingResults" : {
+      "textClassifier" : {
+        "accuracy" : 0.7809293904646952,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 51,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 10,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 51,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 11,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 24,
+            "expected" : "social"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 60,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 202,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 3,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 5,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 20,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 171,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 2,
+            "expected" : "social"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 11,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "factual",
+            "count" : 1,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "factual",
+            "count" : 204,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "factual",
+            "count" : 1,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 200,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 5,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 1,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 3,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 196,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 3,
+            "expected" : "social"
+          },
+          {
+            "actual" : "social",
+            "count" : 13,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "social",
+            "count" : 4,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "social",
+            "count" : 15,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "social",
+            "count" : 5,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 161,
+            "expected" : "social"
+          },
+          {
+            "actual" : "social",
+            "count" : 13,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 36,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 3,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 47,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 1,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 5,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 8,
+            "expected" : "social"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 109,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.4594594594594595,
+                "recall" : 0.24401913875598086
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 205,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8451882845188284,
+                "recall" : 0.9853658536585366
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5958188153310104,
+                "recall" : 0.8181818181818182
+              }
+            }
+          },
+          "factual" : {
+            "count" : 206,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.9951219512195122,
+                "recall" : 0.9902912621359223
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 200,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.970873786407767,
+                "recall" : 1
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 208,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8990825688073395,
+                "recall" : 0.9423076923076923
+              }
+            }
+          },
+          "social" : {
+            "count" : 211,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8131313131313131,
+                "recall" : 0.7630331753554502
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 209,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5647668393782384,
+                "recall" : 0.5215311004784688
+              }
+            }
+          }
+        }
+      }
+    },
+    "validationAccuracy" : 0.7701149425287356,
+    "validationResults" : {
+      "textClassifier" : {
+        "accuracy" : 0.7701149425287356,
+        "confusionMatrix" : [
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 2,
+            "expected" : "social"
+          },
+          {
+            "actual" : "contextual",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 12,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "emotional",
+            "count" : 1,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 2,
+            "expected" : "emotional"
+          },
+          {
+            "actual" : "episodic",
+            "count" : 7,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "factual",
+            "count" : 11,
+            "expected" : "factual"
+          },
+          {
+            "actual" : "factual",
+            "count" : 1,
+            "expected" : "temporal"
+          },
+          {
+            "actual" : "procedural",
+            "count" : 18,
+            "expected" : "procedural"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "semantic",
+            "count" : 8,
+            "expected" : "semantic"
+          },
+          {
+            "actual" : "social",
+            "count" : 1,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "social",
+            "count" : 6,
+            "expected" : "social"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 2,
+            "expected" : "contextual"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 4,
+            "expected" : "episodic"
+          },
+          {
+            "actual" : "temporal",
+            "count" : 3,
+            "expected" : "temporal"
+          }
+        ],
+        "statsByLabel" : {
+          "contextual" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.2857142857142857,
+                "recall" : 0.2222222222222222
+              }
+            }
+          },
+          "emotional" : {
+            "count" : 13,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8,
+                "recall" : 0.9230769230769231
+              }
+            }
+          },
+          "episodic" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.5,
+                "recall" : 0.7777777777777778
+              }
+            }
+          },
+          "factual" : {
+            "count" : 12,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 0.9166666666666666
+              }
+            }
+          },
+          "procedural" : {
+            "count" : 18,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 1,
+                "recall" : 1
+              }
+            }
+          },
+          "semantic" : {
+            "count" : 10,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.8888888888888888,
+                "recall" : 0.8
+              }
+            }
+          },
+          "social" : {
+            "count" : 7,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.75,
+                "recall" : 0.8571428571428571
+              }
+            }
+          },
+          "temporal" : {
+            "count" : 9,
+            "precisionRecall" : {
+              "success" : {
+                "precision" : 0.6,
+                "recall" : 0.3333333333333333
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "validationEntity" : {
+    "analysedDataType" : "auto",
+    "dataResult" : {
+      "createdDate" : "2026-03-17T05:04:49Z"
+    },
+    "splitOptions" : {
+      "strategy" : {
+        "automatic" : {
+
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

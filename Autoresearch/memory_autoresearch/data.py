@@ -401,10 +401,11 @@ def load_retrieval_examples(path: Path) -> list[RetrievalExample]:
     return [RetrievalExample(**record) for record in _read_jsonl(path)]
 
 
-def class_weights(examples: list[TypingExample]) -> list[float]:
+def class_weights(examples: list[TypingExample], amplify: float = 1.0) -> list[float]:
     counts = Counter(example.label for example in examples)
     weights = []
     for label in MEMORY_TYPE_TO_INDEX:
         count = counts.get(label, 1)
-        weights.append(sum(counts.values()) / (len(counts) * count))
+        weight = (sum(counts.values()) / (len(counts) * count)) ** amplify
+        weights.append(weight)
     return weights

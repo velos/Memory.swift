@@ -121,7 +121,6 @@ class CorpusEvalMetrics:
     recall_score: float
     memory_score: float
     latency_ms: float
-    recall_query_count: int = 0
     type_accuracy: float = 0.0
     macro_f1: float = 0.0
     span_coverage: float = 0.0
@@ -129,6 +128,7 @@ class CorpusEvalMetrics:
     recall_at_10: float = 0.0
     mrr_at_10: float = 0.0
     ndcg_at_10: float = 0.0
+    recall_query_count: int = 0
     stage_latency_p95: dict[str, float] = field(default_factory=dict)
 
 

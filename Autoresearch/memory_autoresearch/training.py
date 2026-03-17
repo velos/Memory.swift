@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import random
 import time
 from dataclasses import dataclass
@@ -25,7 +26,9 @@ class TrainingResult:
 
 
 class AdamW:
-    def __init__(self, model, lr: float, weight_decay: float = 0.01, betas=(0.9, 0.999)):
+    def __init__(
+        self, model, lr: float, weight_decay: float = 0.01, betas=(0.9, 0.999)
+    ):
         self.lr = lr
         self.weight_decay = weight_decay
         self.betas = betas
@@ -59,8 +62,8 @@ class AdamW:
             state["t"] += 1
             state["m"] = beta1 * state["m"] + (1.0 - beta1) * grad_f32
             state["v"] = beta2 * state["v"] + (1.0 - beta2) * (grad_f32 * grad_f32)
-            m_hat = state["m"] / (1.0 - beta1**state["t"])
-            v_hat = state["v"] / (1.0 - beta2**state["t"])
+            m_hat = state["m"] / (1.0 - beta1 ** state["t"])
+            v_hat = state["v"] / (1.0 - beta2 ** state["t"])
             updated = param_f32 * (1.0 - self.lr * self.weight_decay)
             updated = updated - self.lr * (m_hat / (mx.sqrt(v_hat) + 1e-8))
             self._set_path_value(model, path, updated.astype(param.dtype))
@@ -78,6 +81,57 @@ def _shuffle_indices(length: int):
     return indices
 
 
+def _weighted_mean(losses, weights=None):
+    if weights is None:
+        return mx.mean(losses)
+    return mx.sum(losses * weights) / mx.maximum(mx.sum(weights), 1.0)
+
+
+def _focal_loss(logits, labels, gamma: float, weights=None):
+    losses = nn.losses.cross_entropy(logits, labels, reduction="none")
+    probabilities = mx.softmax(logits, axis=-1)
+    target_probabilities = mx.take_along_axis(
+        probabilities, labels.reshape(-1, 1), axis=1
+    ).reshape((-1,))
+    target_probabilities = mx.clip(target_probabilities, 1e-6, 1.0)
+    focal_scale = (1.0 - target_probabilities) ** gamma
+    return _weighted_mean(losses * focal_scale, weights)
+
+
+def _sample_typing_examples(
+    examples: list[TypingExample],
+    sampling_mode: str,
+    sampling_balance: float = 1.0,
+) -> list[TypingExample]:
+    if sampling_mode == "natural" or sampling_balance <= 0.0:
+        return examples
+    if sampling_mode != "balanced":
+        raise ValueError(f"Unsupported typing sampling_mode: {sampling_mode}")
+    buckets: dict[str, list[TypingExample]] = defaultdict(list)
+    for example in examples:
+        buckets[example.label].append(example)
+    labels = [label for label, bucket in buckets.items() if bucket]
+    if not labels:
+        return examples
+    sample_size = len(examples)
+    balanced_count = min(
+        sample_size, max(0, int(round(sample_size * sampling_balance)))
+    )
+    sampled_examples = list(examples[: sample_size - balanced_count])
+    balanced_examples: list[TypingExample] = []
+    while len(balanced_examples) < balanced_count:
+        round_labels = list(labels)
+        random.shuffle(round_labels)
+        for label in round_labels:
+            bucket = buckets[label]
+            balanced_examples.append(bucket[random.randrange(len(bucket))])
+            if len(balanced_examples) >= balanced_count:
+                break
+    sampled_examples.extend(balanced_examples)
+    random.shuffle(sampled_examples)
+    return sampled_examples
+
+
 def train_typing(
     model: TypingModel,
     tokenizer: BertTokenizerAdapter,
@@ -85,16 +139,24 @@ def train_typing(
     hardware: HardwareProfile,
     time_budget_seconds: int = DEFAULT_TIME_BUDGET_SECONDS,
     learning_rate: float = 3e-4,
+    class_weight_amplify: float = 1.0,
+    focal_gamma: float | None = None,
+    sampling_mode: str = "natural",
+    sampling_balance: float = 1.0,
 ) -> TrainingResult:
     set_random_seed()
     batch_size = hardware.typing_batch_size
-    label_weights = mx.array(class_weights(examples), dtype=mx.float32)
+    label_weights = mx.array(
+        class_weights(examples, amplify=class_weight_amplify), dtype=mx.float32
+    )
 
     def loss_fn(model, input_ids, attention_mask, token_type_ids, labels):
         logits = model(input_ids, attention_mask, token_type_ids)
-        loss = nn.losses.cross_entropy(logits, labels, reduction="none")
         weights = label_weights[labels]
-        return mx.sum(loss * weights) / mx.maximum(mx.sum(weights), 1.0)
+        if focal_gamma is not None:
+            return _focal_loss(logits, labels, gamma=focal_gamma, weights=weights)
+        losses = nn.losses.cross_entropy(logits, labels, reduction="none")
+        return _weighted_mean(losses, weights)
 
     grad_fn = nn.value_and_grad(model, loss_fn)
     optimizer = AdamW(model, lr=learning_rate, weight_decay=0.01)
@@ -103,12 +165,20 @@ def train_typing(
     steps = 0
     loss_total = 0.0
     while time.time() - start < time_budget_seconds:
-        for offset in range(0, len(examples), batch_size):
+        epoch_examples = _sample_typing_examples(
+            examples,
+            sampling_mode=sampling_mode,
+            sampling_balance=sampling_balance,
+        )
+        for offset in range(0, len(epoch_examples), batch_size):
             if time.time() - start >= time_budget_seconds:
                 break
-            batch = examples[offset:offset + batch_size]
+            batch = epoch_examples[offset : offset + batch_size]
             tokenized = tokenizer.encode_texts([example.text for example in batch])
-            labels = np.array([class_weights_label(example.label) for example in batch], dtype=np.int32)
+            labels = np.array(
+                [class_weights_label(example.label) for example in batch],
+                dtype=np.int32,
+            )
             loss, grads = grad_fn(
                 model,
                 mx.array(tokenized.input_ids),
@@ -140,10 +210,7 @@ def _contrastive_loss(query_embeddings, document_embeddings):
     labels = mx.arange(logits.shape[0], dtype=mx.int32)
     forward_loss = nn.losses.cross_entropy(logits, labels, reduction="mean")
     backward_loss = nn.losses.cross_entropy(logits.T, labels, reduction="mean")
-    return 0.5 * (
-        forward_loss
-        + backward_loss
-    )
+    return 0.5 * (forward_loss + backward_loss)
 
 
 def train_embedding(
@@ -174,7 +241,7 @@ def train_embedding(
         for offset in range(0, len(shuffled), batch_size):
             if time.time() - start >= time_budget_seconds:
                 break
-            batch = shuffled[offset:offset + batch_size]
+            batch = shuffled[offset : offset + batch_size]
             queries = [example.query for example in batch]
             documents = [example.positive_document_text for example in batch]
             query_tokens = tokenizer.encode_texts(queries)
@@ -249,9 +316,11 @@ def train_reranker(
         for offset in range(0, len(pair_labels), batch_size):
             if time.time() - start >= time_budget_seconds:
                 break
-            queries = pair_queries[offset:offset + batch_size]
-            documents = pair_docs[offset:offset + batch_size]
-            labels = np.array(pair_labels[offset:offset + batch_size], dtype=np.float32)
+            queries = pair_queries[offset : offset + batch_size]
+            documents = pair_docs[offset : offset + batch_size]
+            labels = np.array(
+                pair_labels[offset : offset + batch_size], dtype=np.float32
+            )
             tokenized = tokenizer.encode_pairs(queries, documents)
             loss, grads = grad_fn(
                 model,

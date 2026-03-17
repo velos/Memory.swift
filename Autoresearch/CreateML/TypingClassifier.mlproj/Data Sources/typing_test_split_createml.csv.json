@@ -1,0 +1,77 @@
+{
+  "activityEntities" : [
+    "dataSourceCreated",
+    [
+      {
+        "createdDate" : "2026-03-17T04:43:08Z",
+        "event" : "dataSourceCreated",
+        "id" : "39D129B7-D7FC-44F0-AA13-3543D84325A3",
+        "subtitle" : "typing_test_split_createml.csv",
+        "title" : "Data Source Created"
+      }
+    ]
+  ],
+  "createdDate" : "2026-03-17T04:43:08Z",
+  "dataPathRelativeToProjectURL" : "../../Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_split_createml.csv/",
+  "dataResult" : {
+    "classesCount" : 8,
+    "createdDate" : "2026-03-17T04:43:08Z",
+    "dataAnalysis" : {
+      "classifierAnalysis" : {
+        "labelStats" : {
+          "contextual" : 24,
+          "emotional" : 24,
+          "episodic" : 24,
+          "factual" : 964,
+          "procedural" : 24,
+          "semantic" : 24,
+          "social" : 24,
+          "temporal" : 24
+        }
+      },
+      "issues" : [
+        {
+          "description" : "8 classes found, including factual, procedural, social",
+          "severity" : "debug"
+        },
+        {
+          "description" : "1132 texts found, automatically creating validation set",
+          "severity" : "good"
+        },
+        {
+          "description" : "Smallest class is \"emotional\" with 24 texts",
+          "severity" : "debug"
+        },
+        {
+          "description" : "Largest class is \"factual\" with 964 text",
+          "severity" : "debug"
+        }
+      ],
+      "objectDetectorAnalysis" : {
+        "details" : {
+
+        }
+      },
+      "summary" : {
+        "canUseValidation" : 1,
+        "classCount" : 8,
+        "sampleCount" : 1132
+      }
+    },
+    "dataSourceID" : "B51F74CA-2197-4663-9991-118F2C45D780",
+    "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_split_createml.csv",
+    "itemsCount" : 1132
+  },
+  "dataURL" : "file:///Users/zac/Projects/collab/Memory.swift/Autoresearch/CreateML/typing_test_split_createml.csv",
+  "experimentIDs" : [
+    "1C167C39-5974-4F87-8EED-09235A86A6D0",
+    "75D3C728-5926-4209-B546-88D62452E46B",
+    "F4362DE2-EE91-4D6F-8A5C-85498B37FB1C"
+  ],
+  "id" : "B51F74CA-2197-4663-9991-118F2C45D780",
+  "modifiedDate" : "2026-03-17T21:11:41Z",
+  "pathType" : 0,
+  "preferredFilename" : "typing_test_split_createml.csv",
+  "title" : "typing_test_split_createml.csv",
+  "version" : "1.0"
+}
