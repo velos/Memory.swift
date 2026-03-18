@@ -1,6 +1,6 @@
 import Foundation
 
-public enum MemoryType: String, CaseIterable, Codable, Sendable {
+public enum DocumentMemoryType: String, CaseIterable, Codable, Sendable {
     case factual
     case procedural
     case episodic
@@ -10,13 +10,16 @@ public enum MemoryType: String, CaseIterable, Codable, Sendable {
     case contextual
     case temporal
 
-    public static func parse(_ raw: String) -> MemoryType? {
+    public static func parse(_ raw: String) -> DocumentMemoryType? {
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return MemoryType(rawValue: normalized)
+        return DocumentMemoryType(rawValue: normalized)
     }
 }
+
+@available(*, deprecated, renamed: "DocumentMemoryType")
+public typealias MemoryType = DocumentMemoryType
 
 public enum MemoryTypeSource: String, Codable, Sendable {
     case manual
@@ -32,13 +35,13 @@ public enum MemoryTypeSource: String, Codable, Sendable {
 }
 
 public struct MemoryTypeAssignment: Sendable, Codable {
-    public var type: MemoryType
+    public var type: DocumentMemoryType
     public var source: MemoryTypeSource
     public var confidence: Double?
     public var classifierID: String?
 
     public init(
-        type: MemoryType,
+        type: DocumentMemoryType,
         source: MemoryTypeSource,
         confidence: Double? = nil,
         classifierID: String? = nil
@@ -63,13 +66,13 @@ public enum MemoryTypingMode: String, Sendable, Codable {
 public struct MemoryTypingConfiguration: Sendable {
     public var mode: MemoryTypingMode
     public var classifier: (any MemoryTypeClassifier)?
-    public var fallbackType: MemoryType
+    public var fallbackType: DocumentMemoryType
     public var minimumConfidenceForFilter: Double
 
     public init(
         mode: MemoryTypingMode = .automatic,
         classifier: (any MemoryTypeClassifier)? = HeuristicMemoryTypeClassifier(),
-        fallbackType: MemoryType = .factual,
+        fallbackType: DocumentMemoryType = .factual,
         minimumConfidenceForFilter: Double = 0.75
     ) {
         self.mode = mode
@@ -91,8 +94,8 @@ public struct MemoryTypingConfiguration: Sendable {
 public actor HeuristicMemoryTypeClassifier: MemoryTypeClassifier {
     public let identifier: String
     private let tokenizer: any Tokenizer
-    private let keywordWeights: [MemoryType: [String]]
-    private let phraseWeights: [MemoryType: [String]]
+    private let keywordWeights: [DocumentMemoryType: [String]]
+    private let phraseWeights: [DocumentMemoryType: [String]]
 
     public init(
         identifier: String = "heuristic-memory-type-classifier",
@@ -130,8 +133,8 @@ public actor HeuristicMemoryTypeClassifier: MemoryTypeClassifier {
         let normalized = trimmed.lowercased()
         let tokenCounts = Dictionary(tokenizer.tokenize(normalized).map { ($0, 1) }, uniquingKeysWith: +)
 
-        var scores: [MemoryType: Int] = [:]
-        for type in MemoryType.allCases {
+        var scores: [DocumentMemoryType: Int] = [:]
+        for type in DocumentMemoryType.allCases {
             let keywords = keywordWeights[type] ?? []
             let phrases = phraseWeights[type] ?? []
 
@@ -221,48 +224,46 @@ public actor FallbackMemoryTypeClassifier: MemoryTypeClassifier {
     }
 }
 
-public extension MemoryCategory {
-    var mappedMemoryType: MemoryType {
+public extension MemoryKind {
+    var mappedDocumentMemoryType: DocumentMemoryType {
         switch self {
+        case .profile:
+            return .social
         case .fact:
             return .factual
-        case .preference:
-            return .contextual
         case .decision:
             return .procedural
-        case .identity:
-            return .social
-        case .event:
-            return .episodic
-        case .observation:
-            return .semantic
-        case .goal:
+        case .commitment:
             return .temporal
-        case .todo:
+        case .episode:
+            return .episodic
+        case .procedure:
             return .procedural
+        case .handoff:
+            return .contextual
         }
     }
 }
 
-public extension MemoryType {
-    var defaultCategory: MemoryCategory {
+public extension DocumentMemoryType {
+    var defaultMemoryKind: MemoryKind {
         switch self {
         case .factual:
             return .fact
         case .procedural:
-            return .todo
+            return .procedure
         case .episodic:
-            return .event
+            return .episode
         case .semantic:
-            return .observation
+            return .handoff
         case .emotional:
-            return .observation
+            return .episode
         case .social:
-            return .identity
+            return .profile
         case .contextual:
-            return .preference
+            return .handoff
         case .temporal:
-            return .goal
+            return .commitment
         }
     }
 }

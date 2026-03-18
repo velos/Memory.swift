@@ -101,26 +101,15 @@ struct CLIContext {
     }
 
     func makeIndex() throws -> MemoryIndex {
-        var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
-        var typingConfiguration = configuration.memoryTyping
-        let baseTypingClassifier = makePreferredTypingClassifier()
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            typingConfiguration.classifier = FallbackMemoryTypeClassifier(
-                primary: AppleIntelligenceMemoryTypeClassifier(),
-                fallback: baseTypingClassifier
+        if let models = resolveDefaultCoreMLModels() {
+            let configuration = try MemoryConfiguration.coreMLDefault(
+                databaseURL: paths.indexFileURL,
+                models: models
             )
-        } else {
-            typingConfiguration.classifier = baseTypingClassifier
+            return try MemoryIndex(configuration: configuration)
         }
-        configuration.memoryTyping = typingConfiguration
 
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            configuration.queryExpander = AppleIntelligenceQueryExpander()
-            configuration.reranker = AppleIntelligenceReranker()
-            if AppleIntelligenceSupport.isContentTaggingAvailable {
-                configuration.contentTagger = AppleIntelligenceContentTagger()
-            }
-        }
+        let configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
         return try MemoryIndex(configuration: configuration)
     }
 
@@ -133,26 +122,37 @@ struct CLIContext {
 }
 
 private enum CLIDefaultCoreMLModels {
+    static let embedding = "embedding-v1"
     static let typing = "typing-v1"
 }
 
-private func makePreferredTypingClassifier() -> any MemoryTypeClassifier {
-    guard let modelURL = resolveDefaultTypingModelURL() else {
-        return HeuristicMemoryTypeClassifier()
+private func resolveDefaultCoreMLModels() -> CoreMLDefaultModels? {
+    guard
+        let embedding = resolveDefaultModelURL(
+            environmentKey: "MEMORY_EMBEDDING_MODEL_URL",
+            modelName: CLIDefaultCoreMLModels.embedding
+        ),
+        let typing = resolveDefaultModelURL(
+            environmentKey: "MEMORY_TYPING_MODEL_URL",
+            modelName: CLIDefaultCoreMLModels.typing
+        )
+    else {
+        return nil
     }
-    return (try? CoreMLMemoryTypeClassifier(modelURL: modelURL)) ?? HeuristicMemoryTypeClassifier()
+
+    return CoreMLDefaultModels(embedding: embedding, typing: typing)
 }
 
-private func resolveDefaultTypingModelURL() -> URL? {
+private func resolveDefaultModelURL(environmentKey: String, modelName: String) -> URL? {
     let fileManager = FileManager.default
     let environment = ProcessInfo.processInfo.environment
-    if let raw = environment["MEMORY_TYPING_MODEL_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+    if let raw = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !raw.isEmpty,
        fileManager.fileExists(atPath: raw) {
         return URL(fileURLWithPath: raw)
     }
 
-    let filename = "\(CLIDefaultCoreMLModels.typing).mlpackage"
+    let filename = "\(modelName).mlpackage"
     let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
     let candidates = [
         cwd.appendingPathComponent("Models").appendingPathComponent(filename),
@@ -606,7 +606,7 @@ private func runSearch(
         lexicalCandidateLimit: mode.lexicalLimit,
         rerankLimit: rerankLimit,
         expansionLimit: expansionLimit,
-        memoryTypes: parsedMemoryTypes
+        documentMemoryTypes: parsedMemoryTypes
     )
 
     var results = try await index.search(query)
@@ -634,7 +634,7 @@ private func runSearch(
     for result in results {
         let docID = "#" + String(result.chunkID, radix: 16)
         print(
-            "\(docID)\t[type=\(result.memoryType.rawValue)]\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)"
+            "\(docID)\t[type=\(result.documentMemoryType.rawValue)]\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)"
         )
         print(result.snippet)
         print("")
@@ -654,10 +654,10 @@ private func normalizeCollectionArgument(_ value: String) -> String {
     parseCollectionRef(value) ?? value
 }
 
-private func parseMemoryTypes(_ values: [String]) throws -> Set<MemoryType>? {
+private func parseMemoryTypes(_ values: [String]) throws -> Set<DocumentMemoryType>? {
     guard !values.isEmpty else { return nil }
 
-    var parsed: Set<MemoryType> = []
+    var parsed: Set<DocumentMemoryType> = []
     var invalid: [String] = []
 
     for raw in values {
@@ -666,7 +666,7 @@ private func parseMemoryTypes(_ values: [String]) throws -> Set<MemoryType>? {
         }
 
         for candidate in candidates where !candidate.isEmpty {
-            if let type = MemoryType.parse(candidate) {
+            if let type = DocumentMemoryType.parse(candidate) {
                 parsed.insert(type)
             } else {
                 invalid.append(candidate)
@@ -675,7 +675,7 @@ private func parseMemoryTypes(_ values: [String]) throws -> Set<MemoryType>? {
     }
 
     if !invalid.isEmpty {
-        let allowed = MemoryType.allCases.map(\.rawValue).joined(separator: ", ")
+        let allowed = DocumentMemoryType.allCases.map(\.rawValue).joined(separator: ", ")
         throw ValidationError("Invalid memory type(s): \(invalid.joined(separator: ", ")). Allowed: \(allowed)")
     }
 

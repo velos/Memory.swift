@@ -347,7 +347,7 @@ public actor AppleIntelligenceMemoryTypeClassifier: MemoryTypeClassifier {
             options: options
         )
 
-        guard let type = MemoryType.parse(response.content.memoryType) else {
+        guard let type = DocumentMemoryType.parse(response.content.memoryType) else {
             return nil
         }
 

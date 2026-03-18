@@ -40,7 +40,7 @@ public struct SearchQuery: Sendable {
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
     public var contextID: ContextID?
-    public var memoryTypes: Set<MemoryType>?
+    public var documentMemoryTypes: Set<DocumentMemoryType>?
     public var includeTagScoring: Bool
 
     public init(
@@ -53,7 +53,7 @@ public struct SearchQuery: Sendable {
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
         contextID: ContextID? = nil,
-        memoryTypes: Set<MemoryType>? = nil,
+        documentMemoryTypes: Set<DocumentMemoryType>? = nil,
         includeTagScoring: Bool = true
     ) {
         self.text = text
@@ -65,7 +65,7 @@ public struct SearchQuery: Sendable {
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
         self.contextID = contextID
-        self.memoryTypes = memoryTypes
+        self.documentMemoryTypes = documentMemoryTypes
         self.includeTagScoring = includeTagScoring
     }
 }
@@ -105,9 +105,12 @@ public struct SearchResult: Sendable {
     public var content: String
     public var snippet: String
     public var modifiedAt: Date
-    public var memoryType: MemoryType
-    public var memoryTypeSource: MemoryTypeSource
-    public var memoryTypeConfidence: Double?
+    public var documentMemoryType: DocumentMemoryType
+    public var documentMemoryTypeSource: MemoryTypeSource
+    public var documentMemoryTypeConfidence: Double?
+    public var memoryID: String?
+    public var memoryKind: MemoryKind?
+    public var memoryStatus: MemoryStatus?
     public var score: SearchScoreBreakdown
 
     public init(
@@ -117,9 +120,12 @@ public struct SearchResult: Sendable {
         content: String,
         snippet: String,
         modifiedAt: Date,
-        memoryType: MemoryType = .factual,
-        memoryTypeSource: MemoryTypeSource = .fallback,
-        memoryTypeConfidence: Double? = nil,
+        documentMemoryType: DocumentMemoryType = .factual,
+        documentMemoryTypeSource: MemoryTypeSource = .fallback,
+        documentMemoryTypeConfidence: Double? = nil,
+        memoryID: String? = nil,
+        memoryKind: MemoryKind? = nil,
+        memoryStatus: MemoryStatus? = nil,
         score: SearchScoreBreakdown
     ) {
         self.chunkID = chunkID
@@ -128,28 +134,44 @@ public struct SearchResult: Sendable {
         self.content = content
         self.snippet = snippet
         self.modifiedAt = modifiedAt
-        self.memoryType = memoryType
-        self.memoryTypeSource = memoryTypeSource
-        self.memoryTypeConfidence = memoryTypeConfidence
+        self.documentMemoryType = documentMemoryType
+        self.documentMemoryTypeSource = documentMemoryTypeSource
+        self.documentMemoryTypeConfidence = documentMemoryTypeConfidence
+        self.memoryID = memoryID
+        self.memoryKind = memoryKind
+        self.memoryStatus = memoryStatus
         self.score = score
     }
 }
 
-public enum MemoryCategory: String, CaseIterable, Codable, Sendable {
+public enum MemoryKind: String, CaseIterable, Codable, Sendable {
+    case profile
     case fact
-    case preference
     case decision
-    case identity
-    case event
-    case observation
-    case goal
-    case todo
+    case commitment
+    case episode
+    case procedure
+    case handoff
 
-    public static func parse(_ raw: String) -> MemoryCategory? {
+    public static func parse(_ raw: String) -> MemoryKind? {
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return MemoryCategory(rawValue: normalized)
+        return MemoryKind(rawValue: normalized)
+    }
+}
+
+public enum MemoryStatus: String, CaseIterable, Codable, Sendable {
+    case active
+    case superseded
+    case resolved
+    case archived
+
+    public static func parse(_ raw: String) -> MemoryStatus? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return MemoryStatus(rawValue: normalized)
     }
 }
 
@@ -171,78 +193,108 @@ public struct ConversationMessage: Sendable, Codable, Hashable {
     }
 }
 
-public struct ExtractedMemory: Sendable, Codable, Hashable {
+public struct MemoryCandidate: Sendable, Codable, Hashable {
     public var text: String
-    public var category: MemoryCategory
+    public var kind: MemoryKind
+    public var status: MemoryStatus
     public var importance: Double
+    public var confidence: Double?
     public var createdAt: Date?
+    public var eventAt: Date?
     public var source: String
     public var tags: [String]
+    public var canonicalKey: String?
+    public var metadata: [String: String]
 
     public init(
         text: String,
-        category: MemoryCategory,
+        kind: MemoryKind,
+        status: MemoryStatus = .active,
         importance: Double = 0.5,
+        confidence: Double? = nil,
         createdAt: Date? = nil,
+        eventAt: Date? = nil,
         source: String = "extract",
-        tags: [String] = []
+        tags: [String] = [],
+        canonicalKey: String? = nil,
+        metadata: [String: String] = [:]
     ) {
         self.text = text
-        self.category = category
+        self.kind = kind
+        self.status = status
         self.importance = min(1, max(0, importance))
+        self.confidence = confidence.map { min(1, max(0, $0)) }
         self.createdAt = createdAt
+        self.eventAt = eventAt
         self.source = source
         self.tags = tags
+        self.canonicalKey = canonicalKey
+        self.metadata = metadata
     }
 }
 
 public struct MemoryRecord: Sendable, Codable, Hashable {
+    public var id: String
     public var chunkID: Int64
     public var documentPath: String
     public var title: String?
     public var text: String
-    public var category: MemoryCategory
+    public var kind: MemoryKind
+    public var status: MemoryStatus
+    public var canonicalKey: String?
     public var importance: Double
+    public var confidence: Double?
     public var accessCount: Int
     public var createdAt: Date
+    public var eventAt: Date?
     public var modifiedAt: Date
     public var lastAccessedAt: Date?
-    public var memoryType: MemoryType
-    public var memoryTypeSource: MemoryTypeSource
-    public var memoryTypeConfidence: Double?
+    public var documentMemoryType: DocumentMemoryType
+    public var documentMemoryTypeSource: MemoryTypeSource
+    public var documentMemoryTypeConfidence: Double?
     public var tags: [ContentTag]
     public var score: SearchScoreBreakdown?
 
     public init(
+        id: String,
         chunkID: Int64,
         documentPath: String,
         title: String?,
         text: String,
-        category: MemoryCategory,
+        kind: MemoryKind,
+        status: MemoryStatus,
+        canonicalKey: String?,
         importance: Double,
+        confidence: Double?,
         accessCount: Int,
         createdAt: Date,
+        eventAt: Date?,
         modifiedAt: Date,
         lastAccessedAt: Date?,
-        memoryType: MemoryType,
-        memoryTypeSource: MemoryTypeSource,
-        memoryTypeConfidence: Double?,
+        documentMemoryType: DocumentMemoryType,
+        documentMemoryTypeSource: MemoryTypeSource,
+        documentMemoryTypeConfidence: Double?,
         tags: [ContentTag],
         score: SearchScoreBreakdown? = nil
     ) {
+        self.id = id
         self.chunkID = chunkID
         self.documentPath = documentPath
         self.title = title
         self.text = text
-        self.category = category
+        self.kind = kind
+        self.status = status
+        self.canonicalKey = canonicalKey
         self.importance = min(1, max(0, importance))
+        self.confidence = confidence.map { min(1, max(0, $0)) }
         self.accessCount = max(0, accessCount)
         self.createdAt = createdAt
+        self.eventAt = eventAt
         self.modifiedAt = modifiedAt
         self.lastAccessedAt = lastAccessedAt
-        self.memoryType = memoryType
-        self.memoryTypeSource = memoryTypeSource
-        self.memoryTypeConfidence = memoryTypeConfidence
+        self.documentMemoryType = documentMemoryType
+        self.documentMemoryTypeSource = documentMemoryTypeSource
+        self.documentMemoryTypeConfidence = documentMemoryTypeConfidence
         self.tags = tags
         self.score = score
     }
@@ -271,7 +323,7 @@ public enum RecallMode: Sendable {
     case hybrid(query: String)
     case recent
     case important
-    case typed(category: MemoryCategory)
+    case kind(MemoryKind)
 }
 
 public enum RecallSort: String, Codable, Sendable {
@@ -294,7 +346,7 @@ public struct RecallFeatures: OptionSet, Sendable, Hashable {
     public static let rerank = RecallFeatures(rawValue: 1 << 4)
     public static let planner = RecallFeatures(rawValue: 1 << 5)
 
-    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion, .rerank]
+    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion]
 }
 
 public struct MemoryRecallResponse: Sendable, Codable, Hashable {
@@ -331,9 +383,12 @@ public struct MemorySearchReference: Sendable, Codable, Hashable {
     public let snippet: String
     public let lineRange: MemoryLineRange?
     public let source: MemoryDocumentSource
-    public let memoryType: MemoryType
-    public let memoryTypeSource: MemoryTypeSource
-    public let memoryTypeConfidence: Double?
+    public let documentMemoryType: DocumentMemoryType
+    public let documentMemoryTypeSource: MemoryTypeSource
+    public let documentMemoryTypeConfidence: Double?
+    public let memoryID: String?
+    public let memoryKind: MemoryKind?
+    public let memoryStatus: MemoryStatus?
     public let score: SearchScoreBreakdown
 }
 

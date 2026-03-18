@@ -108,16 +108,16 @@ public protocol ContentTagger: Sendable {
 
 public protocol MemoryExtractor: Sendable {
     var identifier: String { get }
-    func extract(messages: [ConversationMessage], limit: Int) async throws -> [ExtractedMemory]
+    func extract(messages: [ConversationMessage], limit: Int) async throws -> [MemoryCandidate]
 }
 
 public struct RecallPlan: Sendable {
     public var query: String
-    public var memoryTypes: Set<MemoryType>?
+    public var documentMemoryTypes: Set<DocumentMemoryType>?
 
-    public init(query: String, memoryTypes: Set<MemoryType>? = nil) {
+    public init(query: String, documentMemoryTypes: Set<DocumentMemoryType>? = nil) {
         self.query = query
-        self.memoryTypes = memoryTypes
+        self.documentMemoryTypes = documentMemoryTypes
     }
 }
 
@@ -133,18 +133,18 @@ public protocol RecallPlanner: Sendable {
 public struct QueryAnalysis: Sendable {
     public var entities: [String]
     public var keyTerms: [String]
-    public var suggestedMemoryTypes: Set<MemoryType>?
+    public var suggestedDocumentMemoryTypes: Set<DocumentMemoryType>?
     public var isHowToQuery: Bool
 
     public init(
         entities: [String] = [],
         keyTerms: [String] = [],
-        suggestedMemoryTypes: Set<MemoryType>? = nil,
+        suggestedDocumentMemoryTypes: Set<DocumentMemoryType>? = nil,
         isHowToQuery: Bool = false
     ) {
         self.entities = entities
         self.keyTerms = keyTerms
-        self.suggestedMemoryTypes = suggestedMemoryTypes
+        self.suggestedDocumentMemoryTypes = suggestedDocumentMemoryTypes
         self.isHowToQuery = isHowToQuery
     }
 }

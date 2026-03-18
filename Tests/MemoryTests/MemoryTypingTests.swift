@@ -41,8 +41,8 @@ struct MemoryTypingTests {
 
         let results = try await index.search(SearchQuery(text: "release planning", limit: 3))
         #expect(results.isEmpty == false)
-        #expect(results.first?.memoryType == .episodic)
-        #expect(results.first?.memoryTypeSource == .manual)
+        #expect(results.first?.documentMemoryType == .episodic)
+        #expect(results.first?.documentMemoryTypeSource == .manual)
     }
 
     @Test
@@ -77,9 +77,9 @@ struct MemoryTypingTests {
 
         let results = try await index.search(SearchQuery(text: "architecture concepts", limit: 3))
         #expect(results.isEmpty == false)
-        #expect(results.first?.memoryType == .semantic)
-        #expect(results.first?.memoryTypeSource == .automatic)
-        #expect((results.first?.memoryTypeConfidence ?? 0) > 0.8)
+        #expect(results.first?.documentMemoryType == .semantic)
+        #expect(results.first?.documentMemoryTypeSource == .automatic)
+        #expect((results.first?.documentMemoryTypeConfidence ?? 0) > 0.8)
     }
 
     @Test
@@ -108,8 +108,8 @@ struct MemoryTypingTests {
 
         let results = try await index.search(SearchQuery(text: "short note", limit: 3))
         #expect(results.isEmpty == false)
-        #expect(results.first?.memoryType == .contextual)
-        #expect(results.first?.memoryTypeSource == .fallback)
+        #expect(results.first?.documentMemoryType == .contextual)
+        #expect(results.first?.documentMemoryTypeSource == .fallback)
     }
 
     @Test
@@ -143,20 +143,20 @@ struct MemoryTypingTests {
         let before = try await index.search(SearchQuery(text: "timeline planning", limit: 3))
         #expect(before.isEmpty == false)
         let chunkID = try #require(before.first?.chunkID)
-        #expect(before.first?.memoryType == .semantic)
+        #expect(before.first?.documentMemoryType == .semantic)
 
         try await index.setChunkMemoryTypeOverride(chunkID: chunkID, type: .temporal)
         let updated = try await index.getChunk(id: chunkID)
-        #expect(updated?.memoryType == .temporal)
-        #expect(updated?.memoryTypeSource == .manual)
+        #expect(updated?.documentMemoryType == .temporal)
+        #expect(updated?.documentMemoryTypeSource == .manual)
 
         let temporalOnly = try await index.search(
-            SearchQuery(text: "timeline planning", limit: 3, memoryTypes: [.temporal])
+            SearchQuery(text: "timeline planning", limit: 3, documentMemoryTypes: [.temporal])
         )
         #expect(temporalOnly.contains(where: { $0.chunkID == chunkID }))
 
         let semanticOnly = try await index.search(
-            SearchQuery(text: "timeline planning", limit: 3, memoryTypes: [.semantic])
+            SearchQuery(text: "timeline planning", limit: 3, documentMemoryTypes: [.semantic])
         )
         #expect(semanticOnly.contains(where: { $0.chunkID == chunkID }) == false)
     }
@@ -195,11 +195,11 @@ struct MemoryTypingTests {
         try await index.rebuildIndex(from: [docs])
 
         let filtered = try await index.search(
-            SearchQuery(text: "shared keyword alpha", limit: 20, memoryTypes: [.semantic])
+            SearchQuery(text: "shared keyword alpha", limit: 20, documentMemoryTypes: [.semantic])
         )
 
         #expect(filtered.isEmpty == false)
-        #expect(filtered.allSatisfy { $0.memoryType == .semantic })
+        #expect(filtered.allSatisfy { $0.documentMemoryType == .semantic })
         #expect(filtered.contains(where: { $0.documentPath.hasSuffix("semantic.md") }))
         #expect(filtered.contains(where: { $0.documentPath.hasSuffix("procedural.md") }) == false)
     }
@@ -236,12 +236,12 @@ struct MemoryTypingTests {
         try await index.rebuildIndex(from: [docs])
 
         let filtered = try await index.search(
-            SearchQuery(text: "shared keyword alpha", limit: 20, memoryTypes: [.semantic])
+            SearchQuery(text: "shared keyword alpha", limit: 20, documentMemoryTypes: [.semantic])
         )
 
         #expect(filtered.isEmpty == false)
         #expect(filtered.contains(where: { $0.documentPath.hasSuffix("note.md") }))
-        #expect(filtered.first?.memoryType == .procedural)
+        #expect(filtered.first?.documentMemoryType == .procedural)
     }
 
     @Test
@@ -276,7 +276,7 @@ struct MemoryTypingTests {
         try await index.rebuildIndex(from: [docs])
 
         let filtered = try await index.search(
-            SearchQuery(text: "shared keyword alpha", limit: 20, memoryTypes: [.semantic])
+            SearchQuery(text: "shared keyword alpha", limit: 20, documentMemoryTypes: [.semantic])
         )
 
         #expect(filtered.isEmpty)
@@ -306,19 +306,19 @@ struct MemoryTypingTests {
 
         let before = try await index.search(SearchQuery(text: "coordination team", limit: 5))
         #expect(before.isEmpty == false)
-        #expect(before.first?.memoryType == .factual)
+        #expect(before.first?.documentMemoryType == .factual)
 
         try await index.setDocumentMemoryType(path: file.path, type: .social)
 
         let social = try await index.search(
-            SearchQuery(text: "coordination team", limit: 5, memoryTypes: [.social])
+            SearchQuery(text: "coordination team", limit: 5, documentMemoryTypes: [.social])
         )
         #expect(social.isEmpty == false)
-        #expect(social.allSatisfy { $0.memoryType == .social })
-        #expect(social.allSatisfy { $0.memoryTypeSource == .manual })
+        #expect(social.allSatisfy { $0.documentMemoryType == .social })
+        #expect(social.allSatisfy { $0.documentMemoryTypeSource == .manual })
 
         let factual = try await index.search(
-            SearchQuery(text: "coordination team", limit: 5, memoryTypes: [.factual])
+            SearchQuery(text: "coordination team", limit: 5, documentMemoryTypes: [.factual])
         )
         #expect(factual.isEmpty)
     }

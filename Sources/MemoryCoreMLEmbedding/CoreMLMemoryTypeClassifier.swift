@@ -10,7 +10,7 @@ public actor CoreMLMemoryTypeClassifier: MemoryTypeClassifier {
     private let maxSequenceLength: Int
 
     // Mirrors Autoresearch/memory_autoresearch/config.py MEMORY_TYPES.
-    private static let labelOrder: [MemoryType] = [
+    private static let labelOrder: [DocumentMemoryType] = [
         .factual,
         .procedural,
         .episodic,
@@ -114,7 +114,7 @@ public actor CoreMLMemoryTypeClassifier: MemoryTypeClassifier {
         return Array(UnsafeBufferPointer(start: ptr, count: count))
     }
 
-    private func classifyLogits(_ logits: [Float]) -> (type: MemoryType, confidence: Double)? {
+    private func classifyLogits(_ logits: [Float]) -> (type: DocumentMemoryType, confidence: Double)? {
         guard let (bestIndex, bestLogit) = logits.enumerated().max(by: { $0.element < $1.element }) else {
             return nil
         }

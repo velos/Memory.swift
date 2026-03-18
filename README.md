@@ -1,6 +1,6 @@
 # Memory.swift
 
-`Memory.swift` is a pure Swift retrieval and agent-memory library for Apple platforms. It combines a SQLite-backed index, hybrid retrieval, and optional NaturalLanguage, CoreML, and Apple Intelligence providers behind a single Swift-native API.
+`Memory.swift` is a pure Swift retrieval and agent-memory library for Apple platforms. It combines a SQLite-backed canonical memory store, hybrid retrieval, and optional NaturalLanguage, CoreML, and Apple Intelligence providers behind a single Swift-native API.
 
 ## Inspiration
 
@@ -16,12 +16,13 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 
 - Hybrid retrieval: semantic + BM25 + recency
 - Persistent SQLite index via SQLite and `sqlite-vec`
+- Canonical `memories` table with deterministic update/supersede semantics for agent memories
 - Persistent contexts for reusable chunk sets
 - Typed memory classification (`factual`, `procedural`, `episodic`, `semantic`, `emotional`, `social`, `contextual`, `temporal`)
 - Default embedding backend with `NLContextualEmbedding`
-- CoreML embedding with LEAF-IR (384-dim, 23M params) and TinyBERT cross-encoder reranking (4.3 MB)
-- Wider rerank candidate pool (40 minimum) for effective reranking
-- Optional Apple Intelligence query expansion, reranking, and memory typing on supported OS versions
+- CoreML-first on-device path with LEAF-IR embeddings and CoreML document typing
+- Agent memory model: `profile`, `fact`, `decision`, `commitment`, `episode`, `procedure`, `handoff`
+- Optional Apple Intelligence augmentation on supported OS versions
 
 ## Package Products
 
@@ -69,7 +70,7 @@ try await index.rebuildIndex(from: [URL(fileURLWithPath: "/path/to/docs")])
 let results = try await index.search(SearchQuery(text: "swift concurrency actors"))
 ```
 
-## Quick Start (CoreML v1 stack)
+## Quick Start (CoreML default)
 
 Provide your own compiled model URLs from the app bundle or local filesystem. The model files in this repository are reference assets, not package resources exposed by the library product.
 
@@ -81,25 +82,17 @@ import MemoryCoreMLEmbedding
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 let typingModel = URL(fileURLWithPath: "Models/typing-v1.mlpackage")
 let embeddingModel = URL(fileURLWithPath: "Models/embedding-v1.mlpackage")
-let rerankerModel = URL(fileURLWithPath: "Models/reranker-v1.mlpackage")
-
-let typing = try CoreMLMemoryTypeClassifier(modelURL: typingModel)
-let embedder = try CoreMLEmbeddingProvider(modelURL: embeddingModel)
-let reranker = try CoreMLReranker(modelURL: rerankerModel)
-
-let config = MemoryConfiguration(
+let config = try MemoryConfiguration.coreMLDefault(
     databaseURL: dbURL,
-    embeddingProvider: embedder,
-    reranker: reranker,
-    memoryTyping: MemoryTypingConfiguration(
-        mode: .automatic,
-        classifier: typing,
-        fallbackType: .factual,
-        minimumConfidenceForFilter: 0.75
+    models: CoreMLDefaultModels(
+        embedding: embeddingModel,
+        typing: typingModel
     )
 )
 let index = try MemoryIndex(configuration: config)
 ```
+
+`coreMLDefault` is the shipped on-device path: LEAF-IR embeddings, CoreML typing, hybrid retrieval, and no neural reranker in the default hot path.
 
 Typed retrieval treats low-confidence automatic labels as advisory. Manual labels still filter strictly, but low-confidence automatic or fallback labels remain eligible so weak typing does not hide relevant memories.
 
@@ -331,19 +324,19 @@ swift run memory_eval init --dataset-root ./Evals
 Run baseline eval:
 
 ```bash
-swift run memory_eval run --profile baseline --dataset-root ./Evals
+swift run memory_eval run --profile nl_baseline --dataset-root ./Evals
 ```
 
-Run full profile matrix (all profiles, back-to-back):
+Run the supported profile set:
 
 ```bash
 swift run memory_eval run --dataset-root ./Evals
 ```
 
-Run Apple tag-only eval (content tags as soft ranking signals):
+Run CoreML-first eval:
 
 ```bash
-swift run memory_eval run --profile apple_tags --dataset-root ./Evals
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals
 ```
 
 Run oracle ceiling eval (offline ranking upper bound from retrieved candidates):
@@ -352,10 +345,10 @@ Run oracle ceiling eval (offline ranking upper bound from retrieved candidates):
 swift run memory_eval run --profile oracle_ceiling --dataset-root ./Evals
 ```
 
-Run Apple-powered eval (classification + expansion/reranking):
+Run Apple-augmented eval:
 
 ```bash
-swift run memory_eval run --profile full_apple --dataset-root ./Evals
+swift run memory_eval run --profile apple_augmented --dataset-root ./Evals
 ```
 
 Compare run outputs:
@@ -375,7 +368,7 @@ python3 Scripts/convert_longmemeval_to_eval.py \
 Run evals on LongMemEval:
 
 ```bash
-swift run memory_eval run --profile baseline --dataset-root ./Evals/longmemeval
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval
 ```
 
 Eval caching defaults:

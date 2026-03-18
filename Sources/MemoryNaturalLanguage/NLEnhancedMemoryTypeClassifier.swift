@@ -6,8 +6,8 @@ public actor NLEnhancedMemoryTypeClassifier: MemoryTypeClassifier {
     public let identifier: String
     private let tokenizer: any Tokenizer
 
-    private let keywordWeights: [MemoryType: [String]]
-    private let phraseWeights: [MemoryType: [String]]
+    private let keywordWeights: [DocumentMemoryType: [String]]
+    private let phraseWeights: [DocumentMemoryType: [String]]
     private let emotionLexicon: Set<String>
 
     public init(
@@ -114,12 +114,12 @@ public actor NLEnhancedMemoryTypeClassifier: MemoryTypeClassifier {
         let tokens = tokenizer.tokenize(normalized)
         let tokenCounts = Dictionary(tokens.map { ($0, 1) }, uniquingKeysWith: +)
 
-        var scores: [MemoryType: Double] = [:]
-        for type in MemoryType.allCases {
+        var scores: [DocumentMemoryType: Double] = [:]
+        for type in DocumentMemoryType.allCases {
             scores[type] = 0
         }
 
-        for type in MemoryType.allCases {
+        for type in DocumentMemoryType.allCases {
             let keywords = keywordWeights[type] ?? []
             let phrases = phraseWeights[type] ?? []
 

@@ -49,7 +49,7 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
             return true
         }
 
-        var suggestedTypes: Set<MemoryType> = []
+        var suggestedTypes: Set<DocumentMemoryType> = []
         let isHowTo = lowered.hasPrefix("how to") || lowered.hasPrefix("how do")
             || lowered.contains("steps to") || lowered.contains("procedure for")
         if isHowTo {
@@ -76,7 +76,7 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         return QueryAnalysis(
             entities: entities,
             keyTerms: keyTerms,
-            suggestedMemoryTypes: suggestedTypes.isEmpty ? nil : suggestedTypes,
+            suggestedDocumentMemoryTypes: suggestedTypes.isEmpty ? nil : suggestedTypes,
             isHowToQuery: isHowTo
         )
     }

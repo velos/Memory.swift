@@ -59,7 +59,7 @@ let package = Package(
         ),
         .target(
             name: "MemoryCoreMLEmbedding",
-            dependencies: ["Memory"],
+            dependencies: ["Memory", "MemoryNaturalLanguage"],
             path: "Sources/MemoryCoreMLEmbedding",
             resources: [
                 .copy("Resources/vocab.txt"),

@@ -23,9 +23,9 @@ private actor IntegrationMockEmbeddingProvider: EmbeddingProvider {
 
 private actor IntegrationStaticMemoryTypeClassifier: MemoryTypeClassifier {
     let identifier = "integration-static-memory-type-classifier"
-    let type: MemoryType
+    let type: DocumentMemoryType
 
-    init(type: MemoryType) {
+    init(type: DocumentMemoryType) {
         self.type = type
     }
 
@@ -166,11 +166,11 @@ struct MemoryIntegrationTests {
         )
 
         let reloadedChunk = try await secondIndex.getChunk(id: chunkID)
-        #expect(reloadedChunk?.memoryType == .temporal)
-        #expect(reloadedChunk?.memoryTypeSource == .manual)
+        #expect(reloadedChunk?.documentMemoryType == .temporal)
+        #expect(reloadedChunk?.documentMemoryTypeSource == .manual)
 
         let temporalOnly = try await secondIndex.search(
-            SearchQuery(text: "milestone planning", limit: 5, memoryTypes: [.temporal])
+            SearchQuery(text: "milestone planning", limit: 5, documentMemoryTypes: [.temporal])
         )
         #expect(temporalOnly.contains(where: { $0.chunkID == chunkID }))
     }
@@ -205,7 +205,7 @@ struct MemoryIntegrationTests {
         let results = try await index.search(SearchQuery(text: "stakeholder alignment", limit: 5))
 
         #expect(results.isEmpty == false)
-        #expect(results.first?.memoryType == .social)
-        #expect(results.first?.memoryTypeSource == .automatic)
+        #expect(results.first?.documentMemoryType == .social)
+        #expect(results.first?.documentMemoryTypeSource == .automatic)
     }
 }

@@ -19,14 +19,11 @@ Required files:
 
 Common commands:
 - `swift run memory_eval init --dataset-root ./Evals`
-- `swift run memory_eval run --profile baseline --dataset-root ./Evals`
+- `swift run memory_eval run --profile nl_baseline --dataset-root ./Evals`
+- `swift run memory_eval run --profile coreml_default --dataset-root ./Evals`
 - `swift run memory_eval run --dataset-root ./Evals` (runs all profiles sequentially)
-- `swift run memory_eval run --profile apple_tags --dataset-root ./Evals`
-- `swift run memory_eval run --profile expansion_only --dataset-root ./Evals`
 - `swift run memory_eval run --profile oracle_ceiling --dataset-root ./Evals`
-- `swift run memory_eval run --profile expansion_rerank --dataset-root ./Evals`
-- `swift run memory_eval run --profile expansion_rerank_tag --dataset-root ./Evals`
-- `swift run memory_eval run --profile full_apple --dataset-root ./Evals`
+- `swift run memory_eval run --profile apple_augmented --dataset-root ./Evals`
 - `swift run memory_eval compare ./Evals/runs/*.json`
 """
 
@@ -150,28 +147,10 @@ private struct RecallQueryCase: Decodable {
 }
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
-    case baseline
-    case appleTags = "apple_tags"
-    case appleStorage = "apple_storage"
-    case appleRecall = "apple_recall"
-    case expansionOnly = "expansion_only"
+    case nlBaseline = "nl_baseline"
+    case coreMLDefault = "coreml_default"
     case oracleCeiling = "oracle_ceiling"
-    case expansionRerank = "expansion_rerank"
-    case expansionRerankTag = "expansion_rerank_tag"
-    case fullApple = "full_apple"
-    case chunker900 = "chunker_900"
-    case normalizedBm25 = "normalized_bm25"
-    case wideCandidates = "wide_candidates"
-    case poolingMean = "pooling_mean"
-    case poolingWeightedMean = "pooling_weighted_mean"
-    case coremlLeafIR = "coreml_leaf_ir"
-    case coremlRerank = "coreml_rerank"
-    case coremlRerankHeavy = "coreml_rerank_heavy"
-    case coremlRerankOnly = "coreml_rerank_only"
-    case coremlRerankMiniLMInt8 = "coreml_rerank_minilm_int8"
-    case coremlRerankMiniLMPal4 = "coreml_rerank_minilm_pal4"
-    case coremlColbertRerank = "coreml_colbert_rerank"
-    case leafirAppleRerank = "leafir_apple_rerank"
+    case appleAugmented = "apple_augmented"
 }
 
 private struct StorageCaseResult: Codable {
@@ -1647,7 +1626,7 @@ private func runStorageSuite(
         let predictedRaw: String = dbRows[0]["memory_type"]
         let predictedSourceRaw: String = dbRows[0]["memory_type_source"]
         let predictedConfidence: Double? = dbRows[0]["memory_type_confidence"]
-        let predictedType = MemoryType.parse(predictedRaw) ?? .factual
+        let predictedType = DocumentMemoryType.parse(predictedRaw) ?? .factual
         let predictedSource = MemoryTypeSource.parse(predictedSourceRaw) ?? .fallback
 
         if predictedType == expectedType {
@@ -1690,7 +1669,7 @@ private func runStorageSuite(
     let macroF1 = computeMacroF1(
         expected: results.map(\.expectedType),
         predicted: results.map(\.predictedType),
-        labels: MemoryType.allCases.map(\.rawValue)
+        labels: DocumentMemoryType.allCases.map(\.rawValue)
     )
 
     let accuracy = dataset.isEmpty ? 0 : Double(correct) / Double(dataset.count)
@@ -1751,7 +1730,7 @@ private func runRecallSuite(
 
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
-    var memoryTypeByDocumentID: [String: MemoryType] = [:]
+    var memoryTypeByDocumentID: [String: DocumentMemoryType] = [:]
     var contentByDocumentID: [String: String] = [:]
 
     for document in documents {
@@ -1890,11 +1869,13 @@ private func runRecallSuite(
 
         let queryStartTime = Date()
         let searchStageCollector = SearchStageTimingCollector()
-        let recallResponse = try await index.recall(
-            mode: .hybrid(query: queryCase.query),
-            limit: recallLimit,
+        let references = try await index.memorySearch(
+            query: queryCase.query,
+            limit: dedupedDocumentLimit,
             features: recallFeatures(for: config),
-            memoryTypes: effectiveMemoryTypes,
+            documentMemoryTypes: effectiveMemoryTypes,
+            dedupeDocuments: true,
+            includeLineRanges: false,
             events: { event in
                 searchStageCollector.record(event)
             }
@@ -1902,15 +1883,10 @@ private func runRecallSuite(
         let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
 
         var rankedDocumentIDs: [String] = []
-        var seen: Set<String> = []
-        for record in recallResponse.records {
-            guard let documentID = documentIDByPath[record.documentPath] else { continue }
-            if seen.insert(documentID).inserted {
-                rankedDocumentIDs.append(documentID)
-            }
-            if rankedDocumentIDs.count >= dedupedDocumentLimit {
-                break
-            }
+        rankedDocumentIDs.reserveCapacity(references.count)
+        for reference in references {
+            guard let documentID = documentIDByPath[reference.documentPath] else { continue }
+            rankedDocumentIDs.append(documentID)
         }
 
         let evaluatedDocumentIDs: [String]
@@ -2056,7 +2032,7 @@ private func computePerTypeMetrics(
     queryResults: [RecallQueryResult],
     queries: [RecallQueryCase],
     documents: [RecallDocumentCase],
-    memoryTypeByDocumentID: [String: MemoryType],
+    memoryTypeByDocumentID: [String: DocumentMemoryType],
     maxK: Int
 ) -> [RecallPerTypeMetric] {
     let queryById = Dictionary(uniqueKeysWithValues: queries.map { ($0.id, $0) })
@@ -2194,197 +2170,32 @@ private func buildConfiguration(
     suite: SuiteKind,
     databaseURL: URL
 ) throws -> MemoryConfiguration {
-    var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
-    configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
-
     switch profile {
-    case .baseline:
-        break
-    case .appleTags:
-        try enableAppleContentTagging(on: &configuration)
-    case .appleStorage:
-        if suite == .storage {
-            configuration.memoryTyping.classifier = try makeAppleFirstMemoryClassifier()
-        }
-    case .appleRecall:
-        if suite == .recall {
-            try enableAppleRecallCapabilities(on: &configuration)
-        }
-    case .expansionOnly:
-        if suite == .recall {
-            try enableAppleExpansionCapabilities(on: &configuration)
-        }
-    case .oracleCeiling:
-        break
-    case .expansionRerank:
-        if suite == .recall {
-            try enableAppleRecallCapabilities(on: &configuration)
-        }
-    case .expansionRerankTag:
-        try enableAppleContentTagging(on: &configuration)
-        if suite == .recall {
-            try enableAppleRecallCapabilities(on: &configuration)
-        }
-    case .fullApple:
+    case .nlBaseline:
+        return MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
+    case .oracleCeiling, .coreMLDefault:
+        return try MemoryConfiguration.coreMLDefault(
+            databaseURL: databaseURL,
+            models: CoreMLDefaultModels(
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
+                typing: locateCoreMLModel(name: RepoCoreMLModels.typing)
+            )
+        )
+    case .appleAugmented:
+        var configuration = try MemoryConfiguration.coreMLDefault(
+            databaseURL: databaseURL,
+            models: CoreMLDefaultModels(
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
+                typing: locateCoreMLModel(name: RepoCoreMLModels.typing)
+            )
+        )
         configuration.memoryTyping.classifier = try makeAppleFirstMemoryClassifier()
         try enableAppleContentTagging(on: &configuration)
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
         }
-    case .chunker900:
-        configuration.chunker = DefaultChunker(targetTokenCount: 900, overlapTokenCount: 135)
-    case .normalizedBm25:
-        break
-    case .wideCandidates:
-        configuration.semanticCandidateLimit = 1000
-        configuration.lexicalCandidateLimit = 1000
-    case .poolingMean:
-        configuration = MemoryConfiguration.naturalLanguageDefault(
-            databaseURL: databaseURL,
-            poolingStrategy: .mean
-        )
-        configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
-    case .poolingWeightedMean:
-        configuration = MemoryConfiguration.naturalLanguageDefault(
-            databaseURL: databaseURL,
-            poolingStrategy: .weightedMean
-        )
-        configuration.memoryTyping = try makeRepoCoreMLTypingConfiguration()
-    case .coremlLeafIR:
-        let modelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let provider = try CoreMLEmbeddingProvider(modelURL: modelURL)
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlRerank:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(modelURL: rerankerModelURL)
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlRerankHeavy:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-reranker-v1-heavy")
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            positionAwareBlending: PositionAwareBlending(
-                topRankFusedWeight: 0.40,
-                midRankFusedWeight: 0.20,
-                tailRankFusedWeight: 0.10
-            ),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlRerankOnly:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: RepoCoreMLModels.reranker)
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(modelURL: rerankerModelURL, identifier: "coreml-reranker-v1-only")
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            positionAwareBlending: PositionAwareBlending(
-                topRankFusedWeight: 0.0,
-                midRankFusedWeight: 0.0,
-                tailRankFusedWeight: 0.0
-            ),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlRerankMiniLMInt8:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-int8")
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(
-            modelURL: rerankerModelURL,
-            identifier: "coreml-minilm-l6-reranker-int8"
-        )
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlRerankMiniLMPal4:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: "minilm-l6-reranker-pal4")
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLReranker(
-            modelURL: rerankerModelURL,
-            identifier: "coreml-minilm-l6-reranker-pal4"
-        )
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .coremlColbertRerank:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let rerankerModelURL = locateCoreMLModel(name: "colbert-17m")
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        let reranker = try CoreMLColBERTReranker(modelURL: rerankerModelURL)
-        configuration = MemoryConfiguration(
-            databaseURL: databaseURL,
-            embeddingProvider: provider,
-            reranker: reranker,
-            memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-            tokenizer: NLWordTokenizer(),
-            ftsTokenizer: NLLemmatizingTokenizer()
-        )
-    case .leafirAppleRerank:
-        let embeddingModelURL = locateCoreMLModel(name: RepoCoreMLModels.embedding)
-        let provider = try CoreMLEmbeddingProvider(modelURL: embeddingModelURL)
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            let reranker = AppleIntelligenceReranker(
-                maxCandidates: 16,
-                responseTimeoutSeconds: 20
-            )
-            configuration = MemoryConfiguration(
-                databaseURL: databaseURL,
-                embeddingProvider: provider,
-                reranker: reranker,
-                memoryTyping: try makeRepoCoreMLTypingConfiguration(),
-                tokenizer: NLWordTokenizer(),
-                positionAwareBlending: PositionAwareBlending(
-                    topRankFusedWeight: 0.58,
-                    midRankFusedWeight: 0.42,
-                    tailRankFusedWeight: 0.28
-                ),
-                ftsTokenizer: NLLemmatizingTokenizer()
-            )
-        } else {
-            throw ValidationError("Apple Intelligence is unavailable. The leafir_apple_rerank profile requires it.")
-        }
-        #else
-        throw ValidationError("Apple Intelligence is unavailable. The leafir_apple_rerank profile requires FoundationModels.")
-        #endif
+        return configuration
     }
-
-    return configuration
 }
 
 private func makeRepoCoreMLTypingConfiguration() throws -> MemoryTypingConfiguration {
@@ -2501,9 +2312,9 @@ private func ensureFunctionalRerankerIfNeeded(
             content: "Run migration and verify alerts before rollout.",
             snippet: "Run migration and verify alerts before rollout.",
             modifiedAt: now,
-            memoryType: .procedural,
-            memoryTypeSource: .automatic,
-            memoryTypeConfidence: 0.9,
+            documentMemoryType: .procedural,
+            documentMemoryTypeSource: .automatic,
+            documentMemoryTypeConfidence: 0.9,
             score: SearchScoreBreakdown(
                 semantic: 0.2,
                 lexical: 0.2,
@@ -2518,9 +2329,9 @@ private func ensureFunctionalRerankerIfNeeded(
             content: "Discuss retrospective and backlog grooming topics.",
             snippet: "Discuss retrospective and backlog grooming topics.",
             modifiedAt: now,
-            memoryType: .semantic,
-            memoryTypeSource: .automatic,
-            memoryTypeConfidence: 0.8,
+            documentMemoryType: .semantic,
+            documentMemoryTypeSource: .automatic,
+            documentMemoryTypeConfidence: 0.8,
             score: SearchScoreBreakdown(
                 semantic: 0.1,
                 lexical: 0.1,
@@ -2576,7 +2387,7 @@ private func installContentTaggingDiagnosticsIfNeeded(
     profile: EvalProfile,
     configuration: inout MemoryConfiguration
 ) -> ContentTaggingDiagnosticsCollector? {
-    guard profile == .appleTags else { return nil }
+    guard profile == .appleAugmented else { return nil }
     guard let contentTagger = configuration.contentTagger else { return nil }
 
     #if canImport(FoundationModels)
@@ -2598,13 +2409,13 @@ private func requireGeneratedContentTagsIfNeeded(
     databaseURL: URL,
     suite: SuiteKind
 ) throws {
-    guard profile == .appleTags else { return }
+    guard profile == .appleAugmented else { return }
 
     let stats = try loadContentTagGenerationStats(databaseURL: databaseURL)
     guard stats.chunkCount > 0 else { return }
     guard stats.totalTagCount > 0 else {
         throw ValidationError(
-            "apple_tags profile produced zero chunk content tags in the \(suiteLabel(suite)) suite (\(stats.chunkCount) chunks). Content tagging is unavailable or non-functional for this run."
+            "apple_augmented profile produced zero chunk content tags in the \(suiteLabel(suite)) suite (\(stats.chunkCount) chunks). Content tagging is unavailable or non-functional for this run."
         )
     }
 
@@ -2619,9 +2430,9 @@ private func requireFunctionalContentTaggingIfNeeded(
     configuration: MemoryConfiguration,
     suite: SuiteKind
 ) async throws {
-    guard profile == .appleTags else { return }
+    guard profile == .appleAugmented else { return }
     guard let tagger = configuration.contentTagger else {
-        throw ValidationError("apple_tags profile requires a configured content tagger.")
+        throw ValidationError("apple_augmented profile requires a configured content tagger.")
     }
 
     let probeText = "Release checklist: run migration, verify alerts, and announce rollout."
@@ -2633,11 +2444,11 @@ private func requireFunctionalContentTaggingIfNeeded(
         }
     } catch is OperationTimeoutError {
         throw ValidationError(
-            "apple_tags profile timed out while probing content tagging in the \(suiteLabel(suite)) suite. Content tagging is unavailable or unresponsive for this runtime."
+            "apple_augmented profile timed out while probing content tagging in the \(suiteLabel(suite)) suite. Content tagging is unavailable or unresponsive for this runtime."
         )
     } catch {
         throw ValidationError(
-            "apple_tags profile failed content tagging preflight in the \(suiteLabel(suite)) suite: \(error.localizedDescription)"
+            "apple_augmented profile failed content tagging preflight in the \(suiteLabel(suite)) suite: \(error.localizedDescription)"
         )
     }
 
@@ -2646,7 +2457,7 @@ private func requireFunctionalContentTaggingIfNeeded(
     }
     guard !valid.isEmpty else {
         throw ValidationError(
-            "apple_tags profile returned zero tags in content tagging preflight for the \(suiteLabel(suite)) suite. Content tagging is unavailable or non-functional for this runtime."
+            "apple_augmented profile returned zero tags in content tagging preflight for the \(suiteLabel(suite)) suite. Content tagging is unavailable or non-functional for this runtime."
         )
     }
 }
@@ -2748,14 +2559,9 @@ private func suiteLabel(_ suite: SuiteKind) -> String {
 
 private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool {
     switch profile {
-    case .appleRecall, .expansionOnly, .expansionRerank, .expansionRerankTag, .fullApple,
-         .leafirAppleRerank:
+    case .appleAugmented:
         return true
-    case .baseline, .appleTags, .appleStorage, .oracleCeiling, .chunker900, .normalizedBm25,
-         .wideCandidates, .poolingMean, .poolingWeightedMean, .coremlLeafIR, .coremlRerank,
-         .coremlRerankHeavy, .coremlRerankOnly,
-         .coremlRerankMiniLMInt8, .coremlRerankMiniLMPal4,
-         .coremlColbertRerank:
+    case .nlBaseline, .coreMLDefault, .oracleCeiling:
         return false
     }
 }
@@ -3088,18 +2894,18 @@ private func parseKValues(_ raw: String) throws -> [Int] {
     return deduped
 }
 
-private func parseMemoryType(_ raw: String, context: String) throws -> MemoryType {
-    guard let type = MemoryType.parse(raw) else {
-        let allowed = MemoryType.allCases.map(\.rawValue).joined(separator: ", ")
+private func parseMemoryType(_ raw: String, context: String) throws -> DocumentMemoryType {
+    guard let type = DocumentMemoryType.parse(raw) else {
+        let allowed = DocumentMemoryType.allCases.map(\.rawValue).joined(separator: ", ")
         throw EvalError.invalidDataset("Unknown memory type '\(raw)' in \(context). Allowed: \(allowed)")
     }
     return type
 }
 
-private func parseOptionalMemoryTypes(_ rawValues: [String]?) throws -> Set<MemoryType>? {
+private func parseOptionalMemoryTypes(_ rawValues: [String]?) throws -> Set<DocumentMemoryType>? {
     guard let rawValues, !rawValues.isEmpty else { return nil }
 
-    var result: Set<MemoryType> = []
+    var result: Set<DocumentMemoryType> = []
     for raw in rawValues {
         let type = try parseMemoryType(raw, context: "query memory_types")
         result.insert(type)

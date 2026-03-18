@@ -24,6 +24,28 @@ public actor MemoryIndex {
         var expansionType: ExpansionType?
     }
 
+    private struct PreparedMemoryCandidate {
+        var text: String
+        var kind: MemoryKind
+        var status: MemoryStatus
+        var importance: Double
+        var confidence: Double?
+        var createdAt: Date
+        var eventAt: Date?
+        var source: String
+        var title: String?
+        var tags: [String]
+        var canonicalKey: String?
+        var metadata: [String: String]
+    }
+
+    private struct IngestConsolidationResult {
+        var primaryMemoryID: String
+        var impactedMemoryIDs: Set<String>
+    }
+
+    private let minimumAutoWriteConfidence = 0.55
+
     public init(configuration: MemoryConfiguration, fileManager: FileManager = .default) throws {
         guard !configuration.databaseURL.path.isEmpty else {
             throw MemoryError.configuration("databaseURL must not be empty")
@@ -78,6 +100,8 @@ public actor MemoryIndex {
                 )
                 events?(.stored(path: url.path))
             }
+
+            try await rematerializeStoredMemories()
 
             events?(.completed(processedDocuments: urls.count, totalChunks: totalChunks))
         } catch {
@@ -145,10 +169,18 @@ public actor MemoryIndex {
     }
 
     public func search(_ query: SearchQuery) async throws -> [SearchResult] {
-        try await search(query, events: nil)
+        try await search(query, events: nil, allowedChunkIDsOverride: nil)
     }
 
     public func search(_ query: SearchQuery, events: SearchEventHandler?) async throws -> [SearchResult] {
+        try await search(query, events: events, allowedChunkIDsOverride: nil)
+    }
+
+    private func search(
+        _ query: SearchQuery,
+        events: SearchEventHandler?,
+        allowedChunkIDsOverride: Set<Int64>?
+    ) async throws -> [SearchResult] {
         let normalizedText = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return [] }
 
@@ -158,16 +190,22 @@ public actor MemoryIndex {
         let allowedChunkIDs: Set<Int64>?
         if let contextID = query.contextID {
             let contextChunkIDs = try await storage.fetchContextChunkIDs(contextID: contextID.rawValue)
-            allowedChunkIDs = Set(contextChunkIDs)
-            if contextChunkIDs.isEmpty {
+            let contextSet = Set(contextChunkIDs)
+            allowedChunkIDs = combineAllowedChunkIDs(contextSet, allowedChunkIDsOverride)
+            if contextSet.isEmpty || (allowedChunkIDs?.isEmpty == true) {
                 events?(.completed(count: 0))
                 return []
             }
         } else {
-            allowedChunkIDs = nil
+            allowedChunkIDs = allowedChunkIDsOverride
         }
 
-        if let requestedTypes = query.memoryTypes, requestedTypes.isEmpty {
+        if let allowedChunkIDs, allowedChunkIDs.isEmpty {
+            events?(.completed(count: 0))
+            return []
+        }
+
+        if let requestedTypes = query.documentMemoryTypes, requestedTypes.isEmpty {
             events?(.completed(count: 0))
             return []
         }
@@ -275,7 +313,7 @@ public actor MemoryIndex {
             primaryQueryText: normalizedText,
             queryTags: queryTags
         )
-        fused = applyRequestedMemoryTypeFilter(fused, requestedTypes: query.memoryTypes)
+        fused = applyRequestedDocumentMemoryTypeFilter(fused, requestedTypes: query.documentMemoryTypes)
         events?(.stageTiming(stage: .fusion, durationMs: elapsedMilliseconds(since: fusionStart)))
         events?(.fusedCandidates(count: fused.count))
 
@@ -351,7 +389,7 @@ public actor MemoryIndex {
         }
     }
 
-    public func setDocumentMemoryType(path: String, type: MemoryType) async throws {
+    public func setDocumentMemoryType(path: String, type: DocumentMemoryType) async throws {
         let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedPath.isEmpty else {
             throw MemoryError.configuration("Document path must not be empty")
@@ -372,7 +410,7 @@ public actor MemoryIndex {
         }
     }
 
-    public func setChunkMemoryTypeOverride(chunkID: Int64, type: MemoryType?) async throws {
+    public func setChunkMemoryTypeOverride(chunkID: Int64, type: DocumentMemoryType?) async throws {
         do {
             let updated = try await storage.setChunkMemoryTypeOverride(
                 chunkID: chunkID,
@@ -392,23 +430,7 @@ public actor MemoryIndex {
         do {
             let rows = try await storage.listContextChunks(contextID: contextID.rawValue)
             return rows.map {
-                let assignment = resolveMemoryAssignment(
-                    typeRaw: $0.memoryType,
-                    sourceRaw: $0.memoryTypeSource,
-                    confidence: $0.memoryTypeConfidence
-                )
-                return SearchResult(
-                    chunkID: $0.chunkID,
-                    documentPath: $0.documentPath,
-                    title: $0.title,
-                    content: $0.content,
-                    snippet: makeSnippet(content: $0.content, queryText: nil),
-                    modifiedAt: $0.modifiedAt,
-                    memoryType: assignment.type,
-                    memoryTypeSource: assignment.source,
-                    memoryTypeConfidence: assignment.confidence,
-                    score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0)
-                )
+                makeSearchResult(from: $0, queryText: nil, score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0))
             }
         } catch {
             throw normalizeError(error)
@@ -421,21 +443,9 @@ public actor MemoryIndex {
                 return nil
             }
 
-            let assignment = resolveMemoryAssignment(
-                typeRaw: row.memoryType,
-                sourceRaw: row.memoryTypeSource,
-                confidence: row.memoryTypeConfidence
-            )
-            return SearchResult(
-                chunkID: row.chunkID,
-                documentPath: row.documentPath,
-                title: row.title,
-                content: row.content,
-                snippet: makeSnippet(content: row.content, queryText: nil),
-                modifiedAt: row.modifiedAt,
-                memoryType: assignment.type,
-                memoryTypeSource: assignment.source,
-                memoryTypeConfidence: assignment.confidence,
+            return makeSearchResult(
+                from: row,
+                queryText: nil,
                 score: SearchScoreBreakdown(semantic: 0, lexical: 0, recency: 0, fused: 0)
             )
         } catch {
@@ -453,21 +463,31 @@ public actor MemoryIndex {
 
     public func save(
         text: String,
-        category: MemoryCategory,
+        kind: MemoryKind,
+        status: MemoryStatus = .active,
         importance: Double = 0.5,
         source: String = "memory_save",
         createdAt: Date? = nil,
-        tags: [String] = []
+        eventAt: Date? = nil,
+        tags: [String] = [],
+        canonicalKey: String? = nil,
+        confidence: Double? = 1.0,
+        metadata: [String: String] = [:]
     ) async throws -> MemoryRecord {
         let result = try await ingest(
             [
-                ExtractedMemory(
+                MemoryCandidate(
                     text: text,
-                    category: category,
+                    kind: kind,
+                    status: status,
                     importance: importance,
+                    confidence: confidence,
                     createdAt: createdAt,
+                    eventAt: eventAt,
                     source: source,
-                    tags: tags
+                    tags: tags,
+                    canonicalKey: canonicalKey,
+                    metadata: metadata
                 ),
             ]
         )
@@ -482,7 +502,7 @@ public actor MemoryIndex {
     public func extract(
         from text: String,
         limit: Int = 50
-    ) async throws -> [ExtractedMemory] {
+    ) async throws -> [MemoryCandidate] {
         try await extract(
             from: [
                 ConversationMessage(role: .user, content: text),
@@ -494,7 +514,7 @@ public actor MemoryIndex {
     public func extract(
         from messages: [ConversationMessage],
         limit: Int = 50
-    ) async throws -> [ExtractedMemory] {
+    ) async throws -> [MemoryCandidate] {
         guard limit > 0 else { return [] }
         guard !messages.isEmpty else { return [] }
 
@@ -505,7 +525,7 @@ public actor MemoryIndex {
         return heuristicExtract(messages: messages, limit: limit)
     }
 
-    public func ingest(_ memories: [ExtractedMemory]) async throws -> MemoryIngestResult {
+    public func ingest(_ memories: [MemoryCandidate]) async throws -> MemoryIngestResult {
         guard !memories.isEmpty else {
             return MemoryIngestResult(requestedCount: 0, storedCount: 0, discardedCount: 0, records: [])
         }
@@ -515,59 +535,22 @@ public actor MemoryIndex {
         records.reserveCapacity(memories.count)
 
         for memory in memories {
-            let trimmed = memory.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
+            guard let prepared = prepareCandidateForIngest(memory) else {
                 discardedCount += 1
                 continue
             }
 
-            let embedding: [Float]
             do {
-                embedding = try await configuration.embeddingProvider.embed(text: trimmed, format: .document(title: nil))
-            } catch {
-                throw MemoryError.embedding("Failed to embed memory for ingest: \(error.localizedDescription)")
-            }
+                let consolidation = try await ingestPreparedCandidate(prepared)
+                for impactedMemoryID in consolidation.impactedMemoryIDs {
+                    try await materializeStoredMemory(id: impactedMemoryID)
+                }
 
-            let normalizedTags = normalizeIngestTags(memory.tags)
-            let now = memory.createdAt ?? Date()
-            let path = makeIngestPath(text: trimmed, category: memory.category)
-            let title = inferTitle(content: trimmed, fallback: "memory")
-            let memoryType = memory.category.mappedMemoryType
-
-            let payload = StoredDocumentInput(
-                path: path,
-                title: title,
-                modifiedAt: now,
-                checksum: checksum(trimmed),
-                memoryType: memoryType.rawValue,
-                memoryTypeSource: MemoryTypeSource.manual.rawValue,
-                memoryTypeConfidence: nil,
-                chunks: [
-                    StoredChunkInput(
-                        ordinal: 0,
-                        content: trimmed,
-                        tokenCount: configuration.tokenizer.tokenize(trimmed).count,
-                        embedding: embedding,
-                        norm: l2Norm(embedding),
-                        memoryTypeOverride: memoryType.rawValue,
-                        memoryTypeOverrideSource: MemoryTypeSource.manual.rawValue,
-                        memoryTypeOverrideConfidence: nil,
-                        contentTags: normalizedTags,
-                        memoryCategory: memory.category.rawValue,
-                        importance: memory.importance,
-                        accessCount: 0,
-                        lastAccessedAt: nil,
-                        source: memory.source,
-                        createdAt: now
-                    ),
-                ]
-            )
-
-            do {
-                try await storage.replaceDocument(payload)
-                let chunkRows = try await storage.fetchChunkMetadataForDocument(path: path)
-                if let first = chunkRows.first {
-                    records.append(makeMemoryRecord(from: first, score: nil))
+                if let stored = try await storage.fetchStoredMemory(id: consolidation.primaryMemoryID),
+                   let record = makeMemoryRecord(from: stored, score: nil) {
+                    records.append(record)
+                } else {
+                    discardedCount += 1
                 }
             } catch {
                 throw normalizeError(error)
@@ -588,14 +571,16 @@ public actor MemoryIndex {
         features: RecallFeatures = .hybridDefault,
         sort: RecallSort = .recent,
         conversationContext: [ConversationMessage] = [],
-        memoryTypes: Set<MemoryType>? = nil,
+        kinds: Set<MemoryKind>? = nil,
+        statuses: Set<MemoryStatus>? = [.active],
+        documentMemoryTypes: Set<DocumentMemoryType>? = nil,
         events: SearchEventHandler? = nil
     ) async throws -> MemoryRecallResponse {
         let effectiveLimit = max(1, limit)
         switch mode {
         case let .hybrid(query):
             var queryText = query
-            var plannedMemoryTypes = memoryTypes
+            var plannedDocumentMemoryTypes = documentMemoryTypes
 
             if features.contains(.planner), let planner = configuration.recallPlanner {
                 do {
@@ -608,13 +593,22 @@ public actor MemoryIndex {
                         if !plannedQuery.isEmpty {
                             queryText = plannedQuery
                         }
-                        if let candidateTypes = plan.memoryTypes {
-                            plannedMemoryTypes = candidateTypes
+                        if let candidateTypes = plan.documentMemoryTypes {
+                            plannedDocumentMemoryTypes = candidateTypes
                         }
                     }
                 } catch {
                     // Planner failures should not break retrieval.
                 }
+            }
+
+            let effectiveKinds = resolveKindsFilter(for: mode, requestedKinds: kinds)
+            let allowedChunkIDs = try await resolveMemoryChunkFilter(
+                kinds: effectiveKinds,
+                statuses: statuses
+            )
+            if allowedChunkIDs?.isEmpty == true {
+                return MemoryRecallResponse(records: [])
             }
 
             let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
@@ -630,10 +624,11 @@ public actor MemoryIndex {
                     lexicalCandidateLimit: lexicalLimit,
                     rerankLimit: rerankLimit,
                     expansionLimit: expansionLimit,
-                    memoryTypes: plannedMemoryTypes,
+                    documentMemoryTypes: plannedDocumentMemoryTypes,
                     includeTagScoring: features.contains(.tags)
                 ),
-                events: events
+                events: events,
+                allowedChunkIDsOverride: allowedChunkIDs
             )
 
             let chunkIDs = searchResults.map(\.chunkID)
@@ -652,50 +647,43 @@ public actor MemoryIndex {
             }
 
             return MemoryRecallResponse(records: records)
-        case .recent, .important, .typed:
-            let categoryFilter: String?
-            switch mode {
-            case .typed(let category):
-                categoryFilter = category.rawValue
-            default:
-                categoryFilter = nil
-            }
-
+        case .recent, .important, .kind:
+            let effectiveKinds = resolveKindsFilter(for: mode, requestedKinds: kinds)
             let sortMode: StoredMemorySort
             switch mode {
             case .recent:
                 sortMode = .recent
             case .important:
                 sortMode = .importance
-            case .typed:
+            case .kind:
                 sortMode = storageSort(for: sort)
             default:
                 sortMode = .recent
             }
 
-            let rows: [StoredChunkMetadata]
+            let rows: [StoredMemoryRecord]
             let fetchLimit: Int
-            if memoryTypes == nil {
+            if documentMemoryTypes == nil {
                 fetchLimit = effectiveLimit
             } else {
                 fetchLimit = min(max(effectiveLimit * 50, effectiveLimit), 1_000)
             }
             do {
-                rows = try await storage.listMemoryMetadata(
+                rows = try await storage.listStoredMemories(
                     limit: fetchLimit,
                     sort: sortMode,
-                    memoryCategory: categoryFilter,
-                    allowedMemoryTypes: nil
+                    kinds: effectiveKinds.map { Set($0.map(\.rawValue)) },
+                    statuses: statuses.map { Set($0.map(\.rawValue)) }
                 )
             } catch {
                 throw normalizeError(error)
             }
 
             let filteredRows = Array(
-                applyRequestedMemoryTypeFilter(rows, requestedTypes: memoryTypes)
+                applyRequestedDocumentMemoryTypeFilter(rows, requestedTypes: documentMemoryTypes)
                     .prefix(effectiveLimit)
             )
-            let records = filteredRows.map { makeMemoryRecord(from: $0, score: nil) }
+            let records = filteredRows.compactMap { makeMemoryRecord(from: $0, score: nil) }
             do {
                 try await storage.recordChunkAccesses(records.map { $0.chunkID })
             } catch {
@@ -710,7 +698,9 @@ public actor MemoryIndex {
         limit: Int = 10,
         features: RecallFeatures = .hybridDefault,
         conversationContext: [ConversationMessage] = [],
-        memoryTypes: Set<MemoryType>? = nil,
+        kinds: Set<MemoryKind>? = nil,
+        statuses: Set<MemoryStatus>? = nil,
+        documentMemoryTypes: Set<DocumentMemoryType>? = nil,
         dedupeDocuments: Bool = true,
         includeLineRanges: Bool = true,
         events: SearchEventHandler? = nil
@@ -720,7 +710,7 @@ public actor MemoryIndex {
 
         let effectiveLimit = max(1, limit)
         var queryText = normalizedQuery
-        var plannedMemoryTypes = memoryTypes
+        var plannedDocumentMemoryTypes = documentMemoryTypes
 
         if features.contains(.planner), let planner = configuration.recallPlanner {
             do {
@@ -733,13 +723,21 @@ public actor MemoryIndex {
                     if !plannedQuery.isEmpty {
                         queryText = plannedQuery
                     }
-                    if let candidateTypes = plan.memoryTypes {
-                        plannedMemoryTypes = candidateTypes
+                    if let candidateTypes = plan.documentMemoryTypes {
+                        plannedDocumentMemoryTypes = candidateTypes
                     }
                 }
             } catch {
                 // Planner failures should not break retrieval.
             }
+        }
+
+        let allowedChunkIDs = try await resolveMemoryChunkFilter(
+            kinds: kinds,
+            statuses: statuses
+        )
+        if (kinds != nil || statuses != nil), allowedChunkIDs?.isEmpty == true {
+            return []
         }
 
         let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
@@ -758,10 +756,11 @@ public actor MemoryIndex {
                 lexicalCandidateLimit: lexicalLimit,
                 rerankLimit: rerankLimit,
                 expansionLimit: expansionLimit,
-                memoryTypes: plannedMemoryTypes,
+                documentMemoryTypes: plannedDocumentMemoryTypes,
                 includeTagScoring: features.contains(.tags)
             ),
-            events: events
+            events: events,
+            allowedChunkIDsOverride: allowedChunkIDs
         )
 
         var references: [MemorySearchReference] = []
@@ -811,9 +810,12 @@ public actor MemoryIndex {
                     snippet: result.snippet,
                     lineRange: lineRange,
                     source: source,
-                    memoryType: result.memoryType,
-                    memoryTypeSource: result.memoryTypeSource,
-                    memoryTypeConfidence: result.memoryTypeConfidence,
+                    documentMemoryType: result.documentMemoryType,
+                    documentMemoryTypeSource: result.documentMemoryTypeSource,
+                    documentMemoryTypeConfidence: result.documentMemoryTypeConfidence,
+                    memoryID: result.memoryID,
+                    memoryKind: result.memoryKind,
+                    memoryStatus: result.memoryStatus,
                     score: result.score
                 )
             )
@@ -864,11 +866,8 @@ public actor MemoryIndex {
         try await memoryGet(path: reference.documentPath, lineRange: reference.lineRange)
     }
 
-    private func makeIngestPath(text: String, category: MemoryCategory) -> String {
-        let key = "\(category.rawValue)\n\(text)"
-        let digest = SHA256.hash(data: Data(key.utf8))
-        let hash = digest.map { String(format: "%02x", $0) }.joined()
-        return "memory://ingest/\(hash).md"
+    private func derivedMemoryPath(for memoryID: String) -> String {
+        "memory://\(memoryID)"
     }
 
     private func normalizeIngestTags(_ raw: [String]) -> [StoredChunkTag] {
@@ -904,35 +903,112 @@ public actor MemoryIndex {
     private func makeMemoryRecord(
         from metadata: StoredChunkMetadata,
         score: SearchScoreBreakdown?
-    ) -> MemoryRecord {
+    ) -> MemoryRecord? {
         let assignment = resolveMemoryAssignment(
             typeRaw: metadata.memoryType,
             sourceRaw: metadata.memoryTypeSource,
             confidence: metadata.memoryTypeConfidence
         )
-        let category = MemoryCategory.parse(metadata.memoryCategory) ?? assignment.type.defaultCategory
+        guard let memoryID = metadata.memoryID else { return nil }
+        guard let kind = resolveMemoryKind(from: metadata, assignment: assignment) else { return nil }
+        guard let status = resolveMemoryStatus(raw: metadata.memoryStatus, hasMemoryID: true) else { return nil }
         let tags = metadata.contentTags.map { ContentTag(name: $0.name, confidence: $0.confidence) }
 
         return MemoryRecord(
+            id: memoryID,
             chunkID: metadata.chunkID,
             documentPath: metadata.documentPath,
             title: metadata.title,
             text: metadata.content,
-            category: category,
+            kind: kind,
+            status: status,
+            canonicalKey: metadata.memoryCanonicalKey,
             importance: metadata.importance,
+            confidence: metadata.memoryTypeConfidence,
             accessCount: metadata.accessCount,
             createdAt: metadata.createdAt,
+            eventAt: nil,
             modifiedAt: metadata.modifiedAt,
             lastAccessedAt: metadata.lastAccessedAt,
-            memoryType: assignment.type,
-            memoryTypeSource: assignment.source,
-            memoryTypeConfidence: assignment.confidence,
+            documentMemoryType: assignment.type,
+            documentMemoryTypeSource: assignment.source,
+            documentMemoryTypeConfidence: assignment.confidence,
             tags: tags,
             score: score
         )
     }
 
-    private func heuristicExtract(messages: [ConversationMessage], limit: Int) -> [ExtractedMemory] {
+    private func makeMemoryRecord(
+        from storedMemory: StoredMemoryRecord,
+        score: SearchScoreBreakdown?
+    ) -> MemoryRecord? {
+        guard
+            let chunkID = storedMemory.chunkID,
+            let documentPath = storedMemory.documentPath,
+            let kind = MemoryKind.parse(storedMemory.kind),
+            let status = MemoryStatus.parse(storedMemory.status)
+        else {
+            return nil
+        }
+
+        let documentMemoryType = DocumentMemoryType.parse(storedMemory.documentMemoryType) ?? kind.mappedDocumentMemoryType
+        let documentMemoryTypeSource = MemoryTypeSource.parse(storedMemory.documentMemoryTypeSource) ?? .manual
+        let tags = storedMemory.contentTags.map { ContentTag(name: $0.name, confidence: $0.confidence) }
+        let modifiedAt = max(storedMemory.updatedAt, storedMemory.createdAt)
+
+        return MemoryRecord(
+            id: storedMemory.id,
+            chunkID: chunkID,
+            documentPath: documentPath,
+            title: storedMemory.title,
+            text: storedMemory.text,
+            kind: kind,
+            status: status,
+            canonicalKey: storedMemory.canonicalKey,
+            importance: storedMemory.importance,
+            confidence: storedMemory.confidence,
+            accessCount: storedMemory.accessCount,
+            createdAt: storedMemory.createdAt,
+            eventAt: storedMemory.eventAt,
+            modifiedAt: modifiedAt,
+            lastAccessedAt: storedMemory.lastAccessedAt,
+            documentMemoryType: documentMemoryType,
+            documentMemoryTypeSource: documentMemoryTypeSource,
+            documentMemoryTypeConfidence: storedMemory.documentMemoryTypeConfidence,
+            tags: tags,
+            score: score
+        )
+    }
+
+    private func makeSearchResult(
+        from metadata: StoredChunkMetadata,
+        queryText: String?,
+        score: SearchScoreBreakdown
+    ) -> SearchResult {
+        let assignment = resolveMemoryAssignment(
+            typeRaw: metadata.memoryType,
+            sourceRaw: metadata.memoryTypeSource,
+            confidence: metadata.memoryTypeConfidence
+        )
+
+        return SearchResult(
+            chunkID: metadata.chunkID,
+            documentPath: metadata.documentPath,
+            title: metadata.title,
+            content: metadata.content,
+            snippet: makeSnippet(content: metadata.content, queryText: queryText),
+            modifiedAt: metadata.modifiedAt,
+            documentMemoryType: assignment.type,
+            documentMemoryTypeSource: assignment.source,
+            documentMemoryTypeConfidence: assignment.confidence,
+            memoryID: metadata.memoryID,
+            memoryKind: resolveMemoryKind(from: metadata, assignment: assignment),
+            memoryStatus: resolveMemoryStatus(raw: metadata.memoryStatus, hasMemoryID: metadata.memoryID != nil),
+            score: score
+        )
+    }
+
+    private func heuristicExtract(messages: [ConversationMessage], limit: Int) -> [MemoryCandidate] {
         let allText = messages
             .map(\.content)
             .joined(separator: "\n")
@@ -944,7 +1020,7 @@ public actor MemoryIndex {
             character == "\n" || character == "." || character == "!" || character == "?"
         }
 
-        var extracted: [ExtractedMemory] = []
+        var extracted: [MemoryCandidate] = []
         extracted.reserveCapacity(min(limit, rawSegments.count))
 
         var seen: Set<String> = []
@@ -955,17 +1031,23 @@ public actor MemoryIndex {
             let key = normalizedComparisonKey(for: segment)
             guard seen.insert(key).inserted else { continue }
 
-            let category = inferCategory(forExtractedText: segment)
-            let importance = inferredImportance(for: category)
+            let kind = inferKind(forExtractedText: segment)
+            let status = inferStatus(forExtractedText: segment, kind: kind)
+            let importance = inferredImportance(for: kind)
+            let confidence = inferredConfidence(for: kind)
 
             extracted.append(
-                ExtractedMemory(
+                MemoryCandidate(
                     text: segment,
-                    category: category,
+                    kind: kind,
+                    status: status,
                     importance: importance,
+                    confidence: confidence,
                     createdAt: nil,
+                    eventAt: kind == .episode ? Date() : nil,
                     source: "heuristic_extract",
-                    tags: inferredTags(forExtractedText: segment)
+                    tags: inferredTags(forExtractedText: segment),
+                    canonicalKey: resolveCanonicalKey(for: kind, text: segment, explicitKey: nil)
                 )
             )
 
@@ -977,52 +1059,68 @@ public actor MemoryIndex {
         return extracted
     }
 
-    private func inferCategory(forExtractedText text: String) -> MemoryCategory {
+    private func inferKind(forExtractedText text: String) -> MemoryKind {
         let lower = text.lowercased()
 
-        if containsAny(lower, needles: ["decide", "decision", "chose", "choose", "switch", "agreed"]) {
+        if containsAny(lower, needles: ["runbook", "procedure", "playbook", "workflow", "how to", "step by step"]) {
+            return .procedure
+        }
+        if containsAny(lower, needles: ["decide", "decision", "chose", "choose", "switched to", "agreed", "picked"]) {
             return .decision
         }
-        if containsAny(lower, needles: ["todo", "to do", "follow up", "action item", "next step"]) {
-            return .todo
+        if containsAny(lower, needles: ["todo", "to do", "follow up", "action item", "next step", "need to", "must", "should"]) {
+            return .commitment
         }
-        if containsAny(lower, needles: ["goal", "target", "objective", "aim"]) {
-            return .goal
+        if containsAny(lower, needles: ["prefer", "preference", "favorite", "timezone", "my name", "i am", "i'm", "my role"]) {
+            return .profile
         }
-        if containsAny(lower, needles: ["prefer", "preference", "like", "dislike"]) {
-            return .preference
+        if containsAny(lower, needles: ["handoff", "current status", "blocked on", "next owner", "for the next person", "context"]) {
+            return .handoff
         }
-        if containsAny(lower, needles: ["i am", "i'm", "my role", "identity"]) {
-            return .identity
+        if containsAny(lower, needles: ["today", "yesterday", "last week", "incident", "meeting", "retrospective", "shipped"]) {
+            return .episode
         }
-        if containsAny(lower, needles: ["today", "yesterday", "last week", "incident", "meeting"]) {
-            return .event
-        }
-        if containsAny(lower, needles: ["must", "always", "never", "rule", "fact"]) {
-            return .fact
-        }
-
-        return .observation
+        return .fact
     }
 
-    private func inferredImportance(for category: MemoryCategory) -> Double {
-        switch category {
+    private func inferStatus(forExtractedText text: String, kind: MemoryKind) -> MemoryStatus {
+        guard kind == .commitment else { return .active }
+        let lower = text.lowercased()
+        if containsAny(lower, needles: ["done", "completed", "finished", "resolved", "closed", "shipped"]) {
+            return .resolved
+        }
+        return .active
+    }
+
+    private func inferredImportance(for kind: MemoryKind) -> Double {
+        switch kind {
         case .decision:
             return 0.85
-        case .todo:
+        case .commitment:
             return 0.80
-        case .goal:
-            return 0.78
         case .fact:
             return 0.70
-        case .event:
+        case .episode:
             return 0.65
-        case .preference:
+        case .profile:
             return 0.62
-        case .identity:
+        case .handoff:
             return 0.60
-        case .observation:
+        case .procedure:
             return 0.55
+        }
+    }
+
+    private func inferredConfidence(for kind: MemoryKind) -> Double {
+        switch kind {
+        case .decision, .commitment, .profile:
+            return 0.76
+        case .procedure, .episode:
+            return 0.70
+        case .handoff:
+            return 0.66
+        case .fact:
+            return 0.62
         }
     }
 
@@ -1049,6 +1147,436 @@ public actor MemoryIndex {
 
     private func containsAny(_ text: String, needles: [String]) -> Bool {
         needles.contains(where: text.contains)
+    }
+
+    private func prepareCandidateForIngest(_ candidate: MemoryCandidate) -> PreparedMemoryCandidate? {
+        let trimmedText = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return nil }
+
+        let explicitSave = isExplicitSaveSource(candidate.source)
+        if !explicitSave {
+            if let confidence = candidate.confidence, confidence < minimumAutoWriteConfidence {
+                return nil
+            }
+            guard isCandidateWorthSaving(text: trimmedText, kind: candidate.kind) else {
+                return nil
+            }
+        }
+
+        let createdAt = candidate.createdAt ?? Date()
+        let tags = normalizeCandidateTags(candidate, text: trimmedText)
+        let canonicalKey = resolveCanonicalKey(
+            for: candidate.kind,
+            text: trimmedText,
+            explicitKey: candidate.canonicalKey
+        )
+
+        return PreparedMemoryCandidate(
+            text: trimmedText,
+            kind: candidate.kind,
+            status: candidate.status,
+            importance: candidate.importance,
+            confidence: candidate.confidence,
+            createdAt: createdAt,
+            eventAt: candidate.eventAt,
+            source: candidate.source,
+            title: inferTitle(content: trimmedText, fallback: candidate.kind.rawValue.capitalized),
+            tags: tags,
+            canonicalKey: canonicalKey,
+            metadata: candidate.metadata
+        )
+    }
+
+    private func normalizeCandidateTags(_ candidate: MemoryCandidate, text: String) -> [String] {
+        let preferred = candidate.tags.isEmpty ? inferredTags(forExtractedText: text) : candidate.tags
+        var seen: Set<String> = []
+        var normalized: [String] = []
+        normalized.reserveCapacity(preferred.count)
+
+        for value in preferred {
+            let cleaned = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !cleaned.isEmpty else { continue }
+            guard seen.insert(cleaned).inserted else { continue }
+            normalized.append(cleaned)
+        }
+
+        return normalized
+    }
+
+    private func isExplicitSaveSource(_ source: String) -> Bool {
+        let normalized = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "memory_save" || normalized == "save"
+    }
+
+    private func isCandidateWorthSaving(text: String, kind: MemoryKind) -> Bool {
+        guard text.count >= 16 else { return false }
+        if text.hasSuffix("?") {
+            return false
+        }
+
+        let informativeTokens = text
+            .lowercased()
+            .split { character in !character.isLetter && !character.isNumber }
+            .map(String.init)
+            .filter { $0.count >= 3 && !queryStopWords.contains($0) }
+
+        guard informativeTokens.count >= 3 else { return false }
+
+        switch kind {
+        case .handoff:
+            return text.count >= 24
+        default:
+            return true
+        }
+    }
+
+    private func resolveCanonicalKey(for kind: MemoryKind, text: String, explicitKey: String?) -> String? {
+        if let explicit = normalizeCanonicalKey(explicitKey) {
+            return explicit
+        }
+
+        switch kind {
+        case .profile:
+            return profileCanonicalKey(from: text) ?? candidateKeySeed(from: text).map { "profile:\($0)" }
+        case .decision:
+            return candidateKeySeed(from: text).map { "decision:\($0)" }
+        case .commitment:
+            return candidateKeySeed(from: text).map { "commitment:\($0)" }
+        case .procedure:
+            return candidateKeySeed(from: text).map { "procedure:\($0)" }
+        case .handoff:
+            return "handoff:primary"
+        case .fact, .episode:
+            return nil
+        }
+    }
+
+    private func normalizeCanonicalKey(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let cleaned = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !cleaned.isEmpty else { return nil }
+        return cleaned
+    }
+
+    private func profileCanonicalKey(from text: String) -> String? {
+        let lower = text.lowercased()
+        let anchors = [
+            "name", "timezone", "time zone", "favorite", "prefer", "preference",
+            "role", "location", "email", "phone", "birthday"
+        ]
+
+        for anchor in anchors where lower.contains(anchor) {
+            let normalizedAnchor = anchor.replacingOccurrences(of: " ", with: "-")
+            return "profile:\(normalizedAnchor)"
+        }
+
+        return nil
+    }
+
+    private func candidateKeySeed(from text: String, maxTokens: Int = 6) -> String? {
+        let tokens = text
+            .lowercased()
+            .split { character in !character.isLetter && !character.isNumber }
+            .map(String.init)
+            .filter { $0.count >= 3 && !queryStopWords.contains($0) }
+
+        guard !tokens.isEmpty else { return nil }
+        return tokens.prefix(maxTokens).joined(separator: "-")
+    }
+
+    private func ingestPreparedCandidate(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
+        switch candidate.kind {
+        case .fact, .episode:
+            if let duplicate = try await storage.findDuplicateStoredMemory(
+                kind: candidate.kind.rawValue,
+                text: candidate.text
+            ) {
+                return IngestConsolidationResult(
+                    primaryMemoryID: duplicate.id,
+                    impactedMemoryIDs: [duplicate.id]
+                )
+            }
+            return try await insertPreparedMemory(candidate)
+        case .profile, .decision, .handoff:
+            return try await replaceActiveMemory(candidate)
+        case .procedure:
+            if candidate.canonicalKey == nil {
+                return try await insertPreparedMemory(candidate)
+            }
+            return try await replaceActiveMemory(candidate)
+        case .commitment:
+            return try await mergeCommitment(candidate)
+        }
+    }
+
+    private func insertPreparedMemory(
+        _ candidate: PreparedMemoryCandidate,
+        supersedesID: String? = nil
+    ) async throws -> IngestConsolidationResult {
+        let memoryID = UUID().uuidString.lowercased()
+        try await storage.insertStoredMemory(
+            StoredMemoryInput(
+                id: memoryID,
+                title: candidate.title,
+                kind: candidate.kind.rawValue,
+                status: candidate.status.rawValue,
+                canonicalKey: candidate.canonicalKey,
+                text: candidate.text,
+                tags: candidate.tags,
+                importance: candidate.importance,
+                confidence: candidate.confidence,
+                source: candidate.source,
+                createdAt: candidate.createdAt,
+                eventAt: candidate.eventAt,
+                updatedAt: candidate.createdAt,
+                supersedesID: supersedesID,
+                supersededByID: nil,
+                metadata: candidate.metadata
+            )
+        )
+        return IngestConsolidationResult(primaryMemoryID: memoryID, impactedMemoryIDs: [memoryID])
+    }
+
+    private func replaceActiveMemory(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
+        guard let canonicalKey = candidate.canonicalKey else {
+            return try await insertPreparedMemory(candidate)
+        }
+
+        guard let existing = try await storage.findStoredMemory(
+            kind: candidate.kind.rawValue,
+            canonicalKey: canonicalKey,
+            statuses: [MemoryStatus.active.rawValue]
+        ) else {
+            return try await insertPreparedMemory(candidate)
+        }
+
+        if normalizedComparisonKey(for: existing.text) == normalizedComparisonKey(for: candidate.text),
+           existing.status == candidate.status.rawValue {
+            return IngestConsolidationResult(
+                primaryMemoryID: existing.id,
+                impactedMemoryIDs: [existing.id]
+            )
+        }
+
+        let inserted = try await insertPreparedMemory(candidate, supersedesID: existing.id)
+        try await storage.updateStoredMemoryStatus(
+            id: existing.id,
+            status: MemoryStatus.superseded.rawValue,
+            supersededByID: inserted.primaryMemoryID,
+            updatedAt: candidate.createdAt
+        )
+
+        return IngestConsolidationResult(
+            primaryMemoryID: inserted.primaryMemoryID,
+            impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id])
+        )
+    }
+
+    private func mergeCommitment(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
+        guard let canonicalKey = candidate.canonicalKey else {
+            return try await insertPreparedMemory(candidate)
+        }
+
+        guard let existing = try await storage.findStoredMemory(
+            kind: candidate.kind.rawValue,
+            canonicalKey: canonicalKey,
+            statuses: [MemoryStatus.active.rawValue, MemoryStatus.resolved.rawValue]
+        ) else {
+            return try await insertPreparedMemory(candidate)
+        }
+
+        if candidate.status != .active {
+            if existing.status != candidate.status.rawValue {
+                try await storage.updateStoredMemoryStatus(
+                    id: existing.id,
+                    status: candidate.status.rawValue,
+                    supersededByID: existing.supersededByID,
+                    updatedAt: candidate.createdAt
+                )
+            }
+            return IngestConsolidationResult(
+                primaryMemoryID: existing.id,
+                impactedMemoryIDs: [existing.id]
+            )
+        }
+
+        if normalizedComparisonKey(for: existing.text) == normalizedComparisonKey(for: candidate.text),
+           existing.status == candidate.status.rawValue {
+            return IngestConsolidationResult(
+                primaryMemoryID: existing.id,
+                impactedMemoryIDs: [existing.id]
+            )
+        }
+
+        if existing.status == MemoryStatus.active.rawValue {
+            let inserted = try await insertPreparedMemory(candidate, supersedesID: existing.id)
+            try await storage.updateStoredMemoryStatus(
+                id: existing.id,
+                status: MemoryStatus.superseded.rawValue,
+                supersededByID: inserted.primaryMemoryID,
+                updatedAt: candidate.createdAt
+            )
+            return IngestConsolidationResult(
+                primaryMemoryID: inserted.primaryMemoryID,
+                impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id])
+            )
+        }
+
+        return try await insertPreparedMemory(candidate, supersedesID: existing.id)
+    }
+
+    private func materializeStoredMemory(id: String) async throws {
+        guard let stored = try await storage.fetchStoredMemory(id: id) else { return }
+        try await materializeStoredMemory(stored)
+    }
+
+    private func rematerializeStoredMemories() async throws {
+        let storedMemories = try await storage.listStoredMemories(
+            limit: Int.max,
+            sort: .recent,
+            kinds: nil,
+            statuses: nil
+        )
+
+        for stored in storedMemories {
+            try await materializeStoredMemory(stored)
+        }
+    }
+
+    private func materializeStoredMemory(_ stored: StoredMemoryRecord) async throws {
+        let payload = try await makeDerivedMemoryPayload(from: stored)
+        try await storage.replaceDocument(payload)
+    }
+
+    private func makeDerivedMemoryPayload(from stored: StoredMemoryRecord) async throws -> StoredDocumentInput {
+        guard let kind = MemoryKind.parse(stored.kind) else {
+            throw MemoryError.ingestion("Unable to materialize memory with unknown kind '\(stored.kind)'")
+        }
+        guard let status = MemoryStatus.parse(stored.status) else {
+            throw MemoryError.ingestion("Unable to materialize memory with unknown status '\(stored.status)'")
+        }
+
+        let documentMemoryType: DocumentMemoryType
+        if stored.documentPath == nil {
+            documentMemoryType = kind.mappedDocumentMemoryType
+        } else {
+            documentMemoryType = DocumentMemoryType.parse(stored.documentMemoryType) ?? kind.mappedDocumentMemoryType
+        }
+
+        let embedding: [Float]
+        do {
+            embedding = try await configuration.embeddingProvider.embed(
+                text: stored.text,
+                format: .document(title: stored.title)
+            )
+        } catch {
+            throw MemoryError.embedding("Failed to embed memory for ingest: \(error.localizedDescription)")
+        }
+
+        let tags = normalizeIngestTags(stored.tags)
+        let createdAt = stored.createdAt
+        let modifiedAt = max(stored.updatedAt, stored.createdAt)
+
+        return StoredDocumentInput(
+            path: derivedMemoryPath(for: stored.id),
+            title: stored.title ?? inferTitle(content: stored.text, fallback: kind.rawValue.capitalized),
+            modifiedAt: modifiedAt,
+            checksum: checksum(stored.text),
+            memoryID: stored.id,
+            memoryKind: kind.rawValue,
+            memoryStatus: status.rawValue,
+            memoryCanonicalKey: stored.canonicalKey,
+            memoryType: documentMemoryType.rawValue,
+            memoryTypeSource: MemoryTypeSource.manual.rawValue,
+            memoryTypeConfidence: stored.documentPath == nil ? stored.confidence : stored.documentMemoryTypeConfidence,
+            chunks: [
+                StoredChunkInput(
+                    ordinal: 0,
+                    content: stored.text,
+                    tokenCount: configuration.tokenizer.tokenize(stored.text).count,
+                    embedding: embedding,
+                    norm: l2Norm(embedding),
+                    memoryTypeOverride: documentMemoryType.rawValue,
+                    memoryTypeOverrideSource: MemoryTypeSource.manual.rawValue,
+                    memoryTypeOverrideConfidence: stored.documentPath == nil ? stored.confidence : stored.documentMemoryTypeConfidence,
+                    contentTags: tags,
+                    memoryKind: kind.rawValue,
+                    importance: stored.importance,
+                    accessCount: stored.accessCount,
+                    lastAccessedAt: stored.lastAccessedAt,
+                    source: stored.source,
+                    createdAt: createdAt
+                ),
+            ]
+        )
+    }
+
+    private func resolveKindsFilter(for mode: RecallMode, requestedKinds: Set<MemoryKind>?) -> Set<MemoryKind>? {
+        switch mode {
+        case .kind(let modeKind):
+            if let requestedKinds, !requestedKinds.contains(modeKind) {
+                return []
+            }
+            return [modeKind]
+        default:
+            return requestedKinds
+        }
+    }
+
+    private func resolveMemoryChunkFilter(
+        kinds: Set<MemoryKind>?,
+        statuses: Set<MemoryStatus>?
+    ) async throws -> Set<Int64>? {
+        guard kinds != nil || statuses != nil else { return nil }
+
+        let chunkIDs = try await storage.fetchMemoryChunkIDs(
+            kinds: kinds.map { Set($0.map(\.rawValue)) },
+            statuses: statuses.map { Set($0.map(\.rawValue)) }
+        )
+        return Set(chunkIDs)
+    }
+
+    private func combineAllowedChunkIDs(_ lhs: Set<Int64>?, _ rhs: Set<Int64>?) -> Set<Int64>? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return lhs.intersection(rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func resolveMemoryKind(
+        from metadata: StoredChunkMetadata,
+        assignment: MemoryTypeAssignment? = nil
+    ) -> MemoryKind? {
+        if let raw = metadata.memoryKind, let parsed = MemoryKind.parse(raw) {
+            return parsed
+        }
+        if let parsed = MemoryKind.parse(metadata.memoryKindFallback) {
+            return parsed
+        }
+        guard metadata.memoryID != nil else { return nil }
+        let resolvedAssignment = assignment ?? resolveMemoryAssignment(
+            typeRaw: metadata.memoryType,
+            sourceRaw: metadata.memoryTypeSource,
+            confidence: metadata.memoryTypeConfidence
+        )
+        return resolvedAssignment.type.defaultMemoryKind
+    }
+
+    private func resolveMemoryStatus(raw: String?, hasMemoryID: Bool) -> MemoryStatus? {
+        if let raw, let parsed = MemoryStatus.parse(raw) {
+            return parsed
+        }
+        return hasMemoryID ? .active : nil
     }
 
     private func collectDocumentURLs(from request: IndexingRequest) throws -> [URL] {
@@ -1276,7 +1804,7 @@ public actor MemoryIndex {
         )
     }
 
-    private func parseFrontmatterMemoryType(from content: String) -> MemoryType? {
+    private func parseFrontmatterMemoryType(from content: String) -> DocumentMemoryType? {
         let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
         let lines = normalized.components(separatedBy: "\n")
         guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "---" else {
@@ -1298,7 +1826,7 @@ public actor MemoryIndex {
             let valueStart = line.index(after: separator)
             let rawValue = line[valueStart...].trimmingCharacters(in: .whitespacesAndNewlines)
             let unquoted = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-            if let parsed = MemoryType.parse(unquoted) {
+            if let parsed = DocumentMemoryType.parse(unquoted) {
                 return parsed
             }
         }
@@ -1396,7 +1924,7 @@ public actor MemoryIndex {
         sourceRaw: String,
         confidence: Double?
     ) -> MemoryTypeAssignment {
-        let parsedType = MemoryType.parse(typeRaw) ?? configuration.memoryTyping.fallbackType
+        let parsedType = DocumentMemoryType.parse(typeRaw) ?? configuration.memoryTyping.fallbackType
         let parsedSource = MemoryTypeSource.parse(sourceRaw) ?? .fallback
         return MemoryTypeAssignment(
             type: parsedType,
@@ -1475,11 +2003,6 @@ public actor MemoryIndex {
 
         for chunkID in candidateIDs {
             guard let metadata = metadataMap[chunkID] else { continue }
-            let assignment = resolveMemoryAssignment(
-                typeRaw: metadata.memoryType,
-                sourceRaw: metadata.memoryTypeSource,
-                confidence: metadata.memoryTypeConfidence
-            )
 
             let semantic = semanticRRF[chunkID] ?? 0
             let lexical = lexicalRRF[chunkID] ?? 0
@@ -1490,16 +2013,9 @@ public actor MemoryIndex {
             let fused = (weights.semantic * semantic) + (weights.lexical * lexical) + (weights.recency * recency) + anchorBonus + tagBonus
 
             results.append(
-                SearchResult(
-                    chunkID: chunkID,
-                    documentPath: metadata.documentPath,
-                    title: metadata.title,
-                    content: metadata.content,
-                    snippet: makeSnippet(content: metadata.content, queryText: primaryQueryText),
-                    modifiedAt: metadata.modifiedAt,
-                    memoryType: assignment.type,
-                    memoryTypeSource: assignment.source,
-                    memoryTypeConfidence: assignment.confidence,
+                makeSearchResult(
+                    from: metadata,
+                    queryText: primaryQueryText,
                     score: SearchScoreBreakdown(
                         semantic: semantic,
                         lexical: lexical,
@@ -1522,17 +2038,17 @@ public actor MemoryIndex {
             .map { $0 }
     }
 
-    private func applyRequestedMemoryTypeFilter(
+    private func applyRequestedDocumentMemoryTypeFilter(
         _ results: [SearchResult],
-        requestedTypes: Set<MemoryType>?
+        requestedTypes: Set<DocumentMemoryType>?
     ) -> [SearchResult] {
         guard let requestedTypes, !requestedTypes.isEmpty else { return results }
         return results.filter { result in
             shouldIncludeInTypedResults(
                 assignment: MemoryTypeAssignment(
-                    type: result.memoryType,
-                    source: result.memoryTypeSource,
-                    confidence: result.memoryTypeConfidence,
+                    type: result.documentMemoryType,
+                    source: result.documentMemoryTypeSource,
+                    confidence: result.documentMemoryTypeConfidence,
                     classifierID: nil
                 ),
                 requestedTypes: requestedTypes
@@ -1540,9 +2056,9 @@ public actor MemoryIndex {
         }
     }
 
-    private func applyRequestedMemoryTypeFilter(
+    private func applyRequestedDocumentMemoryTypeFilter(
         _ rows: [StoredChunkMetadata],
-        requestedTypes: Set<MemoryType>?
+        requestedTypes: Set<DocumentMemoryType>?
     ) -> [StoredChunkMetadata] {
         guard let requestedTypes, !requestedTypes.isEmpty else { return rows }
         return rows.filter { row in
@@ -1557,9 +2073,29 @@ public actor MemoryIndex {
         }
     }
 
+    private func applyRequestedDocumentMemoryTypeFilter(
+        _ rows: [StoredMemoryRecord],
+        requestedTypes: Set<DocumentMemoryType>?
+    ) -> [StoredMemoryRecord] {
+        guard let requestedTypes, !requestedTypes.isEmpty else { return rows }
+        return rows.filter { row in
+            shouldIncludeInTypedResults(
+                assignment: MemoryTypeAssignment(
+                    type: DocumentMemoryType.parse(row.documentMemoryType)
+                        ?? MemoryKind.parse(row.kind)?.mappedDocumentMemoryType
+                        ?? configuration.memoryTyping.fallbackType,
+                    source: MemoryTypeSource.parse(row.documentMemoryTypeSource) ?? .manual,
+                    confidence: row.documentMemoryTypeConfidence,
+                    classifierID: nil
+                ),
+                requestedTypes: requestedTypes
+            )
+        }
+    }
+
     private func shouldIncludeInTypedResults(
         assignment: MemoryTypeAssignment,
-        requestedTypes: Set<MemoryType>
+        requestedTypes: Set<DocumentMemoryType>
     ) -> Bool {
         guard !requestedTypes.isEmpty else { return true }
         if requestedTypes.contains(assignment.type) {
