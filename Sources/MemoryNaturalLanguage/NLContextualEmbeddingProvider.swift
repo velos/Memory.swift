@@ -282,11 +282,6 @@ public extension MemoryConfiguration {
         memoryExtractor: (any MemoryExtractor)? = nil,
         recallPlanner: (any RecallPlanner)? = nil,
         queryAnalyzer: (any QueryAnalyzer)? = NLQueryAnalyzer(),
-        memoryTyping: MemoryTypingConfiguration = MemoryTypingConfiguration(
-            mode: .automatic,
-            classifier: NLEnhancedMemoryTypeClassifier(),
-            fallbackType: .factual
-        ),
         tokenizer: any Tokenizer = NLWordTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = defaultSupportedExtensions,
@@ -305,7 +300,6 @@ public extension MemoryConfiguration {
             memoryExtractor: memoryExtractor,
             recallPlanner: recallPlanner,
             queryAnalyzer: queryAnalyzer,
-            memoryTyping: memoryTyping,
             tokenizer: tokenizer,
             chunker: chunker,
             supportedFileExtensions: supportedFileExtensions,

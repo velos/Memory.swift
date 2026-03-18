@@ -12,6 +12,25 @@ public struct StoredChunkTag: Sendable, Codable, Hashable {
     }
 }
 
+public struct StoredMemoryEntity: Sendable, Codable, Hashable {
+    public var label: String
+    public var value: String
+    public var normalizedValue: String
+    public var confidence: Double?
+
+    public init(
+        label: String,
+        value: String,
+        normalizedValue: String,
+        confidence: Double? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.normalizedValue = normalizedValue
+        self.confidence = confidence.map { min(1, max(0, $0)) }
+    }
+}
+
 public struct StoredChunkInput: Sendable {
     public var ordinal: Int
     public var content: String
@@ -249,6 +268,9 @@ public struct StoredMemoryInput: Sendable {
     public var canonicalKey: String?
     public var text: String
     public var tags: [String]
+    public var facetTags: [String]
+    public var entities: [StoredMemoryEntity]
+    public var topics: [String]
     public var importance: Double
     public var confidence: Double?
     public var source: String
@@ -267,6 +289,9 @@ public struct StoredMemoryInput: Sendable {
         canonicalKey: String?,
         text: String,
         tags: [String],
+        facetTags: [String],
+        entities: [StoredMemoryEntity],
+        topics: [String],
         importance: Double,
         confidence: Double?,
         source: String,
@@ -284,6 +309,9 @@ public struct StoredMemoryInput: Sendable {
         self.canonicalKey = canonicalKey
         self.text = text
         self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
         self.importance = min(1, max(0, importance))
         self.confidence = confidence.map { min(1, max(0, $0)) }
         self.source = source
@@ -304,6 +332,9 @@ public struct StoredMemoryRecord: Sendable, Codable, Hashable {
     public var canonicalKey: String?
     public var text: String
     public var tags: [String]
+    public var facetTags: [String]
+    public var entities: [StoredMemoryEntity]
+    public var topics: [String]
     public var importance: Double
     public var confidence: Double?
     public var source: String
@@ -317,9 +348,9 @@ public struct StoredMemoryRecord: Sendable, Codable, Hashable {
     public var documentPath: String?
     public var accessCount: Int
     public var lastAccessedAt: Date?
-    public var documentMemoryType: String
-    public var documentMemoryTypeSource: String
-    public var documentMemoryTypeConfidence: Double?
+    public var legacyDocumentType: String
+    public var legacyDocumentTypeSource: String
+    public var legacyDocumentTypeConfidence: Double?
     public var contentTags: [StoredChunkTag]
 }
 
@@ -344,7 +375,7 @@ public actor MemoryStorage {
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
     private static let schemaMetadataTableName = "memory_schema_metadata"
-    private static let schemaVersion = 2
+    private static let schemaVersion = 3
     private static let legacyTableNames: Set<String> = [
         "grdb_migrations",
         "documents",
@@ -791,6 +822,9 @@ public actor MemoryStorage {
                 m.canonical_key AS canonical_key,
                 m.text AS text,
                 m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
                 m.importance AS importance,
                 m.confidence AS confidence,
                 m.source AS source,
@@ -804,9 +838,9 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
                 c.last_accessed_at AS last_accessed_at,
-                COALESCE(c.memory_type_override, d.memory_type, 'factual') AS document_memory_type,
-                COALESCE(c.memory_type_override_source, d.memory_type_source, 'fallback') AS document_memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS document_memory_type_confidence,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
                 COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM memories m
             LEFT JOIN documents d ON d.memory_id = m.id
@@ -866,6 +900,9 @@ public actor MemoryStorage {
                 m.canonical_key AS canonical_key,
                 m.text AS text,
                 m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
                 m.importance AS importance,
                 m.confidence AS confidence,
                 m.source AS source,
@@ -879,9 +916,9 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
                 c.last_accessed_at AS last_accessed_at,
-                COALESCE(c.memory_type_override, d.memory_type, 'factual') AS document_memory_type,
-                COALESCE(c.memory_type_override_source, d.memory_type_source, 'fallback') AS document_memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS document_memory_type_confidence,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
                 COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM memories m
             LEFT JOIN documents d ON d.memory_id = m.id
@@ -910,6 +947,9 @@ public actor MemoryStorage {
                 m.canonical_key AS canonical_key,
                 m.text AS text,
                 m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
                 m.importance AS importance,
                 m.confidence AS confidence,
                 m.source AS source,
@@ -923,9 +963,9 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
                 c.last_accessed_at AS last_accessed_at,
-                COALESCE(c.memory_type_override, d.memory_type, 'factual') AS document_memory_type,
-                COALESCE(c.memory_type_override_source, d.memory_type_source, 'fallback') AS document_memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS document_memory_type_confidence,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
                 COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM memories m
             LEFT JOIN documents d ON d.memory_id = m.id
@@ -952,6 +992,9 @@ public actor MemoryStorage {
                 m.canonical_key AS canonical_key,
                 m.text AS text,
                 m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
                 m.importance AS importance,
                 m.confidence AS confidence,
                 m.source AS source,
@@ -965,9 +1008,9 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
                 c.last_accessed_at AS last_accessed_at,
-                COALESCE(c.memory_type_override, d.memory_type, 'factual') AS document_memory_type,
-                COALESCE(c.memory_type_override_source, d.memory_type_source, 'fallback') AS document_memory_type_source,
-                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS document_memory_type_confidence,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
                 COALESCE(c.content_tags_json, '[]') AS content_tags_json
             FROM memories m
             LEFT JOIN documents d ON d.memory_id = m.id
@@ -986,11 +1029,11 @@ public actor MemoryStorage {
         try database.execute(
             sql: """
             INSERT INTO memories (
-                id, kind, status, canonical_key, title, text, tags_json, importance,
-                confidence, source, created_at, event_at, updated_at, supersedes_id,
-                superseded_by_id, metadata_json
+                id, kind, status, canonical_key, title, text, tags_json, facet_tags_json,
+                entities_json, topics_json, importance, confidence, source, created_at,
+                event_at, updated_at, supersedes_id, superseded_by_id, metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             arguments: [
                 input.id,
@@ -1000,6 +1043,9 @@ public actor MemoryStorage {
                 input.title,
                 input.text,
                 Self.encodeStringArray(input.tags),
+                Self.encodeStringArray(input.facetTags),
+                Self.encodeStoredMemoryEntities(input.entities),
+                Self.encodeStringArray(input.topics),
                 input.importance,
                 input.confidence,
                 input.source,
@@ -1291,50 +1337,6 @@ public actor MemoryStorage {
         ).map(Self.makeChunkMetadata(from:))
     }
 
-    @discardableResult
-    public func setDocumentMemoryType(
-        path: String,
-        type: String,
-        source: String,
-        confidence: Double?
-    ) throws -> Bool {
-        try database.transaction {
-            let now = Date().timeIntervalSince1970
-            try database.execute(
-                sql: """
-                UPDATE documents
-                SET memory_type = ?, memory_type_source = ?, memory_type_confidence = ?, updated_at = ?
-                WHERE path = ?
-                """,
-                arguments: [type, source, confidence, now, path]
-            )
-            return database.changesCount > 0
-        }
-    }
-
-    @discardableResult
-    public func setChunkMemoryTypeOverride(
-        chunkID: Int64,
-        type: String?,
-        source: String?,
-        confidence: Double?
-    ) throws -> Bool {
-        try database.transaction {
-            try database.execute(
-                sql: """
-                UPDATE chunks
-                SET
-                    memory_type_override = ?,
-                    memory_type_override_source = ?,
-                    memory_type_override_confidence = ?
-                WHERE id = ?
-                """,
-                arguments: [type, source, confidence, chunkID]
-            )
-            return database.changesCount > 0
-        }
-    }
-
     private static func openDatabase(at databaseURL: URL) throws -> SQLiteDatabase {
         let database = try SQLiteDatabase(path: databaseURL.path)
 
@@ -1434,6 +1436,9 @@ public actor MemoryStorage {
             case 1:
                 try migrateV1ToV2(in: database)
                 currentVersion = 2
+            case 2:
+                try migrateV2ToV3(in: database)
+                currentVersion = 3
             default:
                 throw SQLiteError(message: "Unsupported schema migration path from version \(currentVersion).")
             }
@@ -1503,6 +1508,9 @@ public actor MemoryStorage {
                 title TEXT,
                 text TEXT NOT NULL,
                 tags_json TEXT NOT NULL DEFAULT '[]',
+                facet_tags_json TEXT NOT NULL DEFAULT '[]',
+                entities_json TEXT NOT NULL DEFAULT '[]',
+                topics_json TEXT NOT NULL DEFAULT '[]',
                 importance REAL NOT NULL DEFAULT 0.5,
                 confidence REAL,
                 source TEXT NOT NULL,
@@ -1712,6 +1720,42 @@ public actor MemoryStorage {
                 WHERE document_id = (SELECT id FROM documents WHERE path = ?)
                 """,
                 arguments: [kind, path]
+            )
+        }
+
+        try database.execute(
+            sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
+            arguments: [2]
+        )
+    }
+
+    private static func migrateV2ToV3(in database: SQLiteDatabase) throws {
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN facet_tags_json TEXT NOT NULL DEFAULT '[]'")
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN entities_json TEXT NOT NULL DEFAULT '[]'")
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'")
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT id, kind, text, tags_json
+            FROM memories
+            """
+        )
+
+        for row in rows {
+            let kind: String = row["kind"]
+            let text: String = row["text"]
+            let tags = Self.decodeStringArray(row["tags_json"])
+            let facetTags = deriveFacetTags(kind: kind, text: text, tags: tags)
+            try database.execute(
+                sql: """
+                UPDATE memories
+                SET facet_tags_json = ?, entities_json = '[]', topics_json = '[]'
+                WHERE id = ?
+                """,
+                arguments: [
+                    Self.encodeStringArray(facetTags),
+                    row["id"] as String,
+                ]
             )
         }
 
@@ -2010,6 +2054,9 @@ public actor MemoryStorage {
             canonicalKey: row["canonical_key"],
             text: row["text"],
             tags: Self.decodeStringArray(row["tags_json"]),
+            facetTags: Self.decodeStringArray(row["facet_tags_json"]),
+            entities: Self.decodeStoredMemoryEntities(row["entities_json"]),
+            topics: Self.decodeStringArray(row["topics_json"]),
             importance: row["importance"],
             confidence: row["confidence"],
             source: row["source"],
@@ -2023,9 +2070,9 @@ public actor MemoryStorage {
             documentPath: row["document_path"],
             accessCount: row["access_count"],
             lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
-            documentMemoryType: row["document_memory_type"],
-            documentMemoryTypeSource: row["document_memory_type_source"],
-            documentMemoryTypeConfidence: row["document_memory_type_confidence"],
+            legacyDocumentType: row["legacy_document_type"],
+            legacyDocumentTypeSource: row["legacy_document_type_source"],
+            legacyDocumentTypeConfidence: row["legacy_document_type_confidence"],
             contentTags: Self.decodeContentTags(row["content_tags_json"])
         )
     }
@@ -2081,6 +2128,23 @@ public actor MemoryStorage {
         return (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
+    private static func encodeStoredMemoryEntities(_ values: [StoredMemoryEntity]) -> String {
+        guard !values.isEmpty else { return "[]" }
+        guard
+            let data = try? JSONEncoder().encode(values),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return encoded
+    }
+
+    private static func decodeStoredMemoryEntities(_ raw: String?) -> [StoredMemoryEntity] {
+        guard let raw else { return [] }
+        guard let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([StoredMemoryEntity].self, from: data)) ?? []
+    }
+
     private static func encodeMetadata(_ metadata: [String: String]) -> String {
         guard !metadata.isEmpty else { return "{}" }
         guard
@@ -2120,6 +2184,65 @@ public actor MemoryStorage {
         default:
             return "fact"
         }
+    }
+
+    private static func deriveFacetTags(kind: String, text: String, tags: [String]) -> [String] {
+        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let loweredText = text.lowercased()
+        let loweredTags = Set(tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        var facets: [String] = []
+
+        func add(_ raw: String) {
+            guard !facets.contains(raw) else { return }
+            facets.append(raw)
+        }
+
+        if loweredText.contains("prefer") || loweredText.contains("favorite") || loweredTags.contains("preference") {
+            add("preference")
+        }
+        if loweredText.contains("project") || loweredText.contains("repo") || loweredText.contains("repository") {
+            add("project")
+        }
+        if loweredText.contains("goal") || loweredText.contains("objective") {
+            add("goal")
+        }
+        if loweredText.contains("todo") || loweredText.contains("task") || loweredText.contains("follow up") {
+            add("task")
+        }
+        if loweredText.contains("tool") || loweredText.contains("sdk") || loweredText.contains("framework") || loweredText.contains("sqlite") {
+            add("tool")
+        }
+        if loweredText.contains("today") || loweredText.contains("tomorrow") || loweredText.contains("deadline") || loweredText.contains("urgent") {
+            add("time_sensitive")
+        }
+        if loweredText.contains("constraint") || loweredText.contains("blocked") || loweredText.contains("cannot") {
+            add("constraint")
+        }
+        if loweredText.contains("lesson") || loweredText.contains("learned") || loweredText.contains("takeaway") {
+            add("lesson")
+        }
+        if loweredText.contains("feel") || loweredText.contains("frustrated") || loweredText.contains("happy") {
+            add("emotion")
+        }
+        if loweredText.contains("name") || loweredText.contains("role") || loweredText.contains("timezone") {
+            add("identity_signal")
+        }
+
+        switch normalizedKind {
+        case "profile":
+            add("fact_about_user")
+        case "fact":
+            add("fact_about_world")
+        case "decision":
+            add("decision_topic")
+        case "commitment":
+            add("task")
+        default:
+            break
+        }
+
+        return Array(facets.prefix(6))
     }
 
     private static func makeCanonicalKey(kind: String, text: String) -> String? {

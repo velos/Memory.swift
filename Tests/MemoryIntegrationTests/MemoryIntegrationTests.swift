@@ -21,27 +21,6 @@ private actor IntegrationMockEmbeddingProvider: EmbeddingProvider {
     }
 }
 
-private actor IntegrationStaticMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier = "integration-static-memory-type-classifier"
-    let type: DocumentMemoryType
-
-    init(type: DocumentMemoryType) {
-        self.type = type
-    }
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        MemoryTypeAssignment(type: type, source: .automatic, confidence: 0.8, classifierID: identifier)
-    }
-}
-
-private actor IntegrationFailingMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier = "integration-failing-memory-type-classifier"
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        throw MemoryError.search("forced classifier failure")
-    }
-}
-
 private func makeTempDir(_ name: String = #function) throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("memory-integration")
@@ -130,82 +109,47 @@ struct MemoryIntegrationTests {
     }
 
     @Test
-    func memoryTypeMetadataPersistsAcrossReinitialization() async throws {
+    func canonicalMemoryPersistsAcrossReinitialization() async throws {
         let root = try makeTempDir()
-        let docs = root.appendingPathComponent("docs")
         let db = root.appendingPathComponent("index.sqlite")
-        let file = docs.appendingPathComponent("typed.md")
-
-        try write(file, "Timeline and milestone planning details.")
-
-        let firstConfig = MemoryConfiguration(
-            databaseURL: db,
-            embeddingProvider: IntegrationMockEmbeddingProvider(),
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: IntegrationStaticMemoryTypeClassifier(type: .semantic),
-                fallbackType: .factual
+        let firstIndex = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: db,
+                embeddingProvider: IntegrationMockEmbeddingProvider()
             )
         )
 
-        let firstIndex = try MemoryIndex(configuration: firstConfig)
-        try await firstIndex.rebuildIndex(from: [docs])
-
-        let initial = try await firstIndex.search(SearchQuery(text: "milestone planning", limit: 3))
-        #expect(initial.isEmpty == false)
-        let chunkID = try #require(initial.first?.chunkID)
-
-        try await firstIndex.setChunkMemoryTypeOverride(chunkID: chunkID, type: .temporal)
+        let saved = try await firstIndex.save(
+            text: "Memory.swift release timeline is September 18 and needs a launch checklist.",
+            kind: .commitment,
+            facetTags: [.project, .timeSensitive],
+            entities: [
+                MemoryEntity(
+                    label: .project,
+                    value: "Memory.swift",
+                    normalizedValue: "memory.swift"
+                ),
+            ],
+            topics: ["release timeline"],
+            canonicalKey: "memory.swift.release.timeline"
+        )
 
         let secondIndex = try MemoryIndex(
             configuration: MemoryConfiguration(
                 databaseURL: db,
-                embeddingProvider: IntegrationMockEmbeddingProvider(),
-                memoryTyping: MemoryTypingConfiguration(mode: .manualOnly, classifier: nil, fallbackType: .factual)
+                embeddingProvider: IntegrationMockEmbeddingProvider()
             )
         )
 
-        let reloadedChunk = try await secondIndex.getChunk(id: chunkID)
-        #expect(reloadedChunk?.documentMemoryType == .temporal)
-        #expect(reloadedChunk?.documentMemoryTypeSource == .manual)
-
-        let temporalOnly = try await secondIndex.search(
-            SearchQuery(text: "milestone planning", limit: 5, documentMemoryTypes: [.temporal])
-        )
-        #expect(temporalOnly.contains(where: { $0.chunkID == chunkID }))
-    }
-
-    @Test
-    func fallbackClassifierUsesSecondaryWhenPrimaryFails() async throws {
-        let root = try makeTempDir()
-        let docs = root.appendingPathComponent("docs")
-        let db = root.appendingPathComponent("index.sqlite")
-        let file = docs.appendingPathComponent("people.md")
-
-        try write(file, "Team collaboration and stakeholder alignment summary.")
-
-        let classifier = FallbackMemoryTypeClassifier(
-            primary: IntegrationFailingMemoryTypeClassifier(),
-            fallback: IntegrationStaticMemoryTypeClassifier(type: .social)
+        let recalled = try await secondIndex.recall(
+            mode: .recent,
+            limit: 5,
+            kinds: [.commitment],
+            facets: [.project, .timeSensitive],
+            entityValues: ["memory.swift"],
+            topics: ["release timeline"]
         )
 
-        let index = try MemoryIndex(
-            configuration: MemoryConfiguration(
-                databaseURL: db,
-                embeddingProvider: IntegrationMockEmbeddingProvider(),
-                memoryTyping: MemoryTypingConfiguration(
-                    mode: .automatic,
-                    classifier: classifier,
-                    fallbackType: .factual
-                )
-            )
-        )
-
-        try await index.rebuildIndex(from: [docs])
-        let results = try await index.search(SearchQuery(text: "stakeholder alignment", limit: 5))
-
-        #expect(results.isEmpty == false)
-        #expect(results.first?.documentMemoryType == .social)
-        #expect(results.first?.documentMemoryTypeSource == .automatic)
+        #expect(recalled.records.contains(where: { $0.id == saved.id }))
     }
 }

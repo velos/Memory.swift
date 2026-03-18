@@ -23,7 +23,7 @@ struct MemoryStorageMigrationTests {
             )
         )
 
-        #expect(version == 2)
+        #expect(version == 3)
         #expect(tableNames.contains("memory_schema_metadata"))
         #expect(tableNames.contains("documents"))
         #expect(tableNames.contains("chunks"))
@@ -62,7 +62,7 @@ struct MemoryStorageMigrationTests {
 
         #expect(row == nil)
         #expect(paths.isEmpty)
-        #expect(version == 2)
+        #expect(version == 3)
         #expect(legacyTable == nil)
         #expect(documentCount == 0)
     }
@@ -157,12 +157,15 @@ struct MemoryStorageMigrationTests {
         let documentMemoryStatus: String = documentRow["memory_status"]
         let documentCanonicalKey: String = documentRow["memory_canonical_key"]
 
-        #expect(version == 2)
+        #expect(version == 3)
         #expect(migrated.id == "legacy-decision")
         #expect(migrated.kind == "decision")
         #expect(migrated.status == "active")
         #expect(migrated.documentPath == "memory://legacy-decision")
         #expect(migrated.canonicalKey == documentCanonicalKey)
+        #expect(migrated.facetTags.contains("decision_topic"))
+        #expect(migrated.entities.isEmpty)
+        #expect(migrated.topics.isEmpty)
         #expect(listed.count == 1)
         #expect(listed.first?.id == migrated.id)
         #expect(lexicalHits.contains(where: { $0.chunkID == migratedChunkID }))

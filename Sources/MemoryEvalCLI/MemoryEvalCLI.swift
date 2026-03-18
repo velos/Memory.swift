@@ -30,6 +30,7 @@ Common commands:
 private let storageTemplate = """
 {"id":"storage-1","kind":"markdown","text":"I felt frustrated during yesterday's outage review.","expected_memory_type":"emotional","required_spans":["frustrated","outage review"]}
 {"id":"storage-2","kind":"markdown","text":"Step 1: run migration. Step 2: verify alerts. Step 3: announce release.","expected_memory_type":"procedural","required_spans":["Step 1","verify alerts"]}
+{"id":"profile-1","kind":"markdown","text":"Zac prefers Zed for Memory.swift work.","expected_kind":"profile","expected_status":"active","expected_facets":["preference","project","fact_about_user"],"required_entities":["zac","memory.swift","zed"],"required_topics":["memory.swift work"]}
 """
 
 private let rerankerStopWords: Set<String> = [
@@ -41,10 +42,20 @@ private let rerankerStopWords: Set<String> = [
 private let evalIndexCacheSchemaVersion = 1
 
 private enum RepoCoreMLModels {
-    static let typing = "typing-v1"
     static let embedding = "embedding-v1"
     static let reranker = "reranker-v1"
 }
+
+private let legacyDocumentTypeLabels: [String] = [
+    "factual",
+    "procedural",
+    "episodic",
+    "semantic",
+    "emotional",
+    "social",
+    "contextual",
+    "temporal",
+]
 
 private let recallDocumentsTemplate = """
 {"id":"doc-a","relative_path":"project/roadmap.md","kind":"markdown","text":"Q3 roadmap includes API stability work and a September launch milestone.","memory_type":"temporal"}
@@ -126,8 +137,26 @@ private struct StorageCase: Decodable {
     var id: String
     var kind: String?
     var text: String
-    var expectedMemoryType: String
-    var requiredSpans: [String]
+    var expectedMemoryType: String?
+    var requiredSpans: [String]?
+    var expectedKind: String?
+    var expectedStatus: String?
+    var expectedFacets: [String]?
+    var requiredEntities: [String]?
+    var requiredTopics: [String]?
+    var expectedUpdateBehavior: String?
+    var canonicalKey: String?
+    var setupMemories: [StorageSeedMemory]?
+}
+
+private struct StorageSeedMemory: Decodable {
+    var text: String
+    var kind: String
+    var status: String?
+    var canonicalKey: String?
+    var facetTags: [String]?
+    var entityValues: [String]?
+    var topics: [String]?
 }
 
 private struct RecallDocumentCase: Decodable {
@@ -161,6 +190,18 @@ private struct StorageCaseResult: Codable {
     var predictedConfidence: Double?
     var missingSpans: [String]
     var chunkCount: Int
+    var expectedKind: String?
+    var predictedKind: String?
+    var expectedStatus: String?
+    var predictedStatus: String?
+    var expectedFacets: [String]?
+    var predictedFacets: [String]?
+    var expectedEntities: [String]?
+    var predictedEntities: [String]?
+    var expectedTopics: [String]?
+    var predictedTopics: [String]?
+    var expectedUpdateBehavior: String?
+    var observedUpdateBehavior: String?
 }
 
 private struct StorageStageLatencyStats: Codable {
@@ -173,11 +214,19 @@ private struct StorageStageLatencyStats: Codable {
 }
 
 private struct StorageSuiteReport: Codable {
+    var mode: String?
     var totalCases: Int
     var typeAccuracy: Double
     var macroF1: Double
     var spanCoverage: Double
     var fallbackRate: Double
+    var facetPrecision: Double?
+    var facetRecall: Double?
+    var facetMicroF1: Double?
+    var entityPrecision: Double?
+    var entityRecall: Double?
+    var topicRecall: Double?
+    var updateBehaviorAccuracy: Double?
     var confusionMatrix: [String: [String: Int]]
     var caseResults: [StorageCaseResult]
     var stageLatencyStats: StorageStageLatencyStats?
@@ -1198,14 +1247,16 @@ struct RunCommand: AsyncParsableCommand {
         )
 
         let report = EvalRunReport(
-            schemaVersion: 2,
+            schemaVersion: 3,
             createdAt: Date(),
             profile: profile,
             datasetRoot: datasetRootURL.path,
             storage: storageReport,
             recall: recallOutput.report,
             notes: [
-                "Storage eval uses direct database inspection with production-like chunking for classification/span metrics.",
+                storageReport.mode == "canonical_memory_schema"
+                    ? "Storage eval uses the canonical memory extraction and ingest path and scores kind/status/facet/entity/topic/update behavior."
+                    : "Storage eval uses direct database inspection with production-like chunking for classification/span metrics.",
                 "Recall eval uses document-level metrics (deduped by document path).",
                 "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
             ] + recallOutput.notes
@@ -1224,9 +1275,26 @@ struct RunCommand: AsyncParsableCommand {
         try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
 
         print("Profile: \(profile.rawValue)")
-        print("Storage type accuracy: \(percent(report.storage.typeAccuracy))")
-        print("Storage macro F1: \(percent(report.storage.macroF1))")
-        print("Storage span coverage: \(percent(report.storage.spanCoverage))")
+        if report.storage.mode == "canonical_memory_schema" {
+            print("Storage kind accuracy: \(percent(report.storage.typeAccuracy))")
+            print("Storage kind macro F1: \(percent(report.storage.macroF1))")
+            if let facetMicroF1 = report.storage.facetMicroF1 {
+                print("Storage facet micro F1: \(percent(facetMicroF1))")
+            }
+            if let entityRecall = report.storage.entityRecall {
+                print("Storage entity recall: \(percent(entityRecall))")
+            }
+            if let topicRecall = report.storage.topicRecall {
+                print("Storage topic recall: \(percent(topicRecall))")
+            }
+            if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
+                print("Storage update behavior accuracy: \(percent(updateBehaviorAccuracy))")
+            }
+        } else {
+            print("Storage type accuracy: \(percent(report.storage.typeAccuracy))")
+            print("Storage macro F1: \(percent(report.storage.macroF1))")
+            print("Storage span coverage: \(percent(report.storage.spanCoverage))")
+        }
         if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
             print("Recall Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
             print("Recall Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
@@ -1468,8 +1536,15 @@ private func storageIndexCacheSeed(profile: EvalProfile, dataset: [StorageCase])
     for entry in sorted {
         parts.append("id=\(entry.id)")
         parts.append("kind=\(entry.kind ?? "")")
-        parts.append("expected=\(entry.expectedMemoryType)")
-        parts.append("required=\(entry.requiredSpans.joined(separator: "\u{1E}"))")
+        parts.append("expected_type=\(entry.expectedMemoryType ?? "")")
+        parts.append("expected_kind=\(entry.expectedKind ?? "")")
+        parts.append("expected_status=\(entry.expectedStatus ?? "")")
+        parts.append("expected_facets=\((entry.expectedFacets ?? []).joined(separator: "\u{1E}"))")
+        parts.append("required_spans=\((entry.requiredSpans ?? []).joined(separator: "\u{1E}"))")
+        parts.append("required_entities=\((entry.requiredEntities ?? []).joined(separator: "\u{1E}"))")
+        parts.append("required_topics=\((entry.requiredTopics ?? []).joined(separator: "\u{1E}"))")
+        parts.append("update=\(entry.expectedUpdateBehavior ?? "")")
+        parts.append("canonical_key=\(entry.canonicalKey ?? "")")
         parts.append("text=\(entry.text)")
     }
     return parts.joined(separator: "\n")
@@ -1510,6 +1585,17 @@ private func runStorageSuite(
     verbose: Bool,
     responseCache: EvalResponseCache?
 ) async throws -> StorageSuiteReport {
+    if usesCanonicalMemorySchemaStorageEval(dataset) {
+        return try await runCanonicalStorageSuite(
+            profile: profile,
+            dataset: dataset,
+            datasetRoot: datasetRoot,
+            root: root,
+            verbose: verbose,
+            responseCache: responseCache
+        )
+    }
+
     let indexSeed = storageIndexCacheSeed(profile: profile, dataset: dataset)
     let workspace = try prepareIndexWorkspace(
         suite: .storage,
@@ -1603,7 +1689,10 @@ private func runStorageSuite(
             throw EvalError.invalidDataset("Storage case '\(entry.id)' did not materialize to a document path.")
         }
 
-        let expectedType = try parseMemoryType(entry.expectedMemoryType, context: "storage case \(entry.id)")
+        let expectedType = try parseLegacyDocumentTypeLabel(
+            entry.expectedMemoryType ?? "",
+            context: "storage case \(entry.id)"
+        )
         let dbRows = try database.fetchAll(
             sql: """
             SELECT
@@ -1626,21 +1715,21 @@ private func runStorageSuite(
         let predictedRaw: String = dbRows[0]["memory_type"]
         let predictedSourceRaw: String = dbRows[0]["memory_type_source"]
         let predictedConfidence: Double? = dbRows[0]["memory_type_confidence"]
-        let predictedType = DocumentMemoryType.parse(predictedRaw) ?? .factual
-        let predictedSource = MemoryTypeSource.parse(predictedSourceRaw) ?? .fallback
+        let predictedType = legacyDocumentTypeLabels.contains(predictedRaw) ? predictedRaw : "factual"
+        let predictedSource = predictedSourceRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         if predictedType == expectedType {
             correct += 1
         }
-        if predictedSource == .fallback {
+        if predictedSource == "fallback" {
             fallbackCount += 1
         }
 
-        confusion[expectedType.rawValue, default: [:]][predictedType.rawValue, default: 0] += 1
+        confusion[expectedType, default: [:]][predictedType, default: 0] += 1
 
         let chunkContents = dbRows.map { (row: SQLiteRow) -> String in row["content"] }
         let normalizedContents = chunkContents.map(normalizeForMatch)
-        let spans = entry.requiredSpans.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let spans = (entry.requiredSpans ?? []).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let missing = spans.filter { span in
             let normalizedSpan = normalizeForMatch(span)
             return !normalizedContents.contains(where: { $0.contains(normalizedSpan) })
@@ -1651,9 +1740,9 @@ private func runStorageSuite(
 
         let caseResult = StorageCaseResult(
             id: entry.id,
-            expectedType: expectedType.rawValue,
-            predictedType: predictedType.rawValue,
-            predictedSource: predictedSource.rawValue,
+            expectedType: expectedType,
+            predictedType: predictedType,
+            predictedSource: predictedSource,
             predictedConfidence: predictedConfidence,
             missingSpans: missing,
             chunkCount: chunkContents.count
@@ -1661,7 +1750,7 @@ private func runStorageSuite(
         results.append(caseResult)
 
         if verbose {
-            print("[storage] \(entry.id): expected=\(expectedType.rawValue) predicted=\(predictedType.rawValue) source=\(predictedSource.rawValue)")
+            print("[storage] \(entry.id): expected=\(expectedType) predicted=\(predictedType) source=\(predictedSource)")
         }
         progress.advance(detail: verbose ? entry.id : nil)
     }
@@ -1669,7 +1758,7 @@ private func runStorageSuite(
     let macroF1 = computeMacroF1(
         expected: results.map(\.expectedType),
         predicted: results.map(\.predictedType),
-        labels: DocumentMemoryType.allCases.map(\.rawValue)
+        labels: legacyDocumentTypeLabels
     )
 
     let accuracy = dataset.isEmpty ? 0 : Double(correct) / Double(dataset.count)
@@ -1677,15 +1766,296 @@ private func runStorageSuite(
     let fallbackRate = dataset.isEmpty ? 0 : Double(fallbackCount) / Double(dataset.count)
 
     return StorageSuiteReport(
+        mode: "document_memory_type",
         totalCases: dataset.count,
         typeAccuracy: accuracy,
         macroF1: macroF1,
         spanCoverage: spanCoverage,
         fallbackRate: fallbackRate,
+        facetPrecision: nil,
+        facetRecall: nil,
+        facetMicroF1: nil,
+        entityPrecision: nil,
+        entityRecall: nil,
+        topicRecall: nil,
+        updateBehaviorAccuracy: nil,
         confusionMatrix: confusion,
         caseResults: results.sorted { $0.id < $1.id },
         stageLatencyStats: indexingStageCollector.report()
     )
+}
+
+private func usesCanonicalMemorySchemaStorageEval(_ dataset: [StorageCase]) -> Bool {
+    dataset.contains { entry in
+        entry.expectedKind != nil
+            || entry.expectedStatus != nil
+            || !(entry.expectedFacets ?? []).isEmpty
+            || !(entry.requiredEntities ?? []).isEmpty
+            || !(entry.requiredTopics ?? []).isEmpty
+            || entry.expectedUpdateBehavior != nil
+    }
+}
+
+private func runCanonicalStorageSuite(
+    profile: EvalProfile,
+    dataset: [StorageCase],
+    datasetRoot: URL,
+    root: URL,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
+) async throws -> StorageSuiteReport {
+    let workspace = try prepareIndexWorkspace(
+        suite: .storage,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root,
+        cacheEnabled: false,
+        seed: storageIndexCacheSeed(profile: profile, dataset: dataset)
+    )
+    try resetWorkspaceForRebuild(workspace)
+
+    var results: [StorageCaseResult] = []
+    var confusion: [String: [String: Int]] = [:]
+    var expectedKinds: [String] = []
+    var predictedKinds: [String] = []
+    var correctKinds = 0
+
+    var totalExpectedFacets = 0
+    var totalPredictedFacets = 0
+    var totalMatchedFacets = 0
+
+    var totalExpectedEntities = 0
+    var totalPredictedEntities = 0
+    var totalMatchedEntities = 0
+
+    var totalExpectedTopics = 0
+    var totalMatchedTopics = 0
+
+    var updateExpectedCount = 0
+    var updateCorrectCount = 0
+
+    var progress = DeterminateProgress(label: "storage", total: dataset.count)
+
+    for entry in dataset {
+        let caseDatabaseURL = workspace.root
+            .appendingPathComponent("cases", isDirectory: true)
+            .appendingPathComponent(safeFilename(entry.id), isDirectory: true)
+            .appendingPathComponent("index.sqlite")
+        try FileManager.default.createDirectory(
+            at: caseDatabaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: caseDatabaseURL)
+        if let responseCache {
+            installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+        }
+        let index = try MemoryIndex(configuration: config)
+
+        var setupRecords: [MemoryRecord] = []
+        for seed in entry.setupMemories ?? [] {
+            let kind = try parseMemoryKind(seed.kind, context: "storage setup memory \(entry.id)")
+            let status = try parseMemoryStatus(seed.status ?? MemoryStatus.active.rawValue, context: "storage setup memory \(entry.id)")
+            let facetTags = try parseFacetTags(seed.facetTags ?? [], context: "storage setup memory \(entry.id)")
+            let entities = seed.entityValues?.map {
+                MemoryEntity(label: .other, value: $0, normalizedValue: normalizeForMatch($0))
+            } ?? []
+            let record = try await index.save(
+                text: seed.text,
+                kind: kind,
+                status: status,
+                facetTags: facetTags,
+                entities: entities,
+                topics: seed.topics ?? [],
+                canonicalKey: seed.canonicalKey
+            )
+            setupRecords.append(record)
+        }
+
+        let extracted = try await index.extract(from: entry.text, limit: 8)
+        let candidate = extracted.first.map { initial in
+            var adjusted = initial
+            if let canonicalKey = entry.canonicalKey {
+                adjusted.canonicalKey = canonicalKey
+            }
+            return adjusted
+        }
+        let ingestResult = try await index.ingest(candidate.map { [$0] } ?? [])
+        let stored = ingestResult.records.first
+
+        let expectedKind = try entry.expectedKind.map { try parseMemoryKind($0, context: "storage case \(entry.id)") }
+        let predictedKind = stored?.kind ?? candidate?.kind
+        let expectedStatus = try entry.expectedStatus.map { try parseMemoryStatus($0, context: "storage case \(entry.id)") }
+        let predictedStatus = stored?.status ?? candidate?.status
+
+        let expectedFacetTags = try parseFacetTags(entry.expectedFacets ?? [], context: "storage case \(entry.id)")
+        let predictedFacetTags = stored?.facetTags ?? candidate?.facetTags ?? []
+
+        let expectedEntityValues = Set((entry.requiredEntities ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let predictedEntityValues = Set((stored?.entities ?? candidate?.entities ?? []).map(\.normalizedValue).map(normalizeForMatch))
+
+        let expectedTopicValues = Set((entry.requiredTopics ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let predictedTopicValues = Set((stored?.topics ?? candidate?.topics ?? []).map(normalizeForMatch))
+
+        if let expectedKind {
+            expectedKinds.append(expectedKind.rawValue)
+            predictedKinds.append(predictedKind?.rawValue ?? "none")
+            if predictedKind == expectedKind {
+                correctKinds += 1
+            }
+            confusion[expectedKind.rawValue, default: [:]][predictedKind?.rawValue ?? "none", default: 0] += 1
+        }
+
+        let matchedFacets = expectedFacetTags.intersection(predictedFacetTags)
+        totalExpectedFacets += expectedFacetTags.count
+        totalPredictedFacets += predictedFacetTags.count
+        totalMatchedFacets += matchedFacets.count
+
+        let matchedEntities = expectedEntityValues.intersection(predictedEntityValues)
+        totalExpectedEntities += expectedEntityValues.count
+        totalPredictedEntities += predictedEntityValues.count
+        totalMatchedEntities += matchedEntities.count
+
+        let matchedTopics = expectedTopicValues.intersection(predictedTopicValues)
+        totalExpectedTopics += expectedTopicValues.count
+        totalMatchedTopics += matchedTopics.count
+
+        let observedUpdateBehavior: String?
+        if entry.expectedUpdateBehavior != nil {
+            observedUpdateBehavior = try await observeUpdateBehavior(index: index, setupRecords: setupRecords, result: stored)
+        } else {
+            observedUpdateBehavior = nil
+        }
+        if let expectedUpdateBehavior = entry.expectedUpdateBehavior {
+            updateExpectedCount += 1
+            if observedUpdateBehavior == expectedUpdateBehavior {
+                updateCorrectCount += 1
+            }
+        }
+
+        results.append(
+            StorageCaseResult(
+                id: entry.id,
+                expectedType: expectedKind?.rawValue ?? (entry.expectedMemoryType ?? ""),
+                predictedType: predictedKind?.rawValue ?? "none",
+                predictedSource: candidate?.source ?? "none",
+                predictedConfidence: candidate?.confidence,
+                missingSpans: [],
+                chunkCount: stored == nil ? 0 : 1,
+                expectedKind: expectedKind?.rawValue,
+                predictedKind: predictedKind?.rawValue,
+                expectedStatus: expectedStatus?.rawValue,
+                predictedStatus: predictedStatus?.rawValue,
+                expectedFacets: expectedFacetTags.map(\.rawValue).sorted(),
+                predictedFacets: predictedFacetTags.map(\.rawValue).sorted(),
+                expectedEntities: Array(expectedEntityValues).sorted(),
+                predictedEntities: Array(predictedEntityValues).sorted(),
+                expectedTopics: Array(expectedTopicValues).sorted(),
+                predictedTopics: Array(predictedTopicValues).sorted(),
+                expectedUpdateBehavior: entry.expectedUpdateBehavior,
+                observedUpdateBehavior: observedUpdateBehavior
+            )
+        )
+
+        if verbose {
+            print("[storage] \(entry.id): expectedKind=\(expectedKind?.rawValue ?? "-") predictedKind=\(predictedKind?.rawValue ?? "none") expectedStatus=\(expectedStatus?.rawValue ?? "-") predictedStatus=\(predictedStatus?.rawValue ?? "none")")
+        }
+        progress.advance(detail: verbose ? entry.id : nil)
+    }
+
+    let kindAccuracy = expectedKinds.isEmpty ? 0 : Double(correctKinds) / Double(expectedKinds.count)
+    let kindMacroF1 = computeMacroF1(
+        expected: expectedKinds,
+        predicted: predictedKinds,
+        labels: MemoryKind.allCases.map(\.rawValue) + ["none"]
+    )
+
+    let facetPrecision = safeRatio(totalMatchedFacets, totalPredictedFacets, emptyDefault: 1)
+    let facetRecall = safeRatio(totalMatchedFacets, totalExpectedFacets, emptyDefault: 1)
+    let facetMicroF1 = harmonicMean(precision: facetPrecision, recall: facetRecall)
+    let entityPrecision = safeRatio(totalMatchedEntities, totalPredictedEntities, emptyDefault: 1)
+    let entityRecall = safeRatio(totalMatchedEntities, totalExpectedEntities, emptyDefault: 1)
+    let topicRecall = safeRatio(totalMatchedTopics, totalExpectedTopics, emptyDefault: 1)
+    let updateAccuracy = updateExpectedCount == 0 ? 1 : Double(updateCorrectCount) / Double(updateExpectedCount)
+
+    return StorageSuiteReport(
+        mode: "canonical_memory_schema",
+        totalCases: dataset.count,
+        typeAccuracy: kindAccuracy,
+        macroF1: kindMacroF1,
+        spanCoverage: topicRecall,
+        fallbackRate: 0,
+        facetPrecision: facetPrecision,
+        facetRecall: facetRecall,
+        facetMicroF1: facetMicroF1,
+        entityPrecision: entityPrecision,
+        entityRecall: entityRecall,
+        topicRecall: topicRecall,
+        updateBehaviorAccuracy: updateAccuracy,
+        confusionMatrix: confusion,
+        caseResults: results.sorted { $0.id < $1.id },
+        stageLatencyStats: nil
+    )
+}
+
+private func parseMemoryKind(_ raw: String, context: String) throws -> MemoryKind {
+    guard let parsed = MemoryKind.parse(raw) else {
+        throw ValidationError("Invalid \(context) kind '\(raw)'.")
+    }
+    return parsed
+}
+
+private func parseMemoryStatus(_ raw: String, context: String) throws -> MemoryStatus {
+    guard let parsed = MemoryStatus.parse(raw) else {
+        throw ValidationError("Invalid \(context) status '\(raw)'.")
+    }
+    return parsed
+}
+
+private func parseFacetTags(_ rawValues: [String], context: String) throws -> Set<FacetTag> {
+    var parsed: Set<FacetTag> = []
+    for raw in rawValues {
+        guard let tag = FacetTag.parse(raw) else {
+            throw ValidationError("Invalid \(context) facet '\(raw)'.")
+        }
+        parsed.insert(tag)
+    }
+    return parsed
+}
+
+private func observeUpdateBehavior(
+    index: MemoryIndex,
+    setupRecords: [MemoryRecord],
+    result: MemoryRecord?
+) async throws -> String? {
+    guard let result else { return setupRecords.isEmpty ? nil : "none" }
+    guard let setup = setupRecords.first else { return "append" }
+
+    let postRecords = try await index.recall(
+        mode: .kind(result.kind),
+        limit: 20,
+        statuses: [.active, .superseded, .resolved, .archived]
+    ).records
+
+    if result.id == setup.id {
+        return result.status == setup.status ? "dedupe" : "merge_status"
+    }
+
+    if let prior = postRecords.first(where: { $0.id == setup.id }), prior.status == .superseded {
+        return result.kind == .decision ? "supersede" : "replace_active"
+    }
+
+    return "append"
+}
+
+private func safeRatio(_ numerator: Int, _ denominator: Int, emptyDefault: Double) -> Double {
+    guard denominator > 0 else { return emptyDefault }
+    return Double(numerator) / Double(denominator)
+}
+
+private func harmonicMean(precision: Double, recall: Double) -> Double {
+    guard precision > 0 || recall > 0 else { return 0 }
+    return (2 * precision * recall) / (precision + recall)
 }
 
 private func runRecallSuite(
@@ -1730,12 +2100,12 @@ private func runRecallSuite(
 
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
-    var memoryTypeByDocumentID: [String: DocumentMemoryType] = [:]
+    var memoryTypeByDocumentID: [String: String] = [:]
     var contentByDocumentID: [String: String] = [:]
 
     for document in documents {
         if let memoryTypeRaw = document.memoryType {
-            let parsed = try parseMemoryType(memoryTypeRaw, context: "recall document \(document.id)")
+            let parsed = try parseLegacyDocumentTypeLabel(memoryTypeRaw, context: "recall document \(document.id)")
             memoryTypeByDocumentID[document.id] = parsed
         }
 
@@ -1836,7 +2206,6 @@ private func runRecallSuite(
     let maxK = kValues.max() ?? 10
     let recallLimit = recallLimitForProfile(profile: profile, maxK: maxK)
     let dedupedDocumentLimit = dedupedDocumentLimitForProfile(profile: profile, maxK: maxK)
-    var incompatibleFilterQueryCount = 0
     var oracleCandidateCoverageCount = 0
     var oracleRelevantCandidateTotal = 0
     var progress = DeterminateProgress(label: "recall", total: queries.count)
@@ -1853,27 +2222,12 @@ private func runRecallSuite(
             )
         }
 
-        let filterMemoryTypes = try parseOptionalMemoryTypes(queryCase.memoryTypes)
-        var effectiveMemoryTypes = filterMemoryTypes
-        if let filterMemoryTypes, !filterMemoryTypes.isEmpty {
-            let relevantKnownTypes = Set(relevant.compactMap { memoryTypeByDocumentID[$0] })
-            if !relevantKnownTypes.isEmpty, filterMemoryTypes.isDisjoint(with: relevantKnownTypes) {
-                incompatibleFilterQueryCount += 1
-                effectiveMemoryTypes = nil
-
-                let filterRaw = filterMemoryTypes.map(\.rawValue).sorted().joined(separator: ",")
-                let relevantRaw = relevantKnownTypes.map(\.rawValue).sorted().joined(separator: ",")
-                print("[recall][warn] \(queryCase.id): memory_types=[\(filterRaw)] excludes relevant types [\(relevantRaw)]; ignoring filter.")
-            }
-        }
-
         let queryStartTime = Date()
         let searchStageCollector = SearchStageTimingCollector()
         let references = try await index.memorySearch(
             query: queryCase.query,
             limit: dedupedDocumentLimit,
             features: recallFeatures(for: config),
-            documentMemoryTypes: effectiveMemoryTypes,
             dedupeDocuments: true,
             includeLineRanges: false,
             events: { event in
@@ -1984,7 +2338,6 @@ private func runRecallSuite(
     let perTypeMetrics = computePerTypeMetrics(
         queryResults: queryResults,
         queries: queries,
-        documents: documents,
         memoryTypeByDocumentID: memoryTypeByDocumentID,
         maxK: maxK
     )
@@ -1998,11 +2351,6 @@ private func runRecallSuite(
     let candidateCountStats = computeRecallCandidateCountStats(queryResults: queryResults)
 
     var notes: [String] = runtimeNotes
-    if incompatibleFilterQueryCount > 0 {
-        notes.append(
-            "Ignored contradictory recall query memory_types filters for \(incompatibleFilterQueryCount) quer\(incompatibleFilterQueryCount == 1 ? "y" : "ies") because they excluded all relevant_document_ids."
-        )
-    }
     if profile == .oracleCeiling {
         let coverage = totalQueries == 0 ? 0 : Double(oracleCandidateCoverageCount) / Double(totalQueries)
         let avgRelevantCandidates = totalQueries == 0 ? 0 : Double(oracleRelevantCandidateTotal) / Double(totalQueries)
@@ -2031,8 +2379,7 @@ private func runRecallSuite(
 private func computePerTypeMetrics(
     queryResults: [RecallQueryResult],
     queries: [RecallQueryCase],
-    documents: [RecallDocumentCase],
-    memoryTypeByDocumentID: [String: DocumentMemoryType],
+    memoryTypeByDocumentID: [String: String],
     maxK: Int
 ) -> [RecallPerTypeMetric] {
     let queryById = Dictionary(uniqueKeysWithValues: queries.map { ($0.id, $0) })
@@ -2040,7 +2387,7 @@ private func computePerTypeMetrics(
     var typeAccumulators: [String: (hit: Double, mrr: Double, ndcg: Double, count: Int)] = [:]
     for result in queryResults {
         guard let queryCase = queryById[result.id] else { continue }
-        let relevantTypes = Set(queryCase.relevantDocumentIds.compactMap { memoryTypeByDocumentID[$0]?.rawValue })
+        let relevantTypes = Set(queryCase.relevantDocumentIds.compactMap { memoryTypeByDocumentID[$0] })
         guard let primaryType = relevantTypes.first else { continue }
 
         let hit = result.hitByK[maxK] == true ? 1.0 : 0.0
@@ -2177,37 +2524,22 @@ private func buildConfiguration(
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
-                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
-                typing: locateCoreMLModel(name: RepoCoreMLModels.typing)
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding)
             )
         )
     case .appleAugmented:
         var configuration = try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
-                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
-                typing: locateCoreMLModel(name: RepoCoreMLModels.typing)
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding)
             )
         )
-        configuration.memoryTyping.classifier = try makeAppleFirstMemoryClassifier()
         try enableAppleContentTagging(on: &configuration)
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
         }
         return configuration
     }
-}
-
-private func makeRepoCoreMLTypingConfiguration() throws -> MemoryTypingConfiguration {
-    MemoryTypingConfiguration(
-        mode: .automatic,
-        classifier: try makeRepoCoreMLTypingClassifier(),
-        fallbackType: .factual
-    )
-}
-
-private func makeRepoCoreMLTypingClassifier() throws -> any MemoryTypeClassifier {
-    try CoreMLMemoryTypeClassifier(modelURL: locateCoreMLModel(name: RepoCoreMLModels.typing))
 }
 
 private func locateCoreMLModel(name: String) -> URL {
@@ -2226,20 +2558,6 @@ private func locateCoreMLModel(name: String) -> URL {
     return URL(fileURLWithPath: cwd)
         .appendingPathComponent("Models")
         .appendingPathComponent(filename)
-}
-
-private func makeAppleFirstMemoryClassifier() throws -> any MemoryTypeClassifier {
-    #if canImport(FoundationModels)
-    if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        return FallbackMemoryTypeClassifier(
-            primary: AppleIntelligenceMemoryTypeClassifier(),
-            fallback: try makeRepoCoreMLTypingClassifier()
-        )
-    }
-    #endif
-    throw ValidationError(
-        "Apple Intelligence is unavailable for this runtime. Apple profiles require FoundationModels on iOS 26/macOS 26/visionOS 26 with Apple Intelligence enabled."
-    )
 }
 
 private func installRecallDiagnosticsIfNeeded(
@@ -2312,9 +2630,6 @@ private func ensureFunctionalRerankerIfNeeded(
             content: "Run migration and verify alerts before rollout.",
             snippet: "Run migration and verify alerts before rollout.",
             modifiedAt: now,
-            documentMemoryType: .procedural,
-            documentMemoryTypeSource: .automatic,
-            documentMemoryTypeConfidence: 0.9,
             score: SearchScoreBreakdown(
                 semantic: 0.2,
                 lexical: 0.2,
@@ -2329,9 +2644,6 @@ private func ensureFunctionalRerankerIfNeeded(
             content: "Discuss retrospective and backlog grooming topics.",
             snippet: "Discuss retrospective and backlog grooming topics.",
             modifiedAt: now,
-            documentMemoryType: .semantic,
-            documentMemoryTypeSource: .automatic,
-            documentMemoryTypeConfidence: 0.8,
             score: SearchScoreBreakdown(
                 semantic: 0.1,
                 lexical: 0.1,
@@ -2741,15 +3053,32 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         "## Storage",
         "",
         "- Cases: \(report.storage.totalCases)",
-        "- Type accuracy: \(percent(report.storage.typeAccuracy))",
-        "- Macro F1: \(percent(report.storage.macroF1))",
-        "- Span coverage: \(percent(report.storage.spanCoverage))",
-        "- Fallback rate: \(percent(report.storage.fallbackRate))",
         "",
         "## Recall",
         "",
         "- Queries: \(report.recall.totalQueries)",
     ]
+
+    if report.storage.mode == "canonical_memory_schema" {
+        lines.insert(contentsOf: [
+            "- Kind accuracy: \(percent(report.storage.typeAccuracy))",
+            "- Kind macro F1: \(percent(report.storage.macroF1))",
+            "- Facet precision: \(percent(report.storage.facetPrecision ?? 0))",
+            "- Facet recall: \(percent(report.storage.facetRecall ?? 0))",
+            "- Facet micro F1: \(percent(report.storage.facetMicroF1 ?? 0))",
+            "- Entity precision: \(percent(report.storage.entityPrecision ?? 0))",
+            "- Entity recall: \(percent(report.storage.entityRecall ?? 0))",
+            "- Topic recall: \(percent(report.storage.topicRecall ?? 0))",
+            "- Update behavior accuracy: \(percent(report.storage.updateBehaviorAccuracy ?? 0))",
+        ], at: 8)
+    } else {
+        lines.insert(contentsOf: [
+            "- Type accuracy: \(percent(report.storage.typeAccuracy))",
+            "- Macro F1: \(percent(report.storage.macroF1))",
+            "- Span coverage: \(percent(report.storage.spanCoverage))",
+            "- Fallback rate: \(percent(report.storage.fallbackRate))",
+        ], at: 8)
+    }
 
     if let maxKMetric {
         lines.append("- Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
@@ -2894,20 +3223,21 @@ private func parseKValues(_ raw: String) throws -> [Int] {
     return deduped
 }
 
-private func parseMemoryType(_ raw: String, context: String) throws -> DocumentMemoryType {
-    guard let type = DocumentMemoryType.parse(raw) else {
-        let allowed = DocumentMemoryType.allCases.map(\.rawValue).joined(separator: ", ")
-        throw EvalError.invalidDataset("Unknown memory type '\(raw)' in \(context). Allowed: \(allowed)")
+private func parseLegacyDocumentTypeLabel(_ raw: String, context: String) throws -> String {
+    let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard legacyDocumentTypeLabels.contains(normalized) else {
+        let allowed = legacyDocumentTypeLabels.joined(separator: ", ")
+        throw EvalError.invalidDataset("Unknown legacy memory type '\(raw)' in \(context). Allowed: \(allowed)")
     }
-    return type
+    return normalized
 }
 
-private func parseOptionalMemoryTypes(_ rawValues: [String]?) throws -> Set<DocumentMemoryType>? {
+private func parseOptionalMemoryTypes(_ rawValues: [String]?) throws -> Set<String>? {
     guard let rawValues, !rawValues.isEmpty else { return nil }
 
-    var result: Set<DocumentMemoryType> = []
+    var result: Set<String> = []
     for raw in rawValues {
-        let type = try parseMemoryType(raw, context: "query memory_types")
+        let type = try parseLegacyDocumentTypeLabel(raw, context: "query memory_types")
         result.insert(type)
     }
     return result.isEmpty ? nil : result
@@ -2966,7 +3296,7 @@ private func computeNDCG(ranked: [String], relevant: Set<String>, k: Int) -> Dou
 
 private func materializeRecallDocument(_ document: RecallDocumentCase) throws -> String {
     if let memoryTypeRaw = document.memoryType {
-        _ = try parseMemoryType(memoryTypeRaw, context: "recall document \(document.id)")
+        _ = try parseLegacyDocumentTypeLabel(memoryTypeRaw, context: "recall document \(document.id)")
     }
     return document.text
 }

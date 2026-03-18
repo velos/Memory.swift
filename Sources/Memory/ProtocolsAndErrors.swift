@@ -113,11 +113,9 @@ public protocol MemoryExtractor: Sendable {
 
 public struct RecallPlan: Sendable {
     public var query: String
-    public var documentMemoryTypes: Set<DocumentMemoryType>?
 
-    public init(query: String, documentMemoryTypes: Set<DocumentMemoryType>? = nil) {
+    public init(query: String) {
         self.query = query
-        self.documentMemoryTypes = documentMemoryTypes
     }
 }
 
@@ -131,20 +129,23 @@ public protocol RecallPlanner: Sendable {
 }
 
 public struct QueryAnalysis: Sendable {
-    public var entities: [String]
+    public var entities: [MemoryEntity]
     public var keyTerms: [String]
-    public var suggestedDocumentMemoryTypes: Set<DocumentMemoryType>?
+    public var facetHints: Set<FacetTag>
+    public var topics: [String]
     public var isHowToQuery: Bool
 
     public init(
-        entities: [String] = [],
+        entities: [MemoryEntity] = [],
         keyTerms: [String] = [],
-        suggestedDocumentMemoryTypes: Set<DocumentMemoryType>? = nil,
+        facetHints: Set<FacetTag> = [],
+        topics: [String] = [],
         isHowToQuery: Bool = false
     ) {
         self.entities = entities
         self.keyTerms = keyTerms
-        self.suggestedDocumentMemoryTypes = suggestedDocumentMemoryTypes
+        self.facetHints = facetHints
+        self.topics = topics
         self.isHowToQuery = isHowToQuery
     }
 }
@@ -171,7 +172,6 @@ public struct MemoryConfiguration: Sendable {
     public var memoryExtractor: (any MemoryExtractor)?
     public var recallPlanner: (any RecallPlanner)?
     public var queryAnalyzer: (any QueryAnalyzer)?
-    public var memoryTyping: MemoryTypingConfiguration
     public var tokenizer: any Tokenizer
     public var chunker: any Chunker
     public var supportedFileExtensions: Set<String>
@@ -190,7 +190,6 @@ public struct MemoryConfiguration: Sendable {
         memoryExtractor: (any MemoryExtractor)? = nil,
         recallPlanner: (any RecallPlanner)? = nil,
         queryAnalyzer: (any QueryAnalyzer)? = nil,
-        memoryTyping: MemoryTypingConfiguration = .default,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = Self.defaultSupportedExtensions,
@@ -208,7 +207,6 @@ public struct MemoryConfiguration: Sendable {
         self.memoryExtractor = memoryExtractor
         self.recallPlanner = recallPlanner
         self.queryAnalyzer = queryAnalyzer
-        self.memoryTyping = memoryTyping
         self.tokenizer = tokenizer
         self.chunker = chunker
         self.supportedFileExtensions = supportedFileExtensions

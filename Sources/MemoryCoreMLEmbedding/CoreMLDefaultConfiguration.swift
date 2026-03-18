@@ -4,11 +4,9 @@ import MemoryNaturalLanguage
 
 public struct CoreMLDefaultModels: Sendable {
     public var embedding: URL
-    public var typing: URL
 
-    public init(embedding: URL, typing: URL) {
+    public init(embedding: URL) {
         self.embedding = embedding
-        self.typing = typing
     }
 }
 
@@ -29,7 +27,6 @@ public extension MemoryConfiguration {
         positionAwareBlending: PositionAwareBlending = .default
     ) throws -> MemoryConfiguration {
         let embeddingProvider = try CoreMLEmbeddingProvider(modelURL: models.embedding)
-        let typingClassifier = try CoreMLMemoryTypeClassifier(modelURL: models.typing)
 
         return MemoryConfiguration(
             databaseURL: databaseURL,
@@ -40,11 +37,6 @@ public extension MemoryConfiguration {
             memoryExtractor: memoryExtractor,
             recallPlanner: recallPlanner,
             queryAnalyzer: queryAnalyzer,
-            memoryTyping: MemoryTypingConfiguration(
-                mode: .automatic,
-                classifier: typingClassifier,
-                fallbackType: .factual
-            ),
             tokenizer: NLWordTokenizer(),
             chunker: chunker,
             supportedFileExtensions: supportedFileExtensions,

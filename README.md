@@ -18,10 +18,10 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - Persistent SQLite index via SQLite and `sqlite-vec`
 - Canonical `memories` table with deterministic update/supersede semantics for agent memories
 - Persistent contexts for reusable chunk sets
-- Typed memory classification (`factual`, `procedural`, `episodic`, `semantic`, `emotional`, `social`, `contextual`, `temporal`)
 - Default embedding backend with `NLContextualEmbedding`
-- CoreML-first on-device path with LEAF-IR embeddings and CoreML document typing
+- CoreML-first on-device path with LEAF-IR embeddings
 - Agent memory model: `profile`, `fact`, `decision`, `commitment`, `episode`, `procedure`, `handoff`
+- Fixed facet tags plus open `entities` and `topics` for retrieval
 - Optional Apple Intelligence augmentation on supported OS versions
 
 ## Package Products
@@ -29,7 +29,7 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - `Memory`: core indexing, retrieval, and agent-facing APIs
 - `MemoryNaturalLanguage`: NaturalLanguage-based embedding defaults, tokenizers, and query analysis
 - `MemoryCoreMLEmbedding`: CoreML embedding and reranker providers
-- `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and classification
+- `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging
 
 `MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `Memory` product and, optionally, one provider product.
 
@@ -80,21 +80,17 @@ import Memory
 import MemoryCoreMLEmbedding
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
-let typingModel = URL(fileURLWithPath: "Models/typing-v1.mlpackage")
 let embeddingModel = URL(fileURLWithPath: "Models/embedding-v1.mlpackage")
 let config = try MemoryConfiguration.coreMLDefault(
     databaseURL: dbURL,
     models: CoreMLDefaultModels(
-        embedding: embeddingModel,
-        typing: typingModel
+        embedding: embeddingModel
     )
 )
 let index = try MemoryIndex(configuration: config)
 ```
 
-`coreMLDefault` is the shipped on-device path: LEAF-IR embeddings, CoreML typing, hybrid retrieval, and no neural reranker in the default hot path.
-
-Typed retrieval treats low-confidence automatic labels as advisory. Manual labels still filter strictly, but low-confidence automatic or fallback labels remain eligible so weak typing does not hide relevant memories.
+`coreMLDefault` is the shipped on-device path: LEAF-IR embeddings, hybrid retrieval, and no neural reranker in the default hot path.
 
 ## Recommended Public API Surface
 
@@ -114,7 +110,7 @@ Most integrations only need:
 ```swift
 let saved = try await index.save(
     text: "Switched to SQLite for the prototype phase.",
-    category: .decision,
+    kind: .decision,
     importance: 0.9
 )
 
@@ -135,7 +131,7 @@ Supported recall modes:
 - `.hybrid(query:)`
 - `.recent`
 - `.important`
-- `.typed(category:)`
+- `.kind(_:)`
 
 `RecallFeatures` is an `OptionSet` for hybrid-stage toggles (`semantic`, `lexical`, `tags`, `expansion`, `rerank`, `planner`).
 
@@ -162,7 +158,7 @@ if let first = refs.first {
 `memorySearch` returns lightweight `MemorySearchReference` values:
 - `documentPath`, `title`, `snippet`
 - optional 1-based `lineRange` when inferable
-- ranking score breakdown + resolved memory type metadata
+- ranking score breakdown
 
 `memoryGet` resolves absolute, exact indexed, and suffix paths (for example `profile.md`) and returns:
 - full document by default
@@ -177,12 +173,6 @@ import MemoryAppleIntelligence
 if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
     config.queryExpander = AppleIntelligenceQueryExpander()
     config.reranker = AppleIntelligenceReranker()
-    config.memoryTyping.classifier = FallbackMemoryTypeClassifier(
-        primary: AppleIntelligenceMemoryTypeClassifier(),
-        fallback: typing
-    )
-} else {
-    config.memoryTyping.classifier = typing
 }
 ```
 
@@ -190,14 +180,7 @@ if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.
 
 - `Memory.swift` is inspired by qmd, but intentionally not qmd-CLI or qmd-data compatible.
 - Semantic search runs via embedded `sqlite-vec` (`vec0`) in SQLite.
-
-Memory type can be manually set in markdown frontmatter:
-
-```markdown
----
-memory_type: episodic
----
-```
+- Canonical agent memory is modeled with `MemoryKind`, `FacetTag`, `entities`, and `topics`.
 
 ## CLI (`memory`)
 

@@ -153,39 +153,6 @@ actor StaticContentTagger: ContentTagger {
     }
 }
 
-actor StaticMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier: String
-    let assignment: MemoryTypeAssignment?
-
-    init(
-        identifier: String = "static-memory-type-classifier",
-        assignment: MemoryTypeAssignment?
-    ) {
-        self.identifier = identifier
-        self.assignment = assignment
-    }
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        assignment
-    }
-}
-
-actor ThrowingMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier: String
-
-    init(identifier: String = "throwing-memory-type-classifier") {
-        self.identifier = identifier
-    }
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        throw TestClassifierError.forcedFailure
-    }
-}
-
-enum TestClassifierError: Error {
-    case forcedFailure
-}
-
 func makeTemporaryDirectory(function: String = #function) throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("memory-tests")

@@ -40,7 +40,6 @@ public struct SearchQuery: Sendable {
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
     public var contextID: ContextID?
-    public var documentMemoryTypes: Set<DocumentMemoryType>?
     public var includeTagScoring: Bool
 
     public init(
@@ -53,7 +52,6 @@ public struct SearchQuery: Sendable {
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
         contextID: ContextID? = nil,
-        documentMemoryTypes: Set<DocumentMemoryType>? = nil,
         includeTagScoring: Bool = true
     ) {
         self.text = text
@@ -65,7 +63,6 @@ public struct SearchQuery: Sendable {
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
         self.contextID = contextID
-        self.documentMemoryTypes = documentMemoryTypes
         self.includeTagScoring = includeTagScoring
     }
 }
@@ -105,9 +102,6 @@ public struct SearchResult: Sendable {
     public var content: String
     public var snippet: String
     public var modifiedAt: Date
-    public var documentMemoryType: DocumentMemoryType
-    public var documentMemoryTypeSource: MemoryTypeSource
-    public var documentMemoryTypeConfidence: Double?
     public var memoryID: String?
     public var memoryKind: MemoryKind?
     public var memoryStatus: MemoryStatus?
@@ -120,9 +114,6 @@ public struct SearchResult: Sendable {
         content: String,
         snippet: String,
         modifiedAt: Date,
-        documentMemoryType: DocumentMemoryType = .factual,
-        documentMemoryTypeSource: MemoryTypeSource = .fallback,
-        documentMemoryTypeConfidence: Double? = nil,
         memoryID: String? = nil,
         memoryKind: MemoryKind? = nil,
         memoryStatus: MemoryStatus? = nil,
@@ -134,9 +125,6 @@ public struct SearchResult: Sendable {
         self.content = content
         self.snippet = snippet
         self.modifiedAt = modifiedAt
-        self.documentMemoryType = documentMemoryType
-        self.documentMemoryTypeSource = documentMemoryTypeSource
-        self.documentMemoryTypeConfidence = documentMemoryTypeConfidence
         self.memoryID = memoryID
         self.memoryKind = memoryKind
         self.memoryStatus = memoryStatus
@@ -175,6 +163,70 @@ public enum MemoryStatus: String, CaseIterable, Codable, Sendable {
     }
 }
 
+public enum FacetTag: String, CaseIterable, Codable, Sendable {
+    case preference = "preference"
+    case person = "person"
+    case relationship = "relationship"
+    case project = "project"
+    case goal = "goal"
+    case task = "task"
+    case decisionTopic = "decision_topic"
+    case tool = "tool"
+    case location = "location"
+    case timeSensitive = "time_sensitive"
+    case constraint = "constraint"
+    case habit = "habit"
+    case factAboutUser = "fact_about_user"
+    case factAboutWorld = "fact_about_world"
+    case lesson = "lesson"
+    case emotion = "emotion"
+    case identitySignal = "identity_signal"
+
+    public static func parse(_ raw: String) -> FacetTag? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return FacetTag(rawValue: normalized)
+    }
+}
+
+public enum EntityLabel: String, CaseIterable, Codable, Sendable {
+    case person
+    case organization
+    case product
+    case project
+    case tool
+    case location
+    case date
+    case other
+
+    public static func parse(_ raw: String) -> EntityLabel? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return EntityLabel(rawValue: normalized)
+    }
+}
+
+public struct MemoryEntity: Codable, Hashable, Sendable {
+    public var label: EntityLabel
+    public var value: String
+    public var normalizedValue: String
+    public var confidence: Double?
+
+    public init(
+        label: EntityLabel,
+        value: String,
+        normalizedValue: String,
+        confidence: Double? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.normalizedValue = normalizedValue
+        self.confidence = confidence.map { min(1, max(0, $0)) }
+    }
+}
+
 public enum ConversationRole: String, Codable, Sendable {
     case system
     case user
@@ -203,6 +255,9 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
     public var eventAt: Date?
     public var source: String
     public var tags: [String]
+    public var facetTags: Set<FacetTag>
+    public var entities: [MemoryEntity]
+    public var topics: [String]
     public var canonicalKey: String?
     public var metadata: [String: String]
 
@@ -216,6 +271,9 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
         eventAt: Date? = nil,
         source: String = "extract",
         tags: [String] = [],
+        facetTags: Set<FacetTag> = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = [],
         canonicalKey: String? = nil,
         metadata: [String: String] = [:]
     ) {
@@ -228,6 +286,9 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
         self.eventAt = eventAt
         self.source = source
         self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
         self.canonicalKey = canonicalKey
         self.metadata = metadata
     }
@@ -249,10 +310,10 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
     public var eventAt: Date?
     public var modifiedAt: Date
     public var lastAccessedAt: Date?
-    public var documentMemoryType: DocumentMemoryType
-    public var documentMemoryTypeSource: MemoryTypeSource
-    public var documentMemoryTypeConfidence: Double?
     public var tags: [ContentTag]
+    public var facetTags: Set<FacetTag>
+    public var entities: [MemoryEntity]
+    public var topics: [String]
     public var score: SearchScoreBreakdown?
 
     public init(
@@ -271,10 +332,10 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         eventAt: Date?,
         modifiedAt: Date,
         lastAccessedAt: Date?,
-        documentMemoryType: DocumentMemoryType,
-        documentMemoryTypeSource: MemoryTypeSource,
-        documentMemoryTypeConfidence: Double?,
         tags: [ContentTag],
+        facetTags: Set<FacetTag> = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = [],
         score: SearchScoreBreakdown? = nil
     ) {
         self.id = id
@@ -292,10 +353,10 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         self.eventAt = eventAt
         self.modifiedAt = modifiedAt
         self.lastAccessedAt = lastAccessedAt
-        self.documentMemoryType = documentMemoryType
-        self.documentMemoryTypeSource = documentMemoryTypeSource
-        self.documentMemoryTypeConfidence = documentMemoryTypeConfidence
         self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
         self.score = score
     }
 }
@@ -383,9 +444,6 @@ public struct MemorySearchReference: Sendable, Codable, Hashable {
     public let snippet: String
     public let lineRange: MemoryLineRange?
     public let source: MemoryDocumentSource
-    public let documentMemoryType: DocumentMemoryType
-    public let documentMemoryTypeSource: MemoryTypeSource
-    public let documentMemoryTypeConfidence: Double?
     public let memoryID: String?
     public let memoryKind: MemoryKind?
     public let memoryStatus: MemoryStatus?

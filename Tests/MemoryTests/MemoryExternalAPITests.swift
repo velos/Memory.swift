@@ -458,4 +458,104 @@ struct MemoryExternalAPITests {
         #expect(episodes.records.contains(where: { $0.id == firstEpisode.id }))
         #expect(episodes.records.contains(where: { $0.id == secondEpisode.id }))
     }
+
+    @Test
+    func saveRoundTripPreservesThreeLayerSchemaAndSupportsFilters() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let saved = try await index.save(
+            text: "Zac prefers hybrid retrieval for the Memory.swift project.",
+            kind: .profile,
+            facetTags: [.preference, .project, .factAboutUser],
+            entities: [
+                MemoryEntity(
+                    label: .project,
+                    value: "Memory.swift",
+                    normalizedValue: "Memory.Swift",
+                    confidence: 0.9
+                ),
+            ],
+            topics: ["Hybrid Retrieval Pipeline Design", "hybrid retrieval"]
+        )
+
+        #expect(saved.facetTags.contains(.preference))
+        #expect(saved.facetTags.contains(.project))
+        #expect(saved.entities.first?.normalizedValue == "memory.swift")
+        #expect(saved.topics.contains("hybrid retrieval pipeline design"))
+        #expect(saved.topics.contains("hybrid retrieval"))
+
+        let filtered = try await index.recall(
+            mode: .kind(.profile),
+            limit: 10,
+            facets: [.project],
+            entityValues: ["Memory.swift"],
+            topics: ["hybrid retrieval"]
+        )
+
+        #expect(filtered.records.count == 1)
+        #expect(filtered.records.first?.id == saved.id)
+
+        let refs = try await index.memorySearch(
+            query: "What project uses hybrid retrieval?",
+            limit: 10,
+            facets: [.project],
+            entityValues: ["memory.swift"],
+            topics: ["hybrid retrieval"]
+        )
+
+        #expect(refs.count == 1)
+        #expect(refs.first?.memoryID == saved.id)
+    }
+
+    @Test
+    func entityAndTopicOverlapBonusCanBreakTiesBetweenEquivalentMemories() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider()
+            )
+        )
+
+        let preferred = try await index.save(
+            text: "We should ship the retrieval changes this week after the retrieval review.",
+            kind: .episode,
+            facetTags: [.project, .tool],
+            entities: [
+                MemoryEntity(label: .project, value: "Memory.swift", normalizedValue: "memory.swift"),
+                MemoryEntity(label: .tool, value: "sqlite-vec", normalizedValue: "sqlite-vec"),
+            ],
+            topics: ["hybrid retrieval"]
+        )
+        let competing = try await index.save(
+            text: "We should ship the retrieval changes this week after the operations review.",
+            kind: .episode,
+            facetTags: [.project, .tool],
+            entities: [
+                MemoryEntity(label: .project, value: "OtherRepo", normalizedValue: "otherrepo"),
+                MemoryEntity(label: .tool, value: "faiss", normalizedValue: "faiss"),
+            ],
+            topics: ["deployment workflow"]
+        )
+
+        let results = try await index.recall(
+            mode: .hybrid(query: "Memory.swift sqlite-vec hybrid retrieval"),
+            limit: 2
+        )
+
+        #expect(results.records.count == 2)
+        #expect(results.records.first?.entities.contains(where: { $0.normalizedValue == "memory.swift" }) == true)
+        #expect(results.records.first?.id == preferred.id)
+        #expect(results.records.last?.id == competing.id)
+    }
 }
