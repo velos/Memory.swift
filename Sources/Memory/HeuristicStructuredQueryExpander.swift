@@ -98,6 +98,9 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             from: topics,
             salientTerms: salientTerms
         )
+        let compactTopics = prioritizedTopics
+            .map(compactTopicPhrase)
+            .filter { !$0.isEmpty }
         let prioritizedTerms = Array(
             OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty && !expansionNoiseTerms.contains($0) })
                 .prefix(4)
@@ -109,11 +112,11 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
-            prioritizedEntities + Array(prioritizedTopics.prefix(2))
+            prioritizedEntities + Array(compactTopics.prefix(2))
         )
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
-        if queries.count < limit, let firstTopic = prioritizedTopics.first, firstTopic.count > 6 {
+        if queries.count < limit, let firstTopic = compactTopics.first, firstTopic.count > 6 {
             appendCandidate(firstTopic, to: &queries, seen: &seen, limit: limit)
         }
 
@@ -213,7 +216,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var terms: [String] = []
         var seen: Set<String> = []
         for token in tokens {
-            let normalized = normalizeTopic(token)
+            let normalized = normalizeQueryToken(token)
             guard !normalized.isEmpty else { continue }
             guard !stopWords.contains(normalized) else { continue }
             guard !expansionNoiseTerms.contains(normalized) else { continue }
@@ -229,7 +232,11 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         return topics
             .map { topic in
-                let tokens = topic.split(separator: " ").map(String.init)
+                let tokens = topic
+                    .split(separator: " ")
+                    .map(String.init)
+                    .map(normalizeQueryToken)
+                    .filter { !$0.isEmpty && !stopWords.contains($0) && !expansionNoiseTerms.contains($0) }
                 let overlap = tokens.filter(salientSet.contains).count
                 let signal = tokens.filter { signalTerms.contains($0) }.count
                 let startsWithNoise = tokens.first.map(expansionNoiseTerms.contains) ?? false
@@ -439,6 +446,22 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             .map(String.init)
     }
 
+    private func normalizeQueryToken(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(queryPunctuation))
+            .lowercased()
+    }
+
+    private func compactTopicPhrase(_ raw: String) -> String {
+        compactJoined(
+            raw
+                .split(separator: " ")
+                .map(String.init)
+                .map(normalizeQueryToken)
+                .filter { !$0.isEmpty && !stopWords.contains($0) && !expansionNoiseTerms.contains($0) }
+        )
+    }
+
     private let stopWords: Set<String> = [
         "the", "and", "for", "are", "but", "not", "you", "all", "can",
         "had", "her", "was", "one", "our", "out", "has", "have", "from",
@@ -447,7 +470,9 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         "where", "when", "who", "why", "which", "this", "that", "with",
         "would", "could", "should", "your", "their", "them", "there",
         "then", "about", "after", "before", "again", "last", "next",
-        "into", "onto", "upon", "just", "really", "very",
+        "into", "onto", "upon", "just", "really", "very", "i", "me",
+        "my", "it", "is", "to", "if", "as", "at", "on", "in", "do",
+        "an", "or", "we", "us",
     ]
 
     private let expansionNoiseTerms: Set<String> = [
@@ -465,6 +490,8 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         "tuesdays", "thursday", "thursdays", "march", "july", "october",
         "year", "years", "price", "cost", "paid",
     ]
+
+    private let queryPunctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`.")
 
     private let facetKeywords: [FacetTag: [String]] = [
         .preference: ["prefer", "favorite", "like", "dislike"],

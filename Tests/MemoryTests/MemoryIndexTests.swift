@@ -298,6 +298,30 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func heuristicStructuredExpanderCompactsConversationalFillerIntoSalientPhraseQueries() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let query = SearchQuery(
+            text: "Thanks for this valuable information, I have one last question, is it advisable to have the same address in my applications, documents and transactions?"
+        )
+        let analysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["advisable", "same", "address", "applications", "documents", "transactions"],
+            facetHints: [
+                FacetHint(tag: .factAboutUser, confidence: 0.84, isExplicit: true)
+            ],
+            topics: ["advisable same address", "last question advisable", "same address applications", "applications documents transactions"],
+            isHowToQuery: false
+        )
+
+        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
+
+        #expect(expansion.lexicalQueries.isEmpty == false)
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("same address") }))
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("valuable information") }) == false)
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("last question") }) == false)
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
