@@ -9,7 +9,7 @@ This tool keeps the original autoresearch process and changes the purpose:
 - one fixed train budget: 5 minutes
 - one aggregate keep/revert score: `memory_score`
 - per-dataset reporting for `general`, `longmemeval`, and `tech`
-- git-based experiment logging in `results.tsv`
+- local experiment logging in gitignored `results.tsv`
 
 The intended outer agent is OpenCode or another coding agent that can read `program.md`, modify only `train.py`, run the experiment, and keep or revert based on the printed summary.
 
@@ -55,7 +55,7 @@ uv run train.py
 - `prepare.py` - fixed bootstrapper for the local `Memory.swift` checkout, dataset cache, baselines, and hardware profile
 - `train.py` - the only experiment file the outer agent edits
 - `program.md` - the autonomous experiment protocol for OpenCode
-- `results.tsv` - append-only experiment ledger
+- `results.tsv` - local append-only experiment ledger
 - `memory_autoresearch/` - fixed support package for MLX training, export, scoring, and upstream integration
 
 ## Current Metric
@@ -84,9 +84,10 @@ decision_reason
 - export path: PyTorch mirror -> `coremltools`
 - eval source of truth: the current `Memory.swift` checkout built locally
 - datasets:
-  - train: `general`, `tech`, `scifact`, `nfcorpus`
-  - quick eval: held-out slice from `general` and `longmemeval`
-  - full eval: remaining held-out `general` and `longmemeval`, plus `tech`
+  - tracked defaults: `general_v2` and `longmemeval_v2`
+  - optional local extras: `tech`, `scifact`, `nfcorpus`, or other corpora generated under the gitignored `Explorations/` tree
+  - quick eval: held-out slice from the tracked defaults
+  - full eval: remaining held-out tracked defaults plus any optional local extras you have prepared
 
 ## Notes
 
@@ -94,6 +95,7 @@ decision_reason
 - `train.py` is intentionally small and mutable. Change hyperparameters, model configuration, and training logic there.
 - If `prepare.py` has not been run, `train.py` will fail with a clear message.
 - Cache data is written under `~/.cache/memory-swift-autoresearch/`.
+- Keep bulky training artifacts, logs, and CreateML project files local and untracked.
 
 ## License
 

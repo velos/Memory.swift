@@ -99,8 +99,6 @@ Build deterministic audit packets under `Evals/_audit/`:
 ```bash
 python3 Scripts/build_audit_packet.py \
   --dataset-root ./Evals/general_v2 \
-  --dataset-root ./Evals/tech_v2 \
-  --dataset-root ./Evals/academic_v2 \
   --dataset-root ./Evals/longmemeval_v2
 ```
 
@@ -157,20 +155,19 @@ Use `triage.md` as the manual review inbox. The merge step prioritizes:
 Use this when replacing or upgrading the default synthetic corpora with public staged datasets:
 
 1. Convert public source datasets into Memory.swift eval format.
-2. Merge them into staged corpora such as `Evals/general_v2` or `Evals/tech_v2`.
+2. Merge them into staged corpora such as `Evals/general_v2`.
 3. Run Codex or MiniMax tagging for query tags, document tags, and storage-case derivation.
 4. Audit the resulting `review_queue.jsonl`.
 5. Run `memory_eval` on the staged corpus.
 6. Promote the staged dataset into the canonical path only after audit and eval comparison.
 
-Suggested source mix:
+Tracked benchmark set:
 - `general_v2`: MultiDoc2Dial + RepLiQA
-- `tech_v2`: simplified SWE-bench_Verified
-- `academic_v2`: QASPER
 - `longmemeval_v2`: converted LongMemEval + Codex query tagging, used as a recall-first external benchmark
 - `memory_schema_gold_v2`: canonical memory schema benchmark for kind/status/facet/entity/topic/update behavior
 - `query_expansion_gold_v1`: targeted structured-expansion benchmark built from real miss and near-miss slices
-- `typing_gold_v1`: legacy document-typing benchmark retained only for historical comparison
+
+Optional larger or experimental corpora should be generated locally under the gitignored `Explorations/Evals/` tree rather than committed to the main repo.
 
 ## Running Evals
 
@@ -182,8 +179,8 @@ Generate datasets with MiniMax M2.5 via Anthropic-compatible API:
 # ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
 # MINIMAX_MODEL=MiniMax-M2.5
 
-python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals/general --dataset-mode general --env-file .env --overwrite
-python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals/tech --dataset-mode tech --env-file .env --overwrite
+python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Explorations/Evals/general --dataset-mode general --env-file .env --overwrite
+python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Explorations/Evals/tech --dataset-mode tech --env-file .env --overwrite
 ```
 
 Useful MiniMax modes:
@@ -192,13 +189,13 @@ Useful MiniMax modes:
 - `longmemeval-typed-queries`: add `memory_types` and `difficulty` labels to an existing converted LongMemEval dataset.
 - `adversarial-augment`: append hard retrieval queries to an existing dataset.
 
-Build the legacy curated typing gold set from staged corpora:
+Build the legacy curated typing gold set locally from staged corpora:
 
 ```bash
 python3 Scripts/build_typing_gold.py
 ```
 
-This writes `Evals/typing_gold_v1`, a small storage-only benchmark with two audited cases per memory type. It is now secondary to `Evals/memory_schema_gold_v2` for canonical agent-memory evaluation.
+This writes `Explorations/Evals/typing_gold_v1`, a small storage-only benchmark with two audited cases per memory type. It is secondary to `Evals/memory_schema_gold_v2` for canonical agent-memory evaluation.
 
 Generate datasets with Codex (ChatGPT-authenticated) using small atomic batches:
 
@@ -221,7 +218,7 @@ Tag or augment an existing dataset with Codex:
 
 ```bash
 python3 Scripts/tag_eval_data_codex.py \
-  --dataset-root ./Evals/longmemeval \
+  --dataset-root ./Evals/longmemeval_v2 \
   --mode query-tags \
   --model gpt-5-codex
 ```
@@ -244,12 +241,6 @@ python3 Scripts/tag_eval_data_minimax.py \
 ```
 
 ```bash
-python3 Scripts/tag_eval_data_minimax.py \
-  --dataset-root ./Evals/tech_v2 \
-  --mode storage-cases \
-  --env-file .env
-```
-
 Notes:
 - `tag_eval_data_minimax.py` is for dataset generation and repair.
 - `audit_eval_data.py` is for review only.
@@ -262,30 +253,23 @@ Automatic acceptance policy:
 - `storage-cases`: two-pass agreement required, with at least two shared verbatim spans
 - disagreements or invalid rows land in `review_queue.jsonl`
 
-Convert public datasets into eval roots:
+Convert optional public datasets into local exploratory eval roots:
 
 ```bash
-python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Evals/raw_multidoc2dial
-python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Evals/raw_repliqa --splits repliqa_0
-python3 Scripts/convert_qasper_to_eval.py --output-dir ./Evals/raw_qasper --splits train,dev
-python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Evals/raw_swebench_verified --max-instances 250
+python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Explorations/Evals/raw_multidoc2dial
+python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Explorations/Evals/raw_repliqa --splits repliqa_0
+python3 Scripts/convert_qasper_to_eval.py --output-dir ./Explorations/Evals/raw_qasper --splits train,dev
+python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Explorations/Evals/raw_swebench_verified --max-instances 250
 ```
 
-Merge converted roots into one staged dataset:
+Merge local exploratory roots into one staged dataset:
 
 ```bash
 python3 Scripts/merge_eval_corpora.py \
   --dataset-name general_v2 \
-  --output-dir ./Evals/general_v2 \
-  --source multidoc2dial=./Evals/raw_multidoc2dial \
-  --source repliqa=./Evals/raw_repliqa
-
-python3 Scripts/merge_eval_corpora.py \
-  --dataset-name tech_v2 \
-  --output-dir ./Evals/tech_v2 \
-  --source swebench_verified=./Evals/raw_swebench_verified \
-  --primary-use software_engineering_retrieval \
-  --recommended-weight secondary
+  --output-dir ./Explorations/Evals/general_v2 \
+  --source multidoc2dial=./Explorations/Evals/raw_multidoc2dial \
+  --source repliqa=./Explorations/Evals/raw_repliqa
 ```
 
 Initialize example files:
@@ -297,13 +281,13 @@ swift run memory_eval init --dataset-root ./Evals
 Run baseline:
 
 ```bash
-swift run memory_eval run --profile baseline --dataset-root ./Evals
+swift run memory_eval run --profile nl_baseline --dataset-root ./Evals/general_v2
 ```
 
 Run Apple profile (requires Apple Intelligence availability):
 
 ```bash
-swift run memory_eval run --profile full_apple --dataset-root ./Evals
+swift run memory_eval run --profile apple_augmented --dataset-root ./Evals/general_v2
 ```
 
 Compare runs:
@@ -317,7 +301,7 @@ Convert LongMemEval-cleaned into this format:
 ```bash
 python3 Scripts/convert_longmemeval_to_eval.py \
   --split oracle \
-  --output-dir ./Evals/longmemeval
+  --output-dir ./Explorations/Evals/longmemeval_v2
 ```
 
 ## How To Fill Better Data

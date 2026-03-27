@@ -240,7 +240,7 @@ Tag or augment existing eval datasets with Codex:
 
 ```bash
 python3 Scripts/tag_eval_data_codex.py \
-  --dataset-root ./Evals/longmemeval \
+  --dataset-root ./Evals/longmemeval_v2 \
   --mode query-tags \
   --model gpt-5-codex
 ```
@@ -259,8 +259,6 @@ Build audit packets and run model-assisted review:
 ```bash
 python3 Scripts/build_audit_packet.py \
   --dataset-root ./Evals/general_v2 \
-  --dataset-root ./Evals/tech_v2 \
-  --dataset-root ./Evals/academic_v2 \
   --dataset-root ./Evals/longmemeval_v2
 
 python3 Scripts/audit_eval_data.py \
@@ -272,30 +270,23 @@ python3 Scripts/merge_audit_results.py \
   --packet ./Evals/_audit/general_v2/packet.jsonl
 ```
 
-Convert public eval corpora:
+Build additional exploratory corpora locally:
 
 ```bash
-python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Evals/raw_multidoc2dial
-python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Evals/raw_repliqa --splits repliqa_0
-python3 Scripts/convert_qasper_to_eval.py --output-dir ./Evals/raw_qasper --splits train,dev
-python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Evals/raw_swebench_verified --max-instances 250
+python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Explorations/Evals/raw_multidoc2dial
+python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Explorations/Evals/raw_repliqa --splits repliqa_0
+python3 Scripts/convert_qasper_to_eval.py --output-dir ./Explorations/Evals/raw_qasper --splits train,dev
+python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Explorations/Evals/raw_swebench_verified --max-instances 250
 ```
 
-Merge converted corpora into a staged dataset:
+Merge local exploratory corpora into a staged dataset:
 
 ```bash
 python3 Scripts/merge_eval_corpora.py \
   --dataset-name general_v2 \
-  --output-dir ./Evals/general_v2 \
-  --source multidoc2dial=./Evals/raw_multidoc2dial \
-  --source repliqa=./Evals/raw_repliqa
-
-python3 Scripts/merge_eval_corpora.py \
-  --dataset-name tech_v2 \
-  --output-dir ./Evals/tech_v2 \
-  --source swebench_verified=./Evals/raw_swebench_verified \
-  --primary-use software_engineering_retrieval \
-  --recommended-weight secondary
+  --output-dir ./Explorations/Evals/general_v2 \
+  --source multidoc2dial=./Explorations/Evals/raw_multidoc2dial \
+  --source repliqa=./Explorations/Evals/raw_repliqa
 ```
 
 Initialize dataset templates:
@@ -315,6 +306,8 @@ Recommended benchmark roles:
 - `Evals/general_v2`: broad retrieval gate for the shipped hybrid search path
 - `Evals/longmemeval_v2`: long-horizon conversational recall benchmark; treat it as recall-first rather than a canonical write-path benchmark
 - `Evals/query_expansion_gold_v1`: targeted structured-expansion pressure test for regressions and rescue cases
+
+Everything else should be treated as optional exploration material. Keep bulky temporary corpora, audit packets, and experimental model assets under the gitignored `Explorations/` tree rather than tracking them in the main repo history.
 
 Run the supported profile set:
 
@@ -351,13 +344,13 @@ Convert LongMemEval-cleaned into eval format:
 ```bash
 python3 Scripts/convert_longmemeval_to_eval.py \
   --split oracle \
-  --output-dir ./Evals/longmemeval
+  --output-dir ./Explorations/Evals/longmemeval_v2
 ```
 
 Run evals on LongMemEval:
 
 ```bash
-swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_v2
 ```
 
 Eval caching defaults:

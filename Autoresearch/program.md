@@ -25,7 +25,7 @@ To start a new run:
    - the parent repo contains `Evals/` and `Models/`
    - `typing_train.jsonl`, `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/datasets/`
    - the hardware profile JSON exists under `~/.cache/memory-swift-autoresearch/hardware/`
-5. Create or reset `results.tsv` with the current schema if needed.
+5. Create or reset the local gitignored `results.tsv` with the current schema if needed.
 6. Establish a hardware-local baseline by running `uv run train.py` without edits.
 
 ## Rules
@@ -102,8 +102,8 @@ Loop forever:
 3. `git add Autoresearch/train.py && git commit -m "experiment: <description>"`
 4. Run `uv run train.py > run.log 2>&1`
 5. If the run crashes, inspect the stack trace with `tail -n 80 run.log`, fix the issue in `train.py`, and retry.
-6. If the run succeeds, append the result to `results.tsv`.
-7. If status is `keep`, stage `results.tsv` and amend the commit to include the log entry.
+6. If the run succeeds, append the result to local `results.tsv`.
+7. Do not stage `results.tsv` or `run.log`; they are local experiment artifacts.
 8. If status is not `keep`, revert to the previous kept commit.
 
 ## Keep/Revert Policy
