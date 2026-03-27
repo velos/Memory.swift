@@ -39,7 +39,7 @@ Until tagged releases are available, depend on `main`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/zac/Memory.swift.git", branch: "main")
+    .package(url: "https://github.com/velos/Memory.swift.git", branch: "main")
 ]
 ```
 
@@ -171,8 +171,12 @@ if let first = refs.first {
 import MemoryAppleIntelligence
 
 if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-    config.queryExpander = AppleIntelligenceQueryExpander()
+    config.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander()
     config.reranker = AppleIntelligenceReranker()
+}
+
+if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isContentTaggingAvailable {
+    config.contentTagger = AppleIntelligenceContentTagger()
 }
 ```
 
