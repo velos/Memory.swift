@@ -275,6 +275,29 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func heuristicStructuredExpanderKeepsGenericFactLookupsLexicalOnly() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let query = SearchQuery(text: "What time do I wake up on Tuesdays and Thursdays?")
+        let analysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["time", "wake", "tuesdays", "thursdays"],
+            facetHints: [
+                FacetHint(tag: .factAboutUser, confidence: 0.84, isExplicit: true)
+            ],
+            topics: ["time wake tuesdays", "wake tuesdays thursdays", "tuesdays thursdays"],
+            isHowToQuery: false
+        )
+
+        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
+
+        #expect(expansion.lexicalQueries.isEmpty == false)
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("wake") && $0.contains("thursdays") }))
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("fact about user") }) == false)
+        #expect(expansion.semanticQueries.isEmpty)
+        #expect(expansion.hypotheticalDocuments.isEmpty)
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

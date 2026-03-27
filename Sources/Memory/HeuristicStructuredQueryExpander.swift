@@ -53,7 +53,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
-            facets: normalizedFacetHints,
             limit: min(maxLexicalQueries, limit)
         )
         let semanticQueries = buildSemanticQueries(
@@ -61,7 +60,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
-            facets: normalizedFacetHints,
             limit: min(maxSemanticQueries, limit)
         )
         let hypotheticalDocuments = buildHypotheticalDocuments(
@@ -69,7 +67,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
-            facets: normalizedFacetHints,
             limit: min(maxHypotheticalDocuments, limit)
         )
 
@@ -88,7 +85,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
-        facets: [FacetHint],
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -97,25 +93,27 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var seen: Set<String> = [comparisonKey(for: original)]
 
         let prioritizedEntities = entities.prefix(2).map(\.value)
-        let prioritizedTopics = topics.prefix(2)
-        let prioritizedTerms = Array(
-            OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty }).prefix(4)
+        let salientTerms = salientLexicalTerms(from: original, entities: entities)
+        let prioritizedTopics = selectSalientTopics(
+            from: topics,
+            salientTerms: salientTerms
         )
-        let prioritizedFacets = facets.prefix(2).map {
-            $0.tag.rawValue.replacingOccurrences(of: "_", with: " ")
-        }
+        let prioritizedTerms = Array(
+            OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty && !expansionNoiseTerms.contains($0) })
+                .prefix(4)
+        )
 
         let keywordRewrite = compactJoined(
-            prioritizedEntities + prioritizedTopics + prioritizedTerms
+            prioritizedEntities + Array(salientTerms.prefix(6)) + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
-            prioritizedTopics + prioritizedFacets + prioritizedEntities
+            prioritizedEntities + Array(prioritizedTopics.prefix(2))
         )
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
-        if queries.count < limit, let firstTopic = prioritizedTopics.first {
+        if queries.count < limit, let firstTopic = prioritizedTopics.first, firstTopic.count > 6 {
             appendCandidate(firstTopic, to: &queries, seen: &seen, limit: limit)
         }
 
@@ -127,38 +125,36 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
-        facets: [FacetHint],
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
+        guard shouldEmitNarrativeExpansions(
+            analysis: analysis,
+            entities: entities,
+            topics: topics
+        ) else { return [] }
 
-        let primaryTopic = topics.first ?? compactJoined(analysis.keyTerms.prefix(3))
-        let entityPhrase = compactJoined(entities.prefix(2).map(\.value))
-        let facetPhrase = compactJoined(
-            facets.prefix(2).map { $0.tag.rawValue.replacingOccurrences(of: "_", with: " ") }
+        let primaryTopic = narrativeFocusPhrase(
+            original: original,
+            analysis: analysis,
+            entities: entities,
+            topics: topics
         )
+        guard !primaryTopic.isEmpty else { return [] }
 
         var queries: [String] = []
         var seen: Set<String> = [comparisonKey(for: original)]
 
         if analysis.isHowToQuery {
             appendCandidate(
-                compactJoined([
-                    "procedure for",
-                    primaryTopic,
-                    entityPhrase,
-                ]),
+                "how to \(primaryTopic)",
                 to: &queries,
                 seen: &seen,
                 limit: limit
             )
         } else {
             appendCandidate(
-                compactJoined([
-                    "details about",
-                    primaryTopic,
-                    entityPhrase,
-                ]),
+                compactJoined(["details on", primaryTopic]),
                 to: &queries,
                 seen: &seen,
                 limit: limit
@@ -166,11 +162,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         }
 
         appendCandidate(
-            compactJoined([
-                "relevant memory about",
-                primaryTopic,
-                facetPhrase,
-            ]),
+            compactJoined(["memory mentioning", primaryTopic]),
             to: &queries,
             seen: &seen,
             limit: limit
@@ -184,38 +176,98 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
-        facets: [FacetHint],
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
+        guard shouldEmitNarrativeExpansions(
+            analysis: analysis,
+            entities: entities,
+            topics: topics
+        ) else { return [] }
 
-        let primaryTopic = topics.first ?? normalizeTopic(original)
-        let entityPhrase = compactJoined(entities.prefix(2).map(\.value))
-        let facetPhrase = compactJoined(
-            facets.prefix(2).map { $0.tag.rawValue.replacingOccurrences(of: "_", with: " ") }
+        let primaryTopic = narrativeFocusPhrase(
+            original: original,
+            analysis: analysis,
+            entities: entities,
+            topics: topics
         )
+        guard !primaryTopic.isEmpty else { return [] }
 
         var snippets: [String] = []
         var seen: Set<String> = []
         let sentence: String
         if analysis.isHowToQuery {
-            sentence = compactJoined([
-                "This memory describes the procedure for",
-                primaryTopic,
-                entityPhrase.isEmpty ? nil : "using \(entityPhrase)",
-                facetPhrase.isEmpty ? nil : "with \(facetPhrase) context",
-            ]) + "."
+            sentence = "A memory explains how to \(primaryTopic)."
         } else {
-            sentence = compactJoined([
-                "This memory covers",
-                primaryTopic,
-                entityPhrase.isEmpty ? nil : "involving \(entityPhrase)",
-                facetPhrase.isEmpty ? nil : "with \(facetPhrase) signals",
-            ]) + "."
+            sentence = "A memory mentions \(primaryTopic)."
         }
 
         appendCandidate(sentence, to: &snippets, seen: &seen, limit: limit)
         return snippets
+    }
+
+    private func salientLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
+        let normalizedEntities = Set(entities.map(\.normalizedValue))
+        let tokens = tokenize(original)
+
+        var terms: [String] = []
+        var seen: Set<String> = []
+        for token in tokens {
+            let normalized = normalizeTopic(token)
+            guard !normalized.isEmpty else { continue }
+            guard !stopWords.contains(normalized) else { continue }
+            guard !expansionNoiseTerms.contains(normalized) else { continue }
+            if normalizedEntities.contains(normalized) || seen.insert(normalized).inserted {
+                terms.append(normalized)
+            }
+        }
+        return terms
+    }
+
+    private func selectSalientTopics(from topics: [String], salientTerms: [String]) -> [String] {
+        let salientSet = Set(salientTerms)
+
+        return topics
+            .map { topic in
+                let tokens = topic.split(separator: " ").map(String.init)
+                let overlap = tokens.filter(salientSet.contains).count
+                let signal = tokens.filter { signalTerms.contains($0) }.count
+                let startsWithNoise = tokens.first.map(expansionNoiseTerms.contains) ?? false
+                let score = (overlap * 3) + (signal * 2) + tokens.count - (startsWithNoise ? 4 : 0)
+                return (topic: topic, score: score)
+            }
+            .filter { $0.score > 0 }
+            .sorted { lhs, rhs in
+                if lhs.score == rhs.score {
+                    return lhs.topic < rhs.topic
+                }
+                return lhs.score > rhs.score
+            }
+            .map(\.topic)
+    }
+
+    private func narrativeFocusPhrase(
+        original: String,
+        analysis: QueryAnalysis,
+        entities: [MemoryEntity],
+        topics: [String]
+    ) -> String {
+        let entityTerms = entities.prefix(2).map(\.value)
+        let topicTerms = selectSalientTopics(
+            from: topics,
+            salientTerms: salientLexicalTerms(from: original, entities: entities)
+        )
+        let fallbackTerms = salientLexicalTerms(from: original, entities: entities)
+        let deduped = OrderedSet(entityTerms + topicTerms.prefix(2) + fallbackTerms.prefix(4))
+        return compactJoined(Array(deduped.prefix(6)))
+    }
+
+    private func shouldEmitNarrativeExpansions(
+        analysis: QueryAnalysis,
+        entities: [MemoryEntity],
+        topics: [String]
+    ) -> Bool {
+        analysis.isHowToQuery || entities.isEmpty == false
     }
 
     private func heuristicallyInferredFacetHints(from query: String) -> [FacetHint] {
@@ -379,6 +431,41 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             .joined(separator: " ")
     }
 
+    private func tokenize(_ raw: String) -> [String] {
+        raw
+            .split {
+                !$0.isLetter && !$0.isNumber && $0 != "+" && $0 != "-" && $0 != "." && $0 != "/"
+            }
+            .map(String.init)
+    }
+
+    private let stopWords: Set<String> = [
+        "the", "and", "for", "are", "but", "not", "you", "all", "can",
+        "had", "her", "was", "one", "our", "out", "has", "have", "from",
+        "been", "some", "them", "than", "its", "over", "such", "more",
+        "other", "into", "also", "did", "get", "got", "how", "what",
+        "where", "when", "who", "why", "which", "this", "that", "with",
+        "would", "could", "should", "your", "their", "them", "there",
+        "then", "about", "after", "before", "again", "last", "next",
+        "into", "onto", "upon", "just", "really", "very",
+    ]
+
+    private let expansionNoiseTerms: Set<String> = [
+        "hello", "thanks", "thank", "okay", "question", "questions", "another",
+        "valuable", "information", "discussed", "earlier", "looking", "back",
+        "previous", "conversation", "wanted", "follow", "planning", "wondering",
+        "think", "given", "opportunity", "possible", "talk", "let", "going",
+        "through", "remind", "reminder", "provided", "help", "please",
+    ]
+
+    private let signalTerms: Set<String> = [
+        "before", "after", "between", "during", "month", "months", "week",
+        "weeks", "day", "days", "time", "times", "money", "spent", "spend",
+        "total", "most", "least", "count", "number", "schedule", "tuesday",
+        "tuesdays", "thursday", "thursdays", "march", "july", "october",
+        "year", "years", "price", "cost", "paid",
+    ]
+
     private let facetKeywords: [FacetTag: [String]] = [
         .preference: ["prefer", "favorite", "like", "dislike"],
         .person: ["who", "person", "people", "contact"],
@@ -412,5 +499,9 @@ private struct OrderedSet<Element: Hashable>: Sequence {
 
     func makeIterator() -> Array<Element>.Iterator {
         values.makeIterator()
+    }
+
+    func prefix(_ maxLength: Int) -> [Element] {
+        Array(values.prefix(maxLength))
     }
 }

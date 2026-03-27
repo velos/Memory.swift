@@ -10,9 +10,10 @@ This revision is mined from real recall misses and recoveries in:
 This dataset is intentionally adversarial:
 
 - each query is a real or lightly normalized user query from a larger corpus
-- each case has one relevant document plus two distractors
-- each case keeps the real target document and the top-20 false-positive documents from the source baseline run
-- target documents are distilled from the source evidence but phrased so expansion still has to do real work
+- each case keeps the real target document and a case-specific slice built from the source run that motivated the case
+- the long-memory half is now sourced from `coreml_default` misses and near-misses on `longmemeval_v2`, not from the weaker baseline profile
+- long-memory cases now emphasize temporal, schedule, count, and multi-event retrieval prompts that still pressure the stronger shipped path
+- per-case candidate slices are intentionally larger than the shared pooled corpus so retrieval impact is measured against the original confusion set, not an over-distilled toy pool
 
 Each row in `cases.jsonl` includes:
 
