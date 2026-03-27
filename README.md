@@ -101,7 +101,7 @@ Most integrations only need:
 - `rebuildIndex`, `syncDocuments`, and `removeDocuments` for document lifecycle
 - `save`, `extract`, `ingest`, and `recall` for agent memory workflows
 - `memorySearch` and `memoryGet` for tool-style retrieval
-- customization protocols (`EmbeddingProvider`, `Reranker`, `QueryExpander`, `MemoryExtractor`, `RecallPlanner`) only when you are swapping in your own providers
+- customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`) only when you are swapping in your own providers
 
 ## Tool-Oriented API
 
@@ -309,6 +309,12 @@ Run baseline eval:
 ```bash
 swift run memory_eval run --profile nl_baseline --dataset-root ./Evals
 ```
+
+Recommended benchmark roles:
+- `Evals/memory_schema_gold_v2`: canonical write-path benchmark for `MemoryKind`, `MemoryStatus`, `FacetTag`, `entities`, `topics`, and update behavior
+- `Evals/general_v2`: broad retrieval gate for the shipped hybrid search path
+- `Evals/longmemeval_v2`: long-horizon conversational recall benchmark; treat it as recall-first rather than a canonical write-path benchmark
+- `Evals/query_expansion_gold_v1`: targeted structured-expansion pressure test for regressions and rescue cases
 
 Run the supported profile set:
 

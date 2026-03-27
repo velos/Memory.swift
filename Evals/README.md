@@ -167,9 +167,10 @@ Suggested source mix:
 - `general_v2`: MultiDoc2Dial + RepLiQA
 - `tech_v2`: simplified SWE-bench_Verified
 - `academic_v2`: QASPER
-- `longmemeval_v2`: converted LongMemEval + Codex query tagging
-- `typing_gold_v1`: small manually reviewed storage-only set
+- `longmemeval_v2`: converted LongMemEval + Codex query tagging, used as a recall-first external benchmark
 - `memory_schema_gold_v2`: canonical memory schema benchmark for kind/status/facet/entity/topic/update behavior
+- `query_expansion_gold_v1`: targeted structured-expansion benchmark built from real miss and near-miss slices
+- `typing_gold_v1`: legacy document-typing benchmark retained only for historical comparison
 
 ## Running Evals
 
@@ -191,13 +192,13 @@ Useful MiniMax modes:
 - `longmemeval-typed-queries`: add `memory_types` and `difficulty` labels to an existing converted LongMemEval dataset.
 - `adversarial-augment`: append hard retrieval queries to an existing dataset.
 
-Build the curated typing gold set from staged corpora:
+Build the legacy curated typing gold set from staged corpora:
 
 ```bash
 python3 Scripts/build_typing_gold.py
 ```
 
-This writes `Evals/typing_gold_v1`, a small storage-only benchmark with two audited cases per memory type.
+This writes `Evals/typing_gold_v1`, a small storage-only benchmark with two audited cases per memory type. It is now secondary to `Evals/memory_schema_gold_v2` for canonical agent-memory evaluation.
 
 Generate datasets with Codex (ChatGPT-authenticated) using small atomic batches:
 
