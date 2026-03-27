@@ -1277,8 +1277,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     log(f"Wrote {documents_path}")
     log(f"Wrote {queries_path}")
     log("Next:")
-    log(f"  swift run memory_eval run --profile baseline --dataset-root {dataset_root}")
-    log(f"  swift run memory_eval run --profile full_apple --dataset-root {dataset_root}")
+    log(f"  swift run memory_eval run --profile nl_baseline --dataset-root {dataset_root}")
+    log(f"  swift run memory_eval run --profile coreml_default --dataset-root {dataset_root}")
     return 0
 
 

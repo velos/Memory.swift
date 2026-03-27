@@ -85,18 +85,18 @@ Core profiles:
 - `oracle_ceiling`
 - `apple_augmented` (experimental, requires Apple Intelligence availability)
 
-## CoreML LEAF-IR Notes
+## CoreML default path
 
-The `coreml_leaf_ir` profile uses the MongoDB LEAF-IR model converted to CoreML:
-- Model path: `Models/leaf-ir.mlpackage` (tracked via Git LFS)
+The `coreml_default` eval profile exercises the shipped CoreML embedding stack. The CLI resolves `Models/embedding-v1.mlpackage` by default (same layout as `swift run memory` / `memory_eval`).
+
+The repo also contains `Models/leaf-ir.mlpackage` and conversion helpers for experiments:
 - Conversion script: `Scripts/convert_leaf_ir_coreml.py`
 - Verification script: `Scripts/verify_leaf_ir_coreml.py`
-- The model is compiled from `.mlpackage` at runtime (first run may be slower)
-- Embedding dimension: 384, max sequence length: 512
+- Models compile from `.mlpackage` at runtime (first run may be slower)
 
 ## Helper Script
 
-Use `scripts/run_eval.sh` for repeatable commands:
+Use `.agents/skills/memory-evals/scripts/run_eval.sh` for repeatable commands:
 
 ```bash
 # Deterministic single profile (broad retrieval gate)

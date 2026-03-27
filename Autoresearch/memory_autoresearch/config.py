@@ -129,7 +129,7 @@ COMPONENT_CORPUS_SCORE_WEIGHTS = {
 
 DEFAULT_QUICK_PROFILE_NAME = "automemory_quick"
 DEFAULT_FULL_PROFILE_NAME = "automemory_full"
-DEFAULT_MEMORY_EVAL_PROFILE = "coreml_rerank"
+DEFAULT_MEMORY_EVAL_PROFILE = "coreml_default"
 DEFAULT_RERANK_K_VALUES = "1,3,5,10"
 
 AUTORESEARCH_ROOT = Path(__file__).resolve().parent.parent

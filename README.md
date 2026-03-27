@@ -168,7 +168,13 @@ if let first = refs.first {
 ## Optional Apple Intelligence Query Expansion + Reranking
 
 ```swift
+import Foundation
+import Memory
 import MemoryAppleIntelligence
+import MemoryNaturalLanguage
+
+let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
+var config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
 
 if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
     config.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander()
