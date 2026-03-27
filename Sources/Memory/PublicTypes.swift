@@ -48,7 +48,7 @@ public struct SearchQuery: Sendable {
         semanticCandidateLimit: Int = 200,
         lexicalCandidateLimit: Int = 200,
         rerankLimit: Int = 50,
-        expansionLimit: Int = 2,
+        expansionLimit: Int = 5,
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
         contextID: ContextID? = nil,
@@ -187,6 +187,22 @@ public enum FacetTag: String, CaseIterable, Codable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return FacetTag(rawValue: normalized)
+    }
+}
+
+public struct FacetHint: Codable, Hashable, Sendable {
+    public var tag: FacetTag
+    public var confidence: Double
+    public var isExplicit: Bool
+
+    public init(
+        tag: FacetTag,
+        confidence: Double,
+        isExplicit: Bool
+    ) {
+        self.tag = tag
+        self.confidence = min(1, max(0, confidence))
+        self.isExplicit = isExplicit
     }
 }
 

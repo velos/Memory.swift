@@ -62,10 +62,16 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         let isHowTo = lowered.hasPrefix("how to") || lowered.hasPrefix("how do")
             || lowered.contains("steps to") || lowered.contains("procedure for")
 
-        var facetHints: Set<FacetTag> = []
+        var facetHints: [FacetHint] = []
         for (facet, needles) in facetKeywords {
             if needles.contains(where: { lowered.contains($0) }) {
-                facetHints.insert(facet)
+                facetHints.append(
+                    FacetHint(
+                        tag: facet,
+                        confidence: explicitConfidence(for: facet, in: lowered),
+                        isExplicit: true
+                    )
+                )
             }
         }
 
@@ -110,6 +116,23 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         }
 
         return topics
+    }
+
+    private func explicitConfidence(for facet: FacetTag, in loweredQuery: String) -> Double {
+        let base = facetKeywords[facet, default: []]
+            .first(where: { loweredQuery.contains($0) })
+            .map { match -> Double in
+                if match.contains(" ") {
+                    return 0.92
+                }
+                return 0.84
+            } ?? 0.8
+
+        if facet == .timeSensitive, loweredQuery.range(of: #"\b(today|tomorrow|deadline|urgent)\b"#, options: .regularExpression) != nil {
+            return 0.94
+        }
+
+        return base
     }
 
     private func normalizeEntityValue(_ raw: String) -> String {

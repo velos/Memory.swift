@@ -10,12 +10,13 @@ import SQLiteSupport
 private let datasetReadmeTemplate = """
 # Memory Eval Datasets
 
-This folder drives `memory_eval` storage and recall eval runs.
+This folder drives `memory_eval` storage, recall, and query-expansion eval runs.
 
-Required files:
+Common files:
 - `storage_cases.jsonl`
 - `recall_documents.jsonl`
 - `recall_queries.jsonl`
+- `query_expansion_cases.jsonl`
 
 Common commands:
 - `swift run memory_eval init --dataset-root ./Evals`
@@ -67,9 +68,15 @@ private let recallQueriesTemplate = """
 {"id":"q2","query":"how do we deploy safely","relevant_document_ids":["doc-b"],"memory_types":["procedural"]}
 """
 
+private let queryExpansionCasesTemplate = """
+{"id":"qe-1","query":"release process for Memory.swift","expected_lexical_terms":["memory.swift","release","process"],"expected_semantic_phrases":["details about release process"],"expected_hyde_anchors":["memory.swift","release"],"expected_facets":["project"],"expected_entities":["memory.swift"],"expected_topics":["release process"],"relevant_document_ids":["doc-a"]}
+{"id":"qe-2","query":"how do we ship sqlite-vec changes on time","expected_lexical_terms":["sqlite-vec","ship","time"],"expected_semantic_phrases":["procedure for"],"expected_hyde_anchors":["sqlite-vec","time"],"expected_facets":["time_sensitive","tool"],"expected_entities":["sqlite-vec"],"expected_topics":["sqlite-vec changes"],"relevant_document_ids":["doc-b"]}
+"""
+
 private enum SuiteKind {
     case storage
     case recall
+    case queryExpansion
 }
 
 private enum EvalError: LocalizedError {
@@ -173,6 +180,19 @@ private struct RecallQueryCase: Decodable {
     var relevantDocumentIds: [String]
     var memoryTypes: [String]?
     var difficulty: String?
+}
+
+private struct QueryExpansionCase: Decodable {
+    var id: String
+    var query: String
+    var expectedLexicalTerms: [String]?
+    var expectedSemanticPhrases: [String]?
+    var expectedHydeAnchors: [String]?
+    var expectedFacets: [String]?
+    var expectedEntities: [String]?
+    var expectedTopics: [String]?
+    var relevantDocumentIds: [String]?
+    var candidateDocumentIds: [String]?
 }
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
@@ -397,6 +417,49 @@ private struct RecallSuiteReport: Codable {
 private struct RecallSuiteRunOutput {
     var report: RecallSuiteReport
     var notes: [String]
+}
+
+private struct QueryExpansionCaseResult: Codable {
+    var id: String
+    var query: String
+    var lexicalQueries: [String]
+    var semanticQueries: [String]
+    var hypotheticalDocuments: [String]
+    var facetHints: [String]
+    var entities: [String]
+    var topics: [String]
+    var lexicalCoverageRecall: Double
+    var semanticCoverageRecall: Double
+    var hydeAnchorRecall: Double
+    var facetPrecision: Double
+    var facetRecall: Double
+    var entityPrecision: Double
+    var entityRecall: Double
+    var topicRecall: Double
+    var baselineRetrievedDocumentIds: [String]?
+    var expandedRetrievedDocumentIds: [String]?
+    var baselineHitAtK: Bool?
+    var expandedHitAtK: Bool?
+}
+
+private struct QueryExpansionSuiteReport: Codable {
+    var totalQueries: Int
+    var lexicalCoverageRecall: Double
+    var semanticCoverageRecall: Double
+    var hydeAnchorRecall: Double
+    var facetPrecision: Double
+    var facetRecall: Double
+    var facetMicroF1: Double
+    var entityPrecision: Double
+    var entityRecall: Double
+    var topicRecall: Double
+    var retrievalBaselineHitRate: Double?
+    var retrievalExpandedHitRate: Double?
+    var retrievalLift: Double?
+    var latencyStats: RecallLatencyStats?
+    var stageLatencyStats: RecallStageLatencyStats?
+    var candidateCountStats: RecallCandidateCountStats?
+    var caseResults: [QueryExpansionCaseResult]
 }
 
 private struct ContentTagGenerationStats {
@@ -662,22 +725,29 @@ private actor DiagnosticContentTagger: ContentTagger {
     }
 }
 
-private actor DiagnosticQueryExpander: QueryExpander {
+private actor DiagnosticStructuredQueryExpander: StructuredQueryExpander {
     let identifier: String
-    private let base: any QueryExpander
+    private let base: any StructuredQueryExpander
     private let diagnostics: RecallDiagnosticsCollector
 
-    init(base: any QueryExpander, diagnostics: RecallDiagnosticsCollector) {
+    init(base: any StructuredQueryExpander, diagnostics: RecallDiagnosticsCollector) {
         self.base = base
         self.diagnostics = diagnostics
         self.identifier = base.identifier
     }
 
-    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+    func expand(
+        query: SearchQuery,
+        analysis: QueryAnalysis,
+        limit: Int
+    ) async throws -> StructuredQueryExpansion {
         do {
-            let alternatives = try await base.expand(query: query, limit: limit)
-            await diagnostics.recordExpansionSuccess(requestedLimit: limit, alternateCount: alternatives.count)
-            return alternatives
+            let expansion = try await base.expand(query: query, analysis: analysis, limit: limit)
+            let alternateCount = expansion.lexicalQueries.count
+                + expansion.semanticQueries.count
+                + expansion.hypotheticalDocuments.count
+            await diagnostics.recordExpansionSuccess(requestedLimit: limit, alternateCount: alternateCount)
+            return expansion
         } catch {
             await diagnostics.recordExpansionFailure(error: error, requestedLimit: limit)
             throw error
@@ -856,35 +926,42 @@ private actor CachingContentTagger: ContentTagger {
     }
 }
 
-private actor CachingQueryExpander: QueryExpander {
+private actor CachingStructuredQueryExpander: StructuredQueryExpander {
     let identifier: String
-    private let base: any QueryExpander
+    private let base: any StructuredQueryExpander
     private let cache: EvalResponseCache
 
-    init(base: any QueryExpander, cache: EvalResponseCache) {
+    init(base: any StructuredQueryExpander, cache: EvalResponseCache) {
         self.base = base
         self.cache = cache
         self.identifier = base.identifier
     }
 
-    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+    func expand(
+        query: SearchQuery,
+        analysis: QueryAnalysis,
+        limit: Int
+    ) async throws -> StructuredQueryExpansion {
         let keyComponents = [
             identifier,
             query.text,
+            analysis.facetHints.map(\.tag.rawValue).sorted().joined(separator: ","),
+            analysis.entities.map(\.normalizedValue).sorted().joined(separator: ","),
+            analysis.topics.sorted().joined(separator: ","),
             String(limit),
         ]
 
         if let cached = try await cache.load(
             namespace: "expand",
             keyComponents: keyComponents,
-            as: [String].self
+            as: StructuredQueryExpansion.self
         ) {
             return cached
         }
 
-        let alternatives = try await base.expand(query: query, limit: limit)
-        try await cache.store(namespace: "expand", keyComponents: keyComponents, value: alternatives)
-        return alternatives
+        let expansion = try await base.expand(query: query, analysis: analysis, limit: limit)
+        try await cache.store(namespace: "expand", keyComponents: keyComponents, value: expansion)
+        return expansion
     }
 }
 
@@ -999,6 +1076,7 @@ private struct EvalRunReport: Codable {
     var datasetRoot: String
     var storage: StorageSuiteReport
     var recall: RecallSuiteReport
+    var queryExpansion: QueryExpansionSuiteReport?
     var notes: [String]
 }
 
@@ -1129,6 +1207,11 @@ struct InitCommand: AsyncParsableCommand {
             content: recallQueriesTemplate,
             force: force
         )
+        try writeIfNeeded(
+            root.appendingPathComponent("query_expansion_cases.jsonl"),
+            content: queryExpansionCasesTemplate,
+            force: force
+        )
 
         print("Initialized eval dataset in \(root.path)")
     }
@@ -1225,41 +1308,75 @@ struct RunCommand: AsyncParsableCommand {
         responseCache: EvalResponseCache?,
         outputOverride: String?
     ) async throws -> URL {
-        let storageReport = try await runStorageSuite(
-            profile: profile,
-            dataset: dataset.storageCases,
-            datasetRoot: datasetRootURL,
-            root: runRoot,
-            indexCacheEnabled: indexCache,
-            verbose: verbose,
-            responseCache: responseCache
-        )
-        let recallOutput = try await runRecallSuite(
-            profile: profile,
-            documents: dataset.recallDocuments,
-            queries: dataset.recallQueries,
-            kValues: kValues,
-            datasetRoot: datasetRootURL,
-            root: runRoot,
-            indexCacheEnabled: indexCache,
-            verbose: verbose,
-            responseCache: responseCache
-        )
+        let storageReport: StorageSuiteReport
+        var notes: [String] = []
+        if dataset.storageCases.isEmpty {
+            storageReport = makeEmptyStorageSuiteReport()
+            notes.append("No storage cases were provided; storage suite skipped.")
+        } else {
+            storageReport = try await runStorageSuite(
+                profile: profile,
+                dataset: dataset.storageCases,
+                datasetRoot: datasetRootURL,
+                root: runRoot,
+                indexCacheEnabled: indexCache,
+                verbose: verbose,
+                responseCache: responseCache
+            )
+        }
+
+        let recallOutput: RecallSuiteRunOutput
+        if dataset.recallDocuments.isEmpty || dataset.recallQueries.isEmpty {
+            recallOutput = makeEmptyRecallSuiteRunOutput(kValues: kValues)
+            notes.append("No recall documents or queries were provided; recall suite skipped.")
+        } else {
+            recallOutput = try await runRecallSuite(
+                profile: profile,
+                documents: dataset.recallDocuments,
+                queries: dataset.recallQueries,
+                kValues: kValues,
+                datasetRoot: datasetRootURL,
+                root: runRoot,
+                indexCacheEnabled: indexCache,
+                verbose: verbose,
+                responseCache: responseCache
+            )
+        }
+
+        let queryExpansionReport: QueryExpansionSuiteReport?
+        if dataset.queryExpansionCases.isEmpty {
+            queryExpansionReport = nil
+        } else {
+            queryExpansionReport = try await runQueryExpansionSuite(
+                profile: profile,
+                cases: dataset.queryExpansionCases,
+                documents: dataset.recallDocuments,
+                kValues: kValues,
+                datasetRoot: datasetRootURL,
+                root: runRoot,
+                indexCacheEnabled: indexCache,
+                verbose: verbose,
+                responseCache: responseCache
+            )
+        }
 
         let report = EvalRunReport(
-            schemaVersion: 3,
+            schemaVersion: 4,
             createdAt: Date(),
             profile: profile,
             datasetRoot: datasetRootURL.path,
             storage: storageReport,
             recall: recallOutput.report,
+            queryExpansion: queryExpansionReport,
             notes: [
                 storageReport.mode == "canonical_memory_schema"
                     ? "Storage eval uses the canonical memory extraction and ingest path and scores kind/status/facet/entity/topic/update behavior."
                     : "Storage eval uses direct database inspection with production-like chunking for classification/span metrics.",
                 "Recall eval uses document-level metrics (deduped by document path).",
                 "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
-            ] + recallOutput.notes
+            ] + notes + recallOutput.notes + (queryExpansionReport != nil ? [
+                "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift with expansion enabled vs disabled."
+            ] : [])
         )
 
         let outputURL = try resolvedOutputURL(baseRoot: datasetRootURL, output: outputOverride, profile: profile)
@@ -1275,7 +1392,9 @@ struct RunCommand: AsyncParsableCommand {
         try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
 
         print("Profile: \(profile.rawValue)")
-        if report.storage.mode == "canonical_memory_schema" {
+        if report.storage.totalCases == 0 {
+            print("Storage suite: skipped")
+        } else if report.storage.mode == "canonical_memory_schema" {
             print("Storage kind accuracy: \(percent(report.storage.typeAccuracy))")
             print("Storage kind macro F1: \(percent(report.storage.macroF1))")
             if let facetMicroF1 = report.storage.facetMicroF1 {
@@ -1295,14 +1414,28 @@ struct RunCommand: AsyncParsableCommand {
             print("Storage macro F1: \(percent(report.storage.macroF1))")
             print("Storage span coverage: \(percent(report.storage.spanCoverage))")
         }
-        if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
+        if report.recall.totalQueries == 0 {
+            print("Recall suite: skipped")
+        } else if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
             print("Recall Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
             print("Recall Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
             print("Recall MRR@\(maxKMetric.k): \(format(maxKMetric.mrr))")
             print("Recall nDCG@\(maxKMetric.k): \(format(maxKMetric.ndcg))")
         }
-        if let latencyStats = report.recall.latencyStats {
+        if report.recall.totalQueries > 0, let latencyStats = report.recall.latencyStats {
             print("Search latency: p50=\(String(format: "%.0f", latencyStats.p50Ms))ms p95=\(String(format: "%.0f", latencyStats.p95Ms))ms mean=\(String(format: "%.0f", latencyStats.meanMs))ms")
+        }
+        if let queryExpansion = report.queryExpansion {
+            print("Expansion lexical coverage recall: \(percent(queryExpansion.lexicalCoverageRecall))")
+            print("Expansion semantic coverage recall: \(percent(queryExpansion.semanticCoverageRecall))")
+            print("Expansion HyDE anchor recall: \(percent(queryExpansion.hydeAnchorRecall))")
+            print("Expansion facet micro F1: \(percent(queryExpansion.facetMicroF1))")
+            if let expandedHitRate = queryExpansion.retrievalExpandedHitRate {
+                print("Expansion retrieval Hit@\(kValues.max() ?? 10): \(percent(expandedHitRate))")
+                if let lift = queryExpansion.retrievalLift {
+                    print("Expansion retrieval lift: \(percent(lift))")
+                }
+            }
         }
         if let ingestTotal = report.storage.stageLatencyStats?.totalMs {
             print("Indexing total/doc: p50=\(String(format: "%.0f", ingestTotal.p50Ms))ms p95=\(String(format: "%.0f", ingestTotal.p95Ms))ms mean=\(String(format: "%.0f", ingestTotal.meanMs))ms")
@@ -1387,38 +1520,63 @@ private struct DatasetBundle {
     var storageCases: [StorageCase]
     var recallDocuments: [RecallDocumentCase]
     var recallQueries: [RecallQueryCase]
+    var queryExpansionCases: [QueryExpansionCase]
 }
 
 private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageURL = root.appendingPathComponent("storage_cases.jsonl")
     let recallDocumentsURL = root.appendingPathComponent("recall_documents.jsonl")
     let recallQueriesURL = root.appendingPathComponent("recall_queries.jsonl")
+    let queryExpansionURLCandidates = [
+        root.appendingPathComponent("query_expansion_cases.jsonl"),
+        root.appendingPathComponent("cases.jsonl"),
+    ]
 
-    guard FileManager.default.fileExists(atPath: storageURL.path) else {
-        throw ValidationError("Missing dataset file: \(storageURL.path). Run 'swift run memory_eval init --dataset-root \(root.path)'.")
-    }
-    guard FileManager.default.fileExists(atPath: recallDocumentsURL.path) else {
-        throw ValidationError("Missing dataset file: \(recallDocumentsURL.path).")
-    }
-    guard FileManager.default.fileExists(atPath: recallQueriesURL.path) else {
-        throw ValidationError("Missing dataset file: \(recallQueriesURL.path).")
-    }
+    let fileManager = FileManager.default
+    let storageExists = fileManager.fileExists(atPath: storageURL.path)
+    let recallDocumentsExists = fileManager.fileExists(atPath: recallDocumentsURL.path)
+    let recallQueriesExists = fileManager.fileExists(atPath: recallQueriesURL.path)
+    let queryExpansionURL = queryExpansionURLCandidates.first { fileManager.fileExists(atPath: $0.path) }
 
-    let storageCases: [StorageCase] = try loadJSONLines(from: storageURL)
-    let recallDocuments: [RecallDocumentCase] = try loadJSONLines(from: recallDocumentsURL)
-    let recallQueries: [RecallQueryCase] = try loadJSONLines(from: recallQueriesURL)
-
-    guard !storageCases.isEmpty else { throw ValidationError("storage_cases.jsonl must contain at least one case.") }
-    if recallDocuments.isEmpty != recallQueries.isEmpty {
+    guard storageExists || recallDocumentsExists || recallQueriesExists || queryExpansionURL != nil else {
         throw ValidationError(
-            "recall_documents.jsonl and recall_queries.jsonl must both be empty or both contain records."
+            "No dataset files found in \(root.path). Expected one or more of storage_cases.jsonl, recall_documents.jsonl, recall_queries.jsonl, query_expansion_cases.jsonl, or cases.jsonl."
         )
+    }
+
+    let storageCases: [StorageCase] = storageExists ? try loadJSONLines(from: storageURL) : []
+    let recallDocuments: [RecallDocumentCase] = recallDocumentsExists ? try loadJSONLines(from: recallDocumentsURL) : []
+    let recallQueries: [RecallQueryCase] = recallQueriesExists ? try loadJSONLines(from: recallQueriesURL) : []
+    let queryExpansionCases: [QueryExpansionCase]
+    if let queryExpansionURL {
+        queryExpansionCases = try loadJSONLines(from: queryExpansionURL)
+    } else {
+        queryExpansionCases = []
+    }
+
+    if storageExists && storageCases.isEmpty {
+        throw ValidationError("storage_cases.jsonl must contain at least one case when present.")
+    }
+    if recallQueriesExists && !recallDocumentsExists {
+        throw ValidationError("recall_queries.jsonl requires recall_documents.jsonl.")
+    }
+    if recallDocumentsExists && recallQueries.isEmpty && queryExpansionCases.isEmpty {
+        throw ValidationError(
+            "recall_documents.jsonl requires recall_queries.jsonl unless query_expansion_cases.jsonl is present for the query-expansion suite."
+        )
+    }
+    if queryExpansionURL != nil && queryExpansionCases.isEmpty {
+        throw ValidationError("\(queryExpansionURL!.lastPathComponent) must contain at least one case when present.")
+    }
+    if !storageExists && recallDocuments.isEmpty && recallQueries.isEmpty && queryExpansionCases.isEmpty {
+        throw ValidationError("Dataset root \(root.path) does not contain any runnable eval cases.")
     }
 
     return DatasetBundle(
         storageCases: storageCases,
         recallDocuments: recallDocuments,
-        recallQueries: recallQueries
+        recallQueries: recallQueries,
+        queryExpansionCases: queryExpansionCases
     )
 }
 
@@ -1437,6 +1595,44 @@ private func makeResponseCacheIfEnabled(
     try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     print("[cache] enabled: \(cacheURL.path)")
     return try EvalResponseCache(databaseURL: cacheURL)
+}
+
+private func makeEmptyStorageSuiteReport() -> StorageSuiteReport {
+    StorageSuiteReport(
+        mode: "skipped",
+        totalCases: 0,
+        typeAccuracy: 0,
+        macroF1: 0,
+        spanCoverage: 0,
+        fallbackRate: 0,
+        facetPrecision: nil,
+        facetRecall: nil,
+        facetMicroF1: nil,
+        entityPrecision: nil,
+        entityRecall: nil,
+        topicRecall: nil,
+        updateBehaviorAccuracy: nil,
+        confusionMatrix: [:],
+        caseResults: [],
+        stageLatencyStats: nil
+    )
+}
+
+private func makeEmptyRecallSuiteRunOutput(kValues: [Int]) -> RecallSuiteRunOutput {
+    RecallSuiteRunOutput(
+        report: RecallSuiteReport(
+            totalQueries: 0,
+            kValues: kValues,
+            metricsByK: kValues.map { RecallPerKMetric(k: $0, hitRate: 0, recall: 0, mrr: 0, ndcg: 0) },
+            queryResults: [],
+            perTypeMetrics: nil,
+            perDifficultyMetrics: nil,
+            latencyStats: nil,
+            stageLatencyStats: nil,
+            candidateCountStats: nil
+        ),
+        notes: []
+    )
 }
 
 private struct EvalIndexWorkspace {
@@ -1564,6 +1760,50 @@ private func recallIndexCacheSeed(profile: EvalProfile, documents: [RecallDocume
         parts.append("memory_type=\(document.memoryType ?? "")")
         parts.append("text=\(document.text)")
     }
+    return parts.joined(separator: "\n")
+}
+
+private func queryExpansionIndexCacheSeed(profile: EvalProfile, documents: [RecallDocumentCase], cases: [QueryExpansionCase]) -> String {
+    var parts: [String] = [
+        "suite=query_expansion",
+        "profile=\(profile.rawValue)",
+    ]
+    parts.append(recallIndexCacheSeed(profile: profile, documents: documents))
+    for entry in cases.sorted(by: { $0.id < $1.id }) {
+        parts.append("id=\(entry.id)")
+        parts.append("query=\(entry.query)")
+        parts.append("expected_lexical=\((entry.expectedLexicalTerms ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_semantic=\((entry.expectedSemanticPhrases ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_hyde=\((entry.expectedHydeAnchors ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_facets=\((entry.expectedFacets ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_entities=\((entry.expectedEntities ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_topics=\((entry.expectedTopics ?? []).joined(separator: "\u{1E}"))")
+        parts.append("relevant_document_ids=\((entry.relevantDocumentIds ?? []).joined(separator: "\u{1E}"))")
+        parts.append("candidate_document_ids=\((entry.candidateDocumentIds ?? []).joined(separator: "\u{1E}"))")
+    }
+    return parts.joined(separator: "\n")
+}
+
+private func queryExpansionCaseIndexCacheSeed(
+    profile: EvalProfile,
+    entry: QueryExpansionCase,
+    documents: [RecallDocumentCase]
+) -> String {
+    let parts: [String] = [
+        "suite=query_expansion_case",
+        "profile=\(profile.rawValue)",
+        "id=\(entry.id)",
+        "query=\(entry.query)",
+        "expected_lexical=\((entry.expectedLexicalTerms ?? []).joined(separator: "\u{1E}"))",
+        "expected_semantic=\((entry.expectedSemanticPhrases ?? []).joined(separator: "\u{1E}"))",
+        "expected_hyde=\((entry.expectedHydeAnchors ?? []).joined(separator: "\u{1E}"))",
+        "expected_facets=\((entry.expectedFacets ?? []).joined(separator: "\u{1E}"))",
+        "expected_entities=\((entry.expectedEntities ?? []).joined(separator: "\u{1E}"))",
+        "expected_topics=\((entry.expectedTopics ?? []).joined(separator: "\u{1E}"))",
+        "relevant_document_ids=\((entry.relevantDocumentIds ?? []).joined(separator: "\u{1E}"))",
+        "candidate_document_ids=\((entry.candidateDocumentIds ?? []).joined(separator: "\u{1E}"))",
+        recallIndexCacheSeed(profile: profile, documents: documents),
+    ]
     return parts.joined(separator: "\n")
 }
 
@@ -1783,6 +2023,423 @@ private func runStorageSuite(
         caseResults: results.sorted { $0.id < $1.id },
         stageLatencyStats: indexingStageCollector.report()
     )
+}
+
+private func runQueryExpansionSuite(
+    profile: EvalProfile,
+    cases: [QueryExpansionCase],
+    documents: [RecallDocumentCase],
+    kValues: [Int],
+    datasetRoot: URL,
+    root: URL,
+    indexCacheEnabled: Bool,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
+) async throws -> QueryExpansionSuiteReport {
+    let maxK = kValues.max() ?? 10
+    let documentsByID = Dictionary(uniqueKeysWithValues: documents.map { ($0.id, $0) })
+    let workspace = try prepareIndexWorkspace(
+        suite: .queryExpansion,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root,
+        cacheEnabled: indexCacheEnabled && !documents.isEmpty,
+        seed: queryExpansionIndexCacheSeed(profile: profile, documents: documents, cases: cases)
+    )
+
+    var pathByDocumentID: [String: String] = [:]
+    var documentIDByPath: [String: String] = [:]
+    for document in documents {
+        let ext = extensionForKind(document.kind) ?? "md"
+        let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path: URL
+        if let relativePath, !relativePath.isEmpty {
+            path = workspace.docsRoot.appendingPathComponent(relativePath)
+        } else {
+            path = workspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
+        }
+        pathByDocumentID[document.id] = path.path
+        documentIDByPath[path.path] = document.id
+    }
+
+    let expectedPaths = pathByDocumentID.values.map(URL.init(fileURLWithPath:))
+    let canReuseIndex = !documents.isEmpty && indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: expectedPaths)
+    if !documents.isEmpty {
+        if canReuseIndex {
+            print("[query-expansion][index-cache] hit: \(workspace.root.path)")
+        } else {
+            if workspace.cacheEnabled {
+                print("[query-expansion][index-cache] miss: \(workspace.root.path)")
+            }
+            try resetWorkspaceForRebuild(workspace)
+            for document in documents {
+                guard let pathRaw = pathByDocumentID[document.id] else {
+                    throw EvalError.invalidDataset("Query-expansion document '\(document.id)' did not materialize to a document path.")
+                }
+                let path = URL(fileURLWithPath: pathRaw)
+                try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try materializeRecallDocument(document).write(to: path, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    var config = try buildConfiguration(profile: profile, suite: .queryExpansion, databaseURL: workspace.databaseURL)
+    try await requireFunctionalContentTaggingIfNeeded(profile: profile, configuration: config, suite: .queryExpansion)
+    let contentTaggingDiagnostics = installContentTaggingDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    let recallDiagnostics = installRecallDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+    }
+
+    let index = try MemoryIndex(configuration: config)
+    let indexingStageCollector = IndexingStageTimingCollector()
+    if !documents.isEmpty {
+        if canReuseIndex {
+            print("[query-expansion] Using cached index for \(documents.count) documents.")
+        } else {
+            print("[query-expansion] Building index for \(documents.count) documents...")
+            let start = Date()
+            try await index.rebuildIndex(
+                from: IndexingRequest(roots: [workspace.docsRoot]),
+                events: { event in
+                    indexingStageCollector.record(event)
+                }
+            )
+            print("[query-expansion] Index built in \(formatDuration(Date().timeIntervalSince(start))).")
+            try markIndexCacheReady(workspace)
+        }
+    } else {
+        print("[query-expansion] No recall documents provided; retrieval impact checks will be skipped.")
+    }
+
+    if let contentTaggingDiagnostics {
+        print(await contentTaggingDiagnostics.summaryLine(suite: .queryExpansion))
+        for detail in await contentTaggingDiagnostics.detailLines(suite: .queryExpansion) {
+            print(detail)
+        }
+    }
+    if !documents.isEmpty {
+        try requireGeneratedContentTagsIfNeeded(profile: profile, databaseURL: workspace.databaseURL, suite: .queryExpansion)
+    }
+
+    let allFeatures = recallFeatures(for: config)
+    var baselineFeatures = allFeatures
+    baselineFeatures.remove(.expansion)
+
+    var results: [QueryExpansionCaseResult] = []
+    var expandedSearchObservations: [RecallQueryResult] = []
+
+    var totalLexicalRecall = 0.0
+    var totalSemanticRecall = 0.0
+    var totalHydeRecall = 0.0
+
+    var totalExpectedFacets = 0
+    var totalPredictedFacets = 0
+    var totalMatchedFacets = 0
+
+    var totalExpectedEntities = 0
+    var totalPredictedEntities = 0
+    var totalMatchedEntities = 0
+
+    var totalExpectedTopics = 0
+    var totalMatchedTopics = 0
+
+    var retrievalCaseCount = 0
+    var baselineHitCount = 0
+    var expandedHitCount = 0
+
+    var progress = DeterminateProgress(label: "query-expansion", total: cases.count)
+    for entry in cases {
+        let queryText = entry.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !queryText.isEmpty else {
+            throw EvalError.invalidDataset("Query-expansion case '\(entry.id)' has an empty query.")
+        }
+
+        let analysis = config.queryAnalyzer?.analyze(query: queryText) ?? QueryAnalysis()
+        let expansion = try await config.structuredQueryExpander?.expand(
+            query: SearchQuery(text: queryText, limit: maxK, rerankLimit: 0, expansionLimit: 5),
+            analysis: analysis,
+            limit: 5
+        ) ?? StructuredQueryExpansion()
+
+        let lexicalRecall = coverageRecall(expected: entry.expectedLexicalTerms ?? [], texts: expansion.lexicalQueries)
+        let semanticRecall = coverageRecall(expected: entry.expectedSemanticPhrases ?? [], texts: expansion.semanticQueries)
+        let hydeRecall = coverageRecall(expected: entry.expectedHydeAnchors ?? [], texts: expansion.hypotheticalDocuments)
+
+        totalLexicalRecall += lexicalRecall
+        totalSemanticRecall += semanticRecall
+        totalHydeRecall += hydeRecall
+
+        let expectedFacets = try parseFacetTags(entry.expectedFacets ?? [], context: "query-expansion case \(entry.id)")
+        let predictedFacets = Set(expansion.facetHints.map(\.tag))
+        let matchedFacets = expectedFacets.intersection(predictedFacets)
+        totalExpectedFacets += expectedFacets.count
+        totalPredictedFacets += predictedFacets.count
+        totalMatchedFacets += matchedFacets.count
+
+        let expectedEntities = Set((entry.expectedEntities ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let predictedEntities = Set(expansion.entities.map(\.normalizedValue).map(normalizeForMatch).filter { !$0.isEmpty })
+        let matchedEntities = expectedEntities.intersection(predictedEntities)
+        totalExpectedEntities += expectedEntities.count
+        totalPredictedEntities += predictedEntities.count
+        totalMatchedEntities += matchedEntities.count
+
+        let expectedTopics = Set((entry.expectedTopics ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let predictedTopics = Set(expansion.topics.map(normalizeForMatch).filter { !$0.isEmpty })
+        let matchedTopics = expectedTopics.intersection(predictedTopics)
+        totalExpectedTopics += expectedTopics.count
+        totalMatchedTopics += matchedTopics.count
+
+        let facetPrecision = safeRatio(matchedFacets.count, predictedFacets.count, emptyDefault: 1)
+        let facetRecall = safeRatio(matchedFacets.count, expectedFacets.count, emptyDefault: 1)
+        let entityPrecision = safeRatio(matchedEntities.count, predictedEntities.count, emptyDefault: 1)
+        let entityRecall = safeRatio(matchedEntities.count, expectedEntities.count, emptyDefault: 1)
+        let topicRecall = safeRatio(matchedTopics.count, expectedTopics.count, emptyDefault: 1)
+
+        var baselineDocumentIDs: [String]? = nil
+        var expandedDocumentIDs: [String]? = nil
+        var baselineHit: Bool? = nil
+        var expandedHit: Bool? = nil
+
+        if !documents.isEmpty, let relevantIDs = entry.relevantDocumentIds, !relevantIDs.isEmpty {
+            let relevantSet = Set(relevantIDs)
+            let candidateDocuments: [RecallDocumentCase]
+            if let candidateIDs = entry.candidateDocumentIds, !candidateIDs.isEmpty {
+                let unknownCandidates = candidateIDs.filter { documentsByID[$0] == nil }
+                guard unknownCandidates.isEmpty else {
+                    throw EvalError.invalidDataset(
+                        "Query-expansion case '\(entry.id)' references unknown candidate_document_ids: \(unknownCandidates.sorted().joined(separator: ", "))."
+                    )
+                }
+                candidateDocuments = candidateIDs.compactMap { documentsByID[$0] }
+            } else {
+                candidateDocuments = documents
+            }
+
+            let candidatePathByDocumentID: [String: String]
+            let candidateDocumentIDByPath: [String: String]
+            let candidateIndex: MemoryIndex
+            if candidateDocuments.count == documents.count {
+                candidatePathByDocumentID = pathByDocumentID
+                candidateDocumentIDByPath = documentIDByPath
+                candidateIndex = index
+            } else {
+                let candidateWorkspace = try prepareIndexWorkspace(
+                    suite: .queryExpansion,
+                    profile: profile,
+                    datasetRoot: datasetRoot,
+                    runRoot: root.appendingPathComponent("query_expansion_case_slices", isDirectory: true),
+                    cacheEnabled: indexCacheEnabled && !candidateDocuments.isEmpty,
+                    seed: queryExpansionCaseIndexCacheSeed(profile: profile, entry: entry, documents: candidateDocuments)
+                )
+
+                var localPathByDocumentID: [String: String] = [:]
+                var localDocumentIDByPath: [String: String] = [:]
+                for document in candidateDocuments {
+                    let ext = extensionForKind(document.kind) ?? "md"
+                    let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let path: URL
+                    if let relativePath, !relativePath.isEmpty {
+                        path = candidateWorkspace.docsRoot.appendingPathComponent(relativePath)
+                    } else {
+                        path = candidateWorkspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
+                    }
+                    localPathByDocumentID[document.id] = path.path
+                    localDocumentIDByPath[path.path] = document.id
+                }
+
+                let expectedPaths = localPathByDocumentID.values.map(URL.init(fileURLWithPath:))
+                let canReuseCandidateIndex = !candidateDocuments.isEmpty && indexCacheCanReuse(
+                    workspace: candidateWorkspace,
+                    expectedDocumentPaths: expectedPaths
+                )
+                if !canReuseCandidateIndex {
+                    try resetWorkspaceForRebuild(candidateWorkspace)
+                    for document in candidateDocuments {
+                        guard let pathRaw = localPathByDocumentID[document.id] else {
+                            throw EvalError.invalidDataset("Query-expansion document '\(document.id)' did not materialize to a candidate slice path.")
+                        }
+                        let path = URL(fileURLWithPath: pathRaw)
+                        try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try materializeRecallDocument(document).write(to: path, atomically: true, encoding: .utf8)
+                    }
+                }
+
+                var caseConfig = config
+                caseConfig.databaseURL = candidateWorkspace.databaseURL
+                let localIndex = try MemoryIndex(configuration: caseConfig)
+                if !canReuseCandidateIndex {
+                    try await localIndex.rebuildIndex(
+                        from: IndexingRequest(roots: [candidateWorkspace.docsRoot]),
+                        events: { _ in }
+                    )
+                    try markIndexCacheReady(candidateWorkspace)
+                }
+
+                candidatePathByDocumentID = localPathByDocumentID
+                candidateDocumentIDByPath = localDocumentIDByPath
+                candidateIndex = localIndex
+            }
+
+            let unknownRelevant = relevantSet.filter { candidatePathByDocumentID[$0] == nil }
+            guard unknownRelevant.isEmpty else {
+                throw EvalError.invalidDataset(
+                    "Query-expansion case '\(entry.id)' references unknown relevant_document_ids: \(unknownRelevant.sorted().joined(separator: ", "))."
+                )
+            }
+
+            let baselineCollector = SearchStageTimingCollector()
+            let baselineRefs = try await candidateIndex.memorySearch(
+                query: queryText,
+                limit: dedupedDocumentLimitForProfile(profile: profile, maxK: maxK),
+                features: baselineFeatures,
+                dedupeDocuments: true,
+                includeLineRanges: false,
+                events: { event in
+                    baselineCollector.record(event)
+                }
+            )
+            baselineDocumentIDs = baselineRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            baselineHit = baselineDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+
+            let expandedCollector = SearchStageTimingCollector()
+            let queryStartTime = Date()
+            let expandedRefs = try await candidateIndex.memorySearch(
+                query: queryText,
+                limit: dedupedDocumentLimitForProfile(profile: profile, maxK: maxK),
+                features: allFeatures,
+                dedupeDocuments: true,
+                includeLineRanges: false,
+                events: { event in
+                    expandedCollector.record(event)
+                }
+            )
+            let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
+            expandedDocumentIDs = expandedRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            expandedHit = expandedDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+
+            expandedSearchObservations.append(
+                RecallQueryResult(
+                    id: entry.id,
+                    query: queryText,
+                    relevantDocumentIds: Array(relevantSet).sorted(),
+                    retrievedDocumentIds: expandedDocumentIDs.map { Array($0.prefix(maxK)) } ?? [],
+                    hitByK: [maxK: expandedHit == true],
+                    recallByK: [:],
+                    mrrByK: [:],
+                    ndcgByK: [:],
+                    latencyMs: queryLatencyMs,
+                    stageTimings: expandedCollector.queryTimings(),
+                    candidateCounts: expandedCollector.queryCounts(),
+                    difficulty: nil
+                )
+            )
+
+            retrievalCaseCount += 1
+            if baselineHit == true {
+                baselineHitCount += 1
+            }
+            if expandedHit == true {
+                expandedHitCount += 1
+            }
+        }
+
+        results.append(
+            QueryExpansionCaseResult(
+                id: entry.id,
+                query: queryText,
+                lexicalQueries: expansion.lexicalQueries,
+                semanticQueries: expansion.semanticQueries,
+                hypotheticalDocuments: expansion.hypotheticalDocuments,
+                facetHints: expansion.facetHints.map(\.tag.rawValue).sorted(),
+                entities: expansion.entities.map(\.normalizedValue).sorted(),
+                topics: expansion.topics.sorted(),
+                lexicalCoverageRecall: lexicalRecall,
+                semanticCoverageRecall: semanticRecall,
+                hydeAnchorRecall: hydeRecall,
+                facetPrecision: facetPrecision,
+                facetRecall: facetRecall,
+                entityPrecision: entityPrecision,
+                entityRecall: entityRecall,
+                topicRecall: topicRecall,
+                baselineRetrievedDocumentIds: baselineDocumentIDs.map { Array($0.prefix(maxK)) },
+                expandedRetrievedDocumentIds: expandedDocumentIDs.map { Array($0.prefix(maxK)) },
+                baselineHitAtK: baselineHit,
+                expandedHitAtK: expandedHit
+            )
+        )
+
+        if verbose {
+            print("[query-expansion] \(entry.id): lexicalRecall=\(percent(lexicalRecall)) semanticRecall=\(percent(semanticRecall)) hydeRecall=\(percent(hydeRecall))")
+        }
+        progress.advance(detail: verbose ? entry.id : nil)
+    }
+
+    if let recallDiagnostics {
+        for line in await recallDiagnostics.summaryLines(suite: .queryExpansion) {
+            print(line)
+        }
+        for line in await recallDiagnostics.detailLines(suite: .queryExpansion) {
+            print(line)
+        }
+    }
+    if let responseCache {
+        for line in await responseCache.drainSummaryLines(suite: .queryExpansion) {
+            print(line)
+        }
+    }
+
+    let facetPrecision = safeRatio(totalMatchedFacets, totalPredictedFacets, emptyDefault: 1)
+    let facetRecall = safeRatio(totalMatchedFacets, totalExpectedFacets, emptyDefault: 1)
+    let entityPrecision = safeRatio(totalMatchedEntities, totalPredictedEntities, emptyDefault: 1)
+    let entityRecall = safeRatio(totalMatchedEntities, totalExpectedEntities, emptyDefault: 1)
+    let topicRecall = safeRatio(totalMatchedTopics, totalExpectedTopics, emptyDefault: 1)
+    let retrievalBaselineHitRate = retrievalCaseCount == 0 ? nil : Double(baselineHitCount) / Double(retrievalCaseCount)
+    let retrievalExpandedHitRate = retrievalCaseCount == 0 ? nil : Double(expandedHitCount) / Double(retrievalCaseCount)
+    let retrievalLift: Double? = {
+        guard let baseline = retrievalBaselineHitRate, let expanded = retrievalExpandedHitRate else { return nil }
+        return expanded - baseline
+    }()
+
+    return QueryExpansionSuiteReport(
+        totalQueries: cases.count,
+        lexicalCoverageRecall: cases.isEmpty ? 0 : totalLexicalRecall / Double(cases.count),
+        semanticCoverageRecall: cases.isEmpty ? 0 : totalSemanticRecall / Double(cases.count),
+        hydeAnchorRecall: cases.isEmpty ? 0 : totalHydeRecall / Double(cases.count),
+        facetPrecision: facetPrecision,
+        facetRecall: facetRecall,
+        facetMicroF1: harmonicMean(precision: facetPrecision, recall: facetRecall),
+        entityPrecision: entityPrecision,
+        entityRecall: entityRecall,
+        topicRecall: topicRecall,
+        retrievalBaselineHitRate: retrievalBaselineHitRate,
+        retrievalExpandedHitRate: retrievalExpandedHitRate,
+        retrievalLift: retrievalLift,
+        latencyStats: computeLatencyStats(queryResults: expandedSearchObservations),
+        stageLatencyStats: computeRecallStageLatencyStats(queryResults: expandedSearchObservations),
+        candidateCountStats: computeRecallCandidateCountStats(queryResults: expandedSearchObservations),
+        caseResults: results.sorted { $0.id < $1.id }
+    )
+}
+
+private func coverageRecall(expected: [String], texts: [String]) -> Double {
+    let normalizedExpected = expected.map(normalizeForMatch).filter { !$0.isEmpty }
+    guard !normalizedExpected.isEmpty else { return 1 }
+    let haystack = normalizeForMatch(texts.joined(separator: "\n"))
+    guard !haystack.isEmpty else { return 0 }
+
+    let matched = normalizedExpected.reduce(into: 0) { partial, value in
+        if haystack.contains(value) {
+            partial += 1
+        }
+    }
+    return Double(matched) / Double(normalizedExpected.count)
 }
 
 private func usesCanonicalMemorySchemaStorageEval(_ dataset: [StorageCase]) -> Bool {
@@ -2537,6 +3194,8 @@ private func buildConfiguration(
         try enableAppleContentTagging(on: &configuration)
         if suite == .recall {
             try enableAppleRecallCapabilities(on: &configuration)
+        } else if suite == .queryExpansion {
+            try enableAppleExpansionCapabilities(on: &configuration)
         }
         return configuration
     }
@@ -2565,15 +3224,15 @@ private func installRecallDiagnosticsIfNeeded(
     configuration: inout MemoryConfiguration
 ) -> RecallDiagnosticsCollector? {
     guard profileUsesAppleRecallCapabilities(profile) else { return nil }
-    guard configuration.queryExpander != nil || configuration.reranker != nil else { return nil }
+    guard configuration.structuredQueryExpander != nil || configuration.reranker != nil else { return nil }
 
     let diagnostics = RecallDiagnosticsCollector(
-        expansionProviderIdentifier: configuration.queryExpander?.identifier,
+        expansionProviderIdentifier: configuration.structuredQueryExpander?.identifier,
         rerankProviderIdentifier: configuration.reranker?.identifier
     )
-    if let queryExpander = configuration.queryExpander {
-        configuration.queryExpander = DiagnosticQueryExpander(
-            base: queryExpander,
+    if let structuredQueryExpander = configuration.structuredQueryExpander {
+        configuration.structuredQueryExpander = DiagnosticStructuredQueryExpander(
+            base: structuredQueryExpander,
             diagnostics: diagnostics
         )
     }
@@ -2596,9 +3255,9 @@ private func installProviderResponseCachingIfNeeded(
             cache: responseCache
         )
     }
-    if let queryExpander = configuration.queryExpander {
-        configuration.queryExpander = CachingQueryExpander(
-            base: queryExpander,
+    if let structuredQueryExpander = configuration.structuredQueryExpander {
+        configuration.structuredQueryExpander = CachingStructuredQueryExpander(
+            base: structuredQueryExpander,
             cache: responseCache
         )
     }
@@ -2837,16 +3496,16 @@ private func recallProviderRuntimeNote(
 ) -> String? {
     guard profileUsesAppleRecallCapabilities(profile) else { return nil }
 
-    let expanderID = configuration.queryExpander?.identifier ?? "none"
+    let expanderID = configuration.structuredQueryExpander?.identifier ?? "none"
     let rerankerID = configuration.reranker?.identifier ?? "none"
-    return "[\(suiteLabel(suite))] active providers: queryExpander=\(expanderID) (\(recallProviderKind(for: expanderID))), reranker=\(rerankerID) (\(recallProviderKind(for: rerankerID)))"
+    return "[\(suiteLabel(suite))] active providers: structuredQueryExpander=\(expanderID) (\(recallProviderKind(for: expanderID))), reranker=\(rerankerID) (\(recallProviderKind(for: rerankerID)))"
 }
 
 private func recallProviderKind(for identifier: String) -> String {
     if identifier == "none" {
         return "none"
     }
-    if identifier.contains("apple-intelligence-query-expander") || identifier.contains("apple-intelligence-reranker") {
+    if identifier.contains("apple-intelligence-structured-query-expander") || identifier.contains("apple-intelligence-reranker") {
         return "apple"
     }
     if identifier.contains("heuristic") {
@@ -2866,6 +3525,8 @@ private func suiteLabel(_ suite: SuiteKind) -> String {
         return "storage"
     case .recall:
         return "recall"
+    case .queryExpansion:
+        return "query-expansion"
     }
 }
 
@@ -2923,7 +3584,7 @@ private func recallFeatures(for configuration: MemoryConfiguration) -> RecallFea
     if configuration.contentTagger != nil {
         features.insert(.tags)
     }
-    if configuration.queryExpander != nil {
+    if configuration.structuredQueryExpander != nil {
         features.insert(.expansion)
     }
     if configuration.reranker != nil {
@@ -2947,7 +3608,7 @@ private func enableAppleContentTagging(on configuration: inout MemoryConfigurati
 private func enableAppleExpansionCapabilities(on configuration: inout MemoryConfiguration) throws {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 5.0)
+        configuration.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander(responseTimeoutSeconds: 5.0)
         return
     }
     #endif
@@ -2959,7 +3620,7 @@ private func enableAppleExpansionCapabilities(on configuration: inout MemoryConf
 private func enableAppleRecallCapabilities(on configuration: inout MemoryConfiguration) throws {
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-        configuration.queryExpander = AppleIntelligenceQueryExpander(responseTimeoutSeconds: 5.0)
+        configuration.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander(responseTimeoutSeconds: 5.0)
         configuration.reranker = AppleIntelligenceReranker(maxCandidates: 16, responseTimeoutSeconds: 20)
         configuration.positionAwareBlending = PositionAwareBlending(
             topRankFusedWeight: 0.58,
@@ -3012,6 +3673,22 @@ private func checkForRegressions(
                 regressions.append("\(label): Recall nDCG@\(cm.k) regressed by \(format(-ndcgDelta)) (baseline \(format(bm.ndcg)) -> \(format(cm.ndcg)))")
             }
         }
+
+        if let baselineExpansion = baseline.queryExpansion,
+           let candidateExpansion = candidate.queryExpansion {
+            let lexicalDelta = candidateExpansion.lexicalCoverageRecall - baselineExpansion.lexicalCoverageRecall
+            if lexicalDelta < -threshold {
+                regressions.append("\(label): Query-expansion lexical coverage regressed by \(percent(-lexicalDelta)) (baseline \(percent(baselineExpansion.lexicalCoverageRecall)) -> \(percent(candidateExpansion.lexicalCoverageRecall)))")
+            }
+
+            if let baselineHit = baselineExpansion.retrievalExpandedHitRate,
+               let candidateHit = candidateExpansion.retrievalExpandedHitRate {
+                let hitDelta = candidateHit - baselineHit
+                if hitDelta < -threshold {
+                    regressions.append("\(label): Query-expansion retrieval Hit@K regressed by \(percent(-hitDelta)) (baseline \(percent(baselineHit)) -> \(percent(candidateHit)))")
+                }
+            }
+        }
     }
 
     return regressions
@@ -3019,23 +3696,39 @@ private func checkForRegressions(
 
 private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
     let sorted = reports.sorted { $0.createdAt < $1.createdAt }
+    let includesExpansion = sorted.contains { $0.queryExpansion != nil }
     var lines: [String] = [
         "# Memory Eval Comparison",
         "",
-        "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        includesExpansion
+            ? "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K | Expansion Lex Recall | Expansion Hit@K |"
+            : "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K |",
+        includesExpansion
+            ? "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
+            : "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
 
     for report in sorted {
         let maxMetric = report.recall.metricsByK.max(by: { $0.k < $1.k })
-        let hit = maxMetric.map { percent($0.hitRate) } ?? "n/a"
-        let mrr = maxMetric.map { format($0.mrr) } ?? "n/a"
-        let ndcg = maxMetric.map { format($0.ndcg) } ?? "n/a"
-        let kLabel = maxMetric.map { "@\($0.k)" } ?? ""
+        let storageAccuracy = report.storage.totalCases == 0 ? "skipped" : percent(report.storage.typeAccuracy)
+        let storageMacroF1 = report.storage.totalCases == 0 ? "skipped" : percent(report.storage.macroF1)
+        let storageSpanCoverage = report.storage.totalCases == 0 ? "n/a" : percent(report.storage.spanCoverage)
+        let hit = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { percent($0.hitRate) } ?? "n/a"
+        let mrr = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.mrr) } ?? "n/a"
+        let ndcg = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.ndcg) } ?? "n/a"
+        let kLabel = report.recall.totalQueries == 0 ? "" : (maxMetric.map { "@\($0.k)" } ?? "")
+        let expansionLex = report.queryExpansion.map { percent($0.lexicalCoverageRecall) } ?? "n/a"
+        let expansionHit = report.queryExpansion?.retrievalExpandedHitRate.map(percent) ?? "n/a"
 
-        lines.append(
-            "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(percent(report.storage.typeAccuracy)) | \(percent(report.storage.macroF1)) | \(percent(report.storage.spanCoverage)) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) |"
-        )
+        if includesExpansion {
+            lines.append(
+                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) | \(expansionLex) | \(expansionHit)\(kLabel) |"
+            )
+        } else {
+            lines.append(
+                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) |"
+            )
+        }
     }
 
     return lines.joined(separator: "\n")
@@ -3059,7 +3752,11 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         "- Queries: \(report.recall.totalQueries)",
     ]
 
-    if report.storage.mode == "canonical_memory_schema" {
+    if report.storage.totalCases == 0 {
+        lines.insert(contentsOf: [
+            "- Suite status: skipped",
+        ], at: 8)
+    } else if report.storage.mode == "canonical_memory_schema" {
         lines.insert(contentsOf: [
             "- Kind accuracy: \(percent(report.storage.typeAccuracy))",
             "- Kind macro F1: \(percent(report.storage.macroF1))",
@@ -3080,11 +3777,37 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         ], at: 8)
     }
 
-    if let maxKMetric {
+    if report.recall.totalQueries == 0 {
+        lines.append("- Suite status: skipped")
+    } else if let maxKMetric {
         lines.append("- Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
         lines.append("- Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
         lines.append("- MRR@\(maxKMetric.k): \(format(maxKMetric.mrr))")
         lines.append("- nDCG@\(maxKMetric.k): \(format(maxKMetric.ndcg))")
+    }
+
+    if let queryExpansion = report.queryExpansion {
+        lines.append("")
+        lines.append("## Query Expansion")
+        lines.append("")
+        lines.append("- Cases: \(queryExpansion.totalQueries)")
+        lines.append("- Lexical coverage recall: \(percent(queryExpansion.lexicalCoverageRecall))")
+        lines.append("- Semantic coverage recall: \(percent(queryExpansion.semanticCoverageRecall))")
+        lines.append("- HyDE anchor recall: \(percent(queryExpansion.hydeAnchorRecall))")
+        lines.append("- Facet precision: \(percent(queryExpansion.facetPrecision))")
+        lines.append("- Facet recall: \(percent(queryExpansion.facetRecall))")
+        lines.append("- Facet micro F1: \(percent(queryExpansion.facetMicroF1))")
+        lines.append("- Entity precision: \(percent(queryExpansion.entityPrecision))")
+        lines.append("- Entity recall: \(percent(queryExpansion.entityRecall))")
+        lines.append("- Topic recall: \(percent(queryExpansion.topicRecall))")
+        if let baselineHit = queryExpansion.retrievalBaselineHitRate,
+           let expandedHit = queryExpansion.retrievalExpandedHitRate {
+            lines.append("- Retrieval baseline Hit@K: \(percent(baselineHit))")
+            lines.append("- Retrieval expanded Hit@K: \(percent(expandedHit))")
+            if let lift = queryExpansion.retrievalLift {
+                lines.append("- Retrieval lift: \(percent(lift))")
+            }
+        }
     }
 
     lines.append("")
@@ -3177,6 +3900,22 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         lines.append(candidateCountRow(label: "lexical_candidates", stats: countStats.lexicalCandidates))
         lines.append(candidateCountRow(label: "fused_candidates", stats: countStats.fusedCandidates))
         lines.append(candidateCountRow(label: "reranked_candidates", stats: countStats.rerankedCandidates))
+    }
+
+    if let queryExpansion = report.queryExpansion,
+       let stageStats = queryExpansion.stageLatencyStats {
+        lines.append("")
+        lines.append("### Query Expansion Stage Latency")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean |")
+        lines.append("|---|---:|---:|---:|")
+        lines.append("| analysis | \(formatStageMs(stageStats.analysisMs)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.meanMs)) |")
+        lines.append("| expansion | \(formatStageMs(stageStats.expansionMs)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.meanMs)) |")
+        lines.append("| query_embedding | \(formatStageMs(stageStats.queryEmbeddingMs)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.meanMs)) |")
+        lines.append("| semantic_search | \(formatStageMs(stageStats.semanticSearchMs)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| lexical_search | \(formatStageMs(stageStats.lexicalSearchMs)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| fusion | \(formatStageMs(stageStats.fusionMs)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.meanMs)) |")
+        lines.append("| total | \(formatStageMs(stageStats.totalMs)) | \(formatStageMs(stageStats.totalMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.totalMs, keyPath: \.meanMs)) |")
     }
 
     let misses = report.recall.queryResults.filter { result in

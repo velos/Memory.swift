@@ -1,0 +1,29 @@
+{
+  "activityEntities" : [
+    "projectCreated",
+    [
+      {
+        "createdDate" : "2026-03-18T06:11:24Z",
+        "event" : "projectCreated",
+        "id" : "656C38ED-BD0F-4A81-98FB-33974DE9758B",
+        "subtitle" : "EntityTopicTagger",
+        "title" : "Project Created"
+      }
+    ]
+  ],
+  "authorName" : "Zac White",
+  "createdDate" : "2026-03-18T06:11:24Z",
+  "description" : "",
+  "id" : "EFC68FE5-598A-4D32-B154-56C62961A0F2",
+  "license" : "",
+  "location" : "",
+  "modifiedDate" : "2026-03-18T06:11:24Z",
+  "projectName" : "EntityTopicTagger",
+  "settingsEntity" : {
+    "snapshotOnExtendTraining" : true,
+    "snapshotOnResumeTraining" : false
+  },
+  "taskType" : "wordTagger",
+  "title" : "Word Tagging",
+  "version" : "1.1"
+}

@@ -1153,6 +1153,78 @@ public actor MemoryStorage {
             .map { $0 }
     }
 
+    public func contentTagSearch(
+        tagNames: [String],
+        limit: Int,
+        allowedChunkIDs: Set<Int64>? = nil,
+        allowedMemoryTypes: Set<String>? = nil
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+
+        let normalizedTags = Array(
+            Set(
+                tagNames
+                    .map {
+                        $0
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .lowercased()
+                    }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+
+        guard !normalizedTags.isEmpty else { return [] }
+        if let allowedChunkIDs, allowedChunkIDs.isEmpty {
+            return []
+        }
+        if let allowedMemoryTypes, allowedMemoryTypes.isEmpty {
+            return []
+        }
+
+        var arguments: [Any?] = normalizedTags
+        var predicates: [String] = [
+            "json_extract(jt.value, '$.name') IN (\(SQLiteDatabase.placeholders(count: normalizedTags.count)))"
+        ]
+
+        if let allowedChunkIDs {
+            let sortedChunkIDs = Array(allowedChunkIDs).sorted()
+            predicates.append("c.id IN (\(SQLiteDatabase.placeholders(count: sortedChunkIDs.count)))")
+            arguments.append(contentsOf: sortedChunkIDs)
+        }
+
+        if let allowedMemoryTypes {
+            let sortedTypes = Array(allowedMemoryTypes).sorted()
+            predicates.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(SQLiteDatabase.placeholders(count: sortedTypes.count)))")
+            arguments.append(contentsOf: sortedTypes)
+        }
+
+        arguments.append(limit)
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT
+                c.id AS chunk_id,
+                SUM(COALESCE(json_extract(jt.value, '$.confidence'), 0.6)) AS score
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            JOIN json_each(COALESCE(c.content_tags_json, '[]')) jt
+            WHERE \(predicates.joined(separator: " AND "))
+            GROUP BY c.id
+            ORDER BY score DESC, c.id ASC
+            LIMIT ?
+            """,
+            arguments: arguments
+        )
+
+        return rows.map { row in
+            LexicalHit(
+                chunkID: row["chunk_id"],
+                score: row["score"]
+            )
+        }
+    }
+
     public func vectorSearch(
         queryVector: [Float],
         limit: Int,

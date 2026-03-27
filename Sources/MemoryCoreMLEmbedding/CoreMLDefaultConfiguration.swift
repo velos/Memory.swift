@@ -14,7 +14,7 @@ public extension MemoryConfiguration {
     static func coreMLDefault(
         databaseURL: URL,
         models: CoreMLDefaultModels,
-        queryExpander: (any QueryExpander)? = nil,
+        structuredQueryExpander: (any StructuredQueryExpander)? = HeuristicStructuredQueryExpander(),
         contentTagger: (any ContentTagger)? = nil,
         memoryExtractor: (any MemoryExtractor)? = nil,
         recallPlanner: (any RecallPlanner)? = nil,
@@ -31,7 +31,7 @@ public extension MemoryConfiguration {
         return MemoryConfiguration(
             databaseURL: databaseURL,
             embeddingProvider: embeddingProvider,
-            queryExpander: queryExpander,
+            structuredQueryExpander: structuredQueryExpander,
             reranker: nil,
             contentTagger: contentTagger,
             memoryExtractor: memoryExtractor,

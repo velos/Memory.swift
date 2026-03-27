@@ -124,7 +124,7 @@ struct MemoryIndexTests {
         let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
-            queryExpander: StaticQueryExpander(alternates: ["deployment rollout"]),
+            structuredQueryExpander: StaticStructuredQueryExpander(lexicalQueries: ["deployment rollout"]),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
         )
@@ -165,11 +165,11 @@ struct MemoryIndexTests {
             )
         }
 
-        let expander = RecordingQueryExpander(alternates: ["deployment rollout checklist"])
+        let expander = RecordingStructuredQueryExpander(lexicalQueries: ["deployment rollout checklist"])
         let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
-            queryExpander: expander,
+            structuredQueryExpander: expander,
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
         )
@@ -209,7 +209,9 @@ struct MemoryIndexTests {
         let config = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: embeddingProvider,
-            queryExpander: StaticQueryExpander(alternates: ["deployment rollout", "service cutover"]),
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["deployment rollout", "service cutover"]
+            ),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
         )
@@ -232,6 +234,44 @@ struct MemoryIndexTests {
         let stats = await embeddingProvider.stats()
         #expect(stats.singleCalls == 0)
         #expect(stats.batchSizes == [3])
+    }
+
+    @Test
+    func heuristicStructuredExpanderProducesDeterministicStructuredOutput() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let query = SearchQuery(text: "How do we ship Memory.swift on time with sqlite-vec?")
+        let analysis = QueryAnalysis(
+            entities: [
+                MemoryEntity(
+                    label: .project,
+                    value: "Memory.swift",
+                    normalizedValue: "memory.swift",
+                    confidence: 0.9
+                ),
+                MemoryEntity(
+                    label: .tool,
+                    value: "sqlite-vec",
+                    normalizedValue: "sqlite-vec",
+                    confidence: 0.88
+                ),
+            ],
+            keyTerms: ["ship", "memory.swift", "sqlite-vec", "time"],
+            facetHints: [
+                FacetHint(tag: .project, confidence: 0.92, isExplicit: true),
+                FacetHint(tag: .timeSensitive, confidence: 0.91, isExplicit: true),
+            ],
+            topics: ["release timeline", "sqlite vec rollout"],
+            isHowToQuery: true
+        )
+
+        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
+
+        #expect(expansion.lexicalQueries.isEmpty == false)
+        #expect(expansion.semanticQueries.isEmpty == false)
+        #expect(expansion.hypotheticalDocuments.count == 1)
+        #expect(expansion.facetHints.contains(where: { $0.tag == .project && $0.isExplicit }))
+        #expect(expansion.entities.contains(where: { $0.normalizedValue == "memory.swift" }))
+        #expect(expansion.topics.contains(where: { $0.contains("release") || $0.contains("sqlite") }))
     }
 
     @Test
@@ -310,6 +350,68 @@ struct MemoryIndexTests {
 
         #expect(results.count == 2)
         #expect(results.first?.documentPath.contains("z-deploy.md") == true)
+        #expect(results.first?.score.tag ?? 0 > 0)
+    }
+
+    @Test
+    func structuredMetadataBranchesCanLiftTaggedDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("a-garden.md"), "tomatoes and compost planning notes")
+        try writeFile(docs.appendingPathComponent("z-memory.md"), "release notes and rollout status")
+
+        let tagger = StaticContentTagger(
+            tagsByNeedle: [
+                "release notes": [
+                    ContentTag(name: "facet:project", confidence: 0.95),
+                    ContentTag(name: "entity:memory.swift", confidence: 0.95),
+                    ContentTag(name: "topic:release timeline", confidence: 0.90),
+                ],
+                "tomatoes": [
+                    ContentTag(name: "facet:fact_about_world", confidence: 0.8),
+                    ContentTag(name: "topic:gardening", confidence: 0.9),
+                ],
+            ]
+        )
+
+        let expander = StaticStructuredQueryExpander(
+            facetHints: [FacetHint(tag: .project, confidence: 0.9, isExplicit: false)],
+            entities: [
+                MemoryEntity(
+                    label: .project,
+                    value: "Memory.swift",
+                    normalizedValue: "memory.swift",
+                    confidence: 0.92
+                )
+            ],
+            topics: ["release timeline"]
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: expander,
+            contentTagger: tagger,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "what is the rollout status",
+                limit: 2,
+                rerankLimit: 0,
+                expansionLimit: 5
+            )
+        )
+
+        #expect(results.count == 2)
+        #expect(results.first?.documentPath.contains("z-memory.md") == true)
         #expect(results.first?.score.tag ?? 0 > 0)
     }
 

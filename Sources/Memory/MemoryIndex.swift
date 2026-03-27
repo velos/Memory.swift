@@ -30,6 +30,15 @@ public actor MemoryIndex {
         var topics: Set<String>
     }
 
+    private struct StructuredSearchPlan {
+        var expandedQueries: [WeightedQuery]
+        var analysis: QueryAnalysis
+        var entityLexicalQueries: [String]
+        var facetTagNames: [String]
+        var entityTagNames: [String]
+        var topicTagNames: [String]
+    }
+
     private struct PreparedMemoryCandidate {
         var text: String
         var kind: MemoryKind
@@ -230,17 +239,18 @@ public actor MemoryIndex {
         var lexicalSearchDurationMs = elapsedMilliseconds(since: lexicalProbeStart)
 
         let expansionStart = DispatchTime.now().uptimeNanoseconds
-        let expandedQueries = try await buildExpandedQueries(
+        let searchPlan = try await prepareStructuredSearchPlan(
             query: query,
             normalizedText: normalizedText,
+            analysis: queryAnalysis,
             skipExpansion: lexicalProbe.strongSignal
         )
         events?(.stageTiming(stage: .expansion, durationMs: elapsedMilliseconds(since: expansionStart)))
-        events?(.expandedQueries(count: max(0, expandedQueries.count - 1)))
+        events?(.expandedQueries(count: max(0, searchPlan.expandedQueries.count - 1)))
 
         let queryEmbeddingStart = DispatchTime.now().uptimeNanoseconds
         let semanticQueryVectors = try await embedExpandedQueries(
-            expandedQueries,
+            searchPlan.expandedQueries,
             semanticCandidateLimit: query.semanticCandidateLimit,
             events: events
         )
@@ -252,7 +262,7 @@ public actor MemoryIndex {
         var lexicalCandidateCount = 0
         var semanticSearchDurationMs = 0.0
 
-        for (index, expandedQuery) in expandedQueries.enumerated() {
+        for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
             let skipSemantic = expandedQuery.expansionType == .lexical
             let skipLexical = expandedQuery.expansionType == .semantic
                 || expandedQuery.expansionType == .hypotheticalDocument
@@ -289,12 +299,12 @@ public actor MemoryIndex {
             }
         }
 
-        if !queryAnalysis.entities.isEmpty, query.lexicalCandidateLimit > 0 {
-            for entity in queryAnalysis.entities.prefix(3) {
+        if !searchPlan.entityLexicalQueries.isEmpty, query.lexicalCandidateLimit > 0 {
+            for entityQuery in searchPlan.entityLexicalQueries {
                 let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                 let entityHits = try await storage.lexicalSearch(
-                    query: ftsPreprocess(entity.value),
-                    limit: query.lexicalCandidateLimit / 2,
+                    query: ftsPreprocess(entityQuery),
+                    limit: max(1, query.lexicalCandidateLimit / 2),
                     allowedChunkIDs: allowedChunkIDs,
                     allowedMemoryTypes: allowedMemoryTypes
                 )
@@ -304,14 +314,52 @@ public actor MemoryIndex {
             }
         }
 
+        if query.includeTagScoring, query.lexicalCandidateLimit > 0 {
+            let metadataLimit = max(8, query.lexicalCandidateLimit / 2)
+            if !searchPlan.entityTagNames.isEmpty {
+                let entityTagHits = try await storage.contentTagSearch(
+                    tagNames: searchPlan.entityTagNames,
+                    limit: metadataLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+                accumulateRRF(for: entityTagHits, weight: 0.60, into: &lexicalRRF)
+                lexicalCandidateCount += entityTagHits.count
+            }
+
+            if !searchPlan.topicTagNames.isEmpty {
+                let topicTagHits = try await storage.contentTagSearch(
+                    tagNames: searchPlan.topicTagNames,
+                    limit: metadataLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+                accumulateRRF(for: topicTagHits, weight: 0.35, into: &lexicalRRF)
+                lexicalCandidateCount += topicTagHits.count
+            }
+
+            if !searchPlan.facetTagNames.isEmpty {
+                let facetTagHits = try await storage.contentTagSearch(
+                    tagNames: searchPlan.facetTagNames,
+                    limit: metadataLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+                accumulateRRF(for: facetTagHits, weight: 0.25, into: &lexicalRRF)
+                lexicalCandidateCount += facetTagHits.count
+            }
+        }
+
         events?(.stageTiming(stage: .semanticSearch, durationMs: semanticSearchDurationMs))
         events?(.stageTiming(stage: .lexicalSearch, durationMs: lexicalSearchDurationMs))
         events?(.semanticCandidates(count: semanticCandidateCount))
         events?(.lexicalCandidates(count: lexicalCandidateCount))
 
         let fusionStart = DispatchTime.now().uptimeNanoseconds
-        let querySignals = queryMatchSignals(from: queryAnalysis)
-        let queryTags = query.includeTagScoring ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: queryAnalysis) : []
+        let querySignals = queryMatchSignals(from: searchPlan.analysis)
+        let queryTags = query.includeTagScoring
+            ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis)
+            : []
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
@@ -590,7 +638,7 @@ public actor MemoryIndex {
             let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
             let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
             let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
-            let expansionLimit = features.contains(.expansion) ? 2 : 0
+            let expansionLimit = features.contains(.expansion) ? 5 : 0
 
             let searchResults = try await search(
                 SearchQuery(
@@ -718,7 +766,7 @@ public actor MemoryIndex {
         let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
         let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
         let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
-        let expansionLimit = features.contains(.expansion) ? 2 : 0
+        let expansionLimit = features.contains(.expansion) ? 5 : 0
         let searchLimit = dedupeDocuments
             ? min(400, max(effectiveLimit * 6, effectiveLimit))
             : effectiveLimit
@@ -2071,7 +2119,7 @@ public actor MemoryIndex {
             )
             var normalized = normalizeContentTags(generated, maxCount: 8)
             let prefixTags = queryAnalysis.facetHints.map {
-                ContentTag(name: "facet:\($0.rawValue)", confidence: 0.9)
+                ContentTag(name: "facet:\($0.tag.rawValue)", confidence: min(1, max(0, $0.confidence)))
             } + queryAnalysis.entities.map {
                 ContentTag(name: "entity:\($0.normalizedValue)", confidence: $0.confidence ?? 0.8)
             } + queryAnalysis.topics.map {
@@ -2086,7 +2134,7 @@ public actor MemoryIndex {
 
     private func queryMatchSignals(from analysis: QueryAnalysis) -> QueryMatchSignals {
         QueryMatchSignals(
-            facets: analysis.facetHints,
+            facets: Set(analysis.facetHints.map(\.tag)),
             entityValues: Set(analysis.entities.map(\.normalizedValue).map(normalizeEntityValue).filter { !$0.isEmpty }),
             topics: Set(analysis.topics.map(normalizeTopicValue).filter { !$0.isEmpty })
         )
@@ -2097,10 +2145,121 @@ public actor MemoryIndex {
         return QueryAnalysis(
             entities: inferEntities(forExtractedText: query),
             keyTerms: tags,
-            facetHints: inferFacetTags(forExtractedText: query, kind: .fact),
+            facetHints: makeFacetHints(
+                from: inferFacetTags(forExtractedText: query, kind: .fact),
+                confidence: 0.72,
+                isExplicit: false
+            ),
             topics: inferTopics(forExtractedText: query, seedTags: tags),
             isHowToQuery: query.lowercased().hasPrefix("how to") || query.lowercased().hasPrefix("how do")
         )
+    }
+
+    private func makeFacetHints(
+        from tags: Set<FacetTag>,
+        confidence: Double,
+        isExplicit: Bool
+    ) -> [FacetHint] {
+        tags
+            .sorted { $0.rawValue < $1.rawValue }
+            .map {
+                FacetHint(
+                    tag: $0,
+                    confidence: confidence,
+                    isExplicit: isExplicit
+                )
+            }
+    }
+
+    private func normalizeFacetHints(_ hints: [FacetHint], maxCount: Int) -> [FacetHint] {
+        guard maxCount > 0 else { return [] }
+
+        var deduped: [FacetTag: FacetHint] = [:]
+        for hint in hints {
+            let candidate = FacetHint(
+                tag: hint.tag,
+                confidence: min(1, max(0, hint.confidence)),
+                isExplicit: hint.isExplicit
+            )
+            if let existing = deduped[candidate.tag] {
+                if candidate.confidence > existing.confidence
+                    || (candidate.confidence == existing.confidence && candidate.isExplicit && !existing.isExplicit) {
+                    deduped[candidate.tag] = candidate
+                }
+            } else {
+                deduped[candidate.tag] = candidate
+            }
+        }
+
+        return deduped.values
+            .sorted { lhs, rhs in
+                if lhs.confidence == rhs.confidence {
+                    if lhs.isExplicit == rhs.isExplicit {
+                        return lhs.tag.rawValue < rhs.tag.rawValue
+                    }
+                    return lhs.isExplicit && !rhs.isExplicit
+                }
+                return lhs.confidence > rhs.confidence
+            }
+            .prefix(maxCount)
+            .map { $0 }
+    }
+
+    private func normalizeMemoryEntities(_ entities: [MemoryEntity], maxCount: Int) -> [MemoryEntity] {
+        guard maxCount > 0 else { return [] }
+
+        var deduped: [String: MemoryEntity] = [:]
+        for entity in entities {
+            let value = entity.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedValue = normalizeEntityValue(entity.normalizedValue.isEmpty ? value : entity.normalizedValue)
+            guard !value.isEmpty, !normalizedValue.isEmpty else { continue }
+
+            let candidate = MemoryEntity(
+                label: entity.label,
+                value: value,
+                normalizedValue: normalizedValue,
+                confidence: entity.confidence
+            )
+
+            if let existing = deduped[normalizedValue] {
+                let existingConfidence = existing.confidence ?? 0
+                let candidateConfidence = candidate.confidence ?? 0
+                if candidateConfidence > existingConfidence {
+                    deduped[normalizedValue] = candidate
+                }
+            } else {
+                deduped[normalizedValue] = candidate
+            }
+        }
+
+        return deduped.values
+            .sorted { lhs, rhs in
+                let left = lhs.confidence ?? 0
+                let right = rhs.confidence ?? 0
+                if left == right {
+                    return lhs.normalizedValue < rhs.normalizedValue
+                }
+                return left > right
+            }
+            .prefix(maxCount)
+            .map { $0 }
+    }
+
+    private func normalizeTopicValues(_ topics: [String], maxCount: Int) -> [String] {
+        guard maxCount > 0 else { return [] }
+
+        var normalized: [String] = []
+        var seen: Set<String> = []
+        for topic in topics {
+            let candidate = normalizeTopicValue(topic)
+            guard !candidate.isEmpty else { continue }
+            guard seen.insert(candidate).inserted else { continue }
+            normalized.append(candidate)
+            if normalized.count >= maxCount {
+                break
+            }
+        }
+        return normalized
     }
 
     private func normalizeContentTags(_ tags: [ContentTag], maxCount: Int) -> [ContentTag] {
@@ -2247,59 +2406,131 @@ public actor MemoryIndex {
             .map { $0 }
     }
 
-    private func buildExpandedQueries(
+    private func prepareStructuredSearchPlan(
         query: SearchQuery,
         normalizedText: String,
+        analysis: QueryAnalysis,
         skipExpansion: Bool = false
-    ) async throws -> [WeightedQuery] {
-        var expanded: [WeightedQuery] = [
+    ) async throws -> StructuredSearchPlan {
+        var expandedQueries: [WeightedQuery] = [
             WeightedQuery(text: normalizedText, weight: query.originalQueryWeight),
         ]
+        var mergedAnalysis = QueryAnalysis(
+            entities: normalizeMemoryEntities(analysis.entities, maxCount: 6),
+            keyTerms: Array(Set(analysis.keyTerms.map(normalizedComparisonKey(for:))).sorted()).filter { !$0.isEmpty },
+            facetHints: normalizeFacetHints(analysis.facetHints, maxCount: 4),
+            topics: normalizeTopicValues(analysis.topics, maxCount: 6),
+            isHowToQuery: analysis.isHowToQuery
+        )
 
-        guard !skipExpansion else {
-            return expanded
-        }
-
-        guard query.expansionLimit > 0, let queryExpander = configuration.queryExpander else {
-            return expanded
+        guard !skipExpansion,
+              query.expansionLimit > 0,
+              let structuredExpander = configuration.structuredQueryExpander else {
+            return StructuredSearchPlan(
+                expandedQueries: expandedQueries,
+                analysis: mergedAnalysis,
+                entityLexicalQueries: [],
+                facetTagNames: [],
+                entityTagNames: [],
+                topicTagNames: []
+            )
         }
 
         var expansionQuery = query
         expansionQuery.text = normalizedText
 
-        let typedAlternatives: [ExpandedQuery]
+        let expansion: StructuredQueryExpansion
         do {
-            typedAlternatives = try await queryExpander.expandTyped(
+            expansion = try await structuredExpander.expand(
                 query: expansionQuery,
+                analysis: mergedAnalysis,
                 limit: query.expansionLimit
             )
         } catch {
-            return expanded
+            return StructuredSearchPlan(
+                expandedQueries: expandedQueries,
+                analysis: mergedAnalysis,
+                entityLexicalQueries: [],
+                facetTagNames: [],
+                entityTagNames: [],
+                topicTagNames: []
+            )
         }
 
+        mergedAnalysis.entities = normalizeMemoryEntities(mergedAnalysis.entities + expansion.entities, maxCount: 6)
+        mergedAnalysis.facetHints = normalizeFacetHints(mergedAnalysis.facetHints + expansion.facetHints, maxCount: 4)
+        mergedAnalysis.topics = normalizeTopicValues(mergedAnalysis.topics + expansion.topics, maxCount: 6)
+
         var seen: Set<String> = [normalizedComparisonKey(for: normalizedText)]
-        for alternative in typedAlternatives {
-            let trimmed = alternative.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var remainingBudget = max(0, query.expansionLimit)
+        appendExpandedQueries(
+            texts: expansion.lexicalQueries,
+            type: .lexical,
+            weight: query.expansionQueryWeight,
+            budget: &remainingBudget,
+            seen: &seen,
+            into: &expandedQueries
+        )
+        appendExpandedQueries(
+            texts: expansion.semanticQueries,
+            type: .semantic,
+            weight: query.expansionQueryWeight,
+            budget: &remainingBudget,
+            seen: &seen,
+            into: &expandedQueries
+        )
+        appendExpandedQueries(
+            texts: expansion.hypotheticalDocuments,
+            type: .hypotheticalDocument,
+            weight: query.expansionQueryWeight * 0.85,
+            budget: &remainingBudget,
+            seen: &seen,
+            into: &expandedQueries
+        )
+
+        return StructuredSearchPlan(
+            expandedQueries: expandedQueries,
+            analysis: mergedAnalysis,
+            entityLexicalQueries: Array(mergedAnalysis.entities.prefix(3).map(\.value)),
+            facetTagNames: mergedAnalysis.facetHints
+                .filter { $0.confidence >= 0.55 }
+                .map { "facet:\($0.tag.rawValue)" },
+            entityTagNames: mergedAnalysis.entities
+                .prefix(3)
+                .map { "entity:\($0.normalizedValue)" },
+            topicTagNames: mergedAnalysis.topics
+                .prefix(3)
+                .map { "topic:\($0)" }
+        )
+    }
+
+    private func appendExpandedQueries(
+        texts: [String],
+        type: ExpansionType,
+        weight: Double,
+        budget: inout Int,
+        seen: inout Set<String>,
+        into queries: inout [WeightedQuery]
+    ) {
+        guard budget > 0 else { return }
+        guard weight > 0 else { return }
+
+        for text in texts where budget > 0 {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 
             let key = normalizedComparisonKey(for: trimmed)
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
 
-            expanded.append(
+            queries.append(
                 WeightedQuery(
                     text: trimmed,
-                    weight: query.expansionQueryWeight,
-                    expansionType: alternative.type
+                    weight: weight,
+                    expansionType: type
                 )
             )
-
-            if expanded.count >= (query.expansionLimit + 1) {
-                break
-            }
+            budget -= 1
         }
-
-        return expanded
     }
 
     private func embedExpandedQueries(
@@ -2355,7 +2586,7 @@ public actor MemoryIndex {
     }
 
     private func hasStrongLexicalSignal(query: SearchQuery, hits: [LexicalHit]) -> Bool {
-        guard query.expansionLimit > 0, configuration.queryExpander != nil else {
+        guard query.expansionLimit > 0, configuration.structuredQueryExpander != nil else {
             return false
         }
         guard let top = hits.first else { return false }

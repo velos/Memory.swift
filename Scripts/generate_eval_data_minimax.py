@@ -10,7 +10,7 @@ Outputs:
 Environment variables:
   - ANTHROPIC_BASE_URL (default: https://api.minimax.io/anthropic)
   - ANTHROPIC_API_KEY or MINIMAX_API_KEY or ANTHROPIC_AUTH_TOKEN (required)
-  - MINIMAX_MODEL (default: MiniMax-M2.5)
+  - MINIMAX_MODEL (default: MiniMax-M2.7)
 
 Usage:
   python3 Scripts/generate_eval_data_minimax.py --dataset-root Evals/general --dataset-mode general --env-file .env
@@ -78,7 +78,7 @@ QUERY_STYLE_ROTATION: List[Dict[str, str]] = [
 ]
 
 DEFAULT_BASE_URL = "https://api.minimax.io/anthropic"
-DEFAULT_MODEL = "MiniMax-M2.5"
+DEFAULT_MODEL = "MiniMax-M2.7"
 DEFAULT_PROMPT_VERSION = "2026-03-15"
 
 DATASET_MODES = ("general", "tech", "longmemeval-typed-queries", "adversarial-augment")
@@ -1177,7 +1177,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dataset-root", default="Evals", help="Dataset root folder (default: Evals).")
     parser.add_argument("--env-file", default=".env", help="Path to .env file (default: .env).")
     parser.add_argument("--base-url", default=None, help="Anthropic-compatible base URL.")
-    parser.add_argument("--model", default=None, help="Model name (default: MiniMax-M2.5 or MINIMAX_MODEL env).")
+    parser.add_argument("--model", default=None, help="Model name (default: MiniMax-M2.7 or MINIMAX_MODEL env).")
     parser.add_argument(
         "--dataset-mode",
         choices=DATASET_MODES,
