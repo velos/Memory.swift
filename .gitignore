@@ -7,7 +7,14 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
+.vscode/
 Evals/**/runs/
 Evals/**/cache/
 Evals/**/*.sqlite
+Evals/local_nc/
+Evals/_audit/
 .env
+.pycache
+.codex
+.opencode-*
+/Explorations/

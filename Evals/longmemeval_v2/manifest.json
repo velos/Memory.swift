@@ -1,0 +1,35 @@
+{
+  "dataset": "longmemeval_v2",
+  "provenance": "external_converted_plus_minimax_query_metadata",
+  "synthetic_status": "mixed_external",
+  "primary_use": "staging_candidate",
+  "license_scope": "commercial_safe",
+  "promotion_status": "draft",
+  "source_datasets": [
+    {
+      "name": "xiaowu0162/longmemeval-cleaned",
+      "license": "MIT",
+      "splits": [
+        "oracle"
+      ]
+    }
+  ],
+  "audit": {
+    "sample_sizes": {
+      "query_tags": 50,
+      "document_tags": 25,
+      "storage_cases": 50
+    }
+  },
+  "known_limits": [
+    "Source documents come from converted LongMemEval oracle split.",
+    "memory_types and difficulty labels were added with MiniMax single-pass query tagging."
+  ],
+  "recommended_weight": "primary",
+  "tagging": {
+    "backend": "minimax_anthropic_api",
+    "model": "MiniMax-M2.5",
+    "prompt_version": "2026-03-15-minimax-tagging-v1",
+    "auto_accept_policy": "single_pass_document,single_pass_query_and_storage"
+  }
+}

@@ -83,17 +83,38 @@ public struct ExpandedQuery: Sendable {
     }
 }
 
-public protocol QueryExpander: Sendable {
-    var identifier: String { get }
-    func expand(query: SearchQuery, limit: Int) async throws -> [String]
-    func expandTyped(query: SearchQuery, limit: Int) async throws -> [ExpandedQuery]
+public struct StructuredQueryExpansion: Sendable, Codable, Hashable {
+    public var lexicalQueries: [String]
+    public var semanticQueries: [String]
+    public var hypotheticalDocuments: [String]
+    public var facetHints: [FacetHint]
+    public var entities: [MemoryEntity]
+    public var topics: [String]
+
+    public init(
+        lexicalQueries: [String] = [],
+        semanticQueries: [String] = [],
+        hypotheticalDocuments: [String] = [],
+        facetHints: [FacetHint] = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = []
+    ) {
+        self.lexicalQueries = lexicalQueries
+        self.semanticQueries = semanticQueries
+        self.hypotheticalDocuments = hypotheticalDocuments
+        self.facetHints = facetHints
+        self.entities = entities
+        self.topics = topics
+    }
 }
 
-public extension QueryExpander {
-    func expandTyped(query: SearchQuery, limit: Int) async throws -> [ExpandedQuery] {
-        let plain = try await expand(query: query, limit: limit)
-        return plain.map { ExpandedQuery(text: $0, type: .semantic) }
-    }
+public protocol StructuredQueryExpander: Sendable {
+    var identifier: String { get }
+    func expand(
+        query: SearchQuery,
+        analysis: QueryAnalysis,
+        limit: Int
+    ) async throws -> StructuredQueryExpansion
 }
 
 public protocol Reranker: Sendable {
@@ -108,16 +129,14 @@ public protocol ContentTagger: Sendable {
 
 public protocol MemoryExtractor: Sendable {
     var identifier: String { get }
-    func extract(messages: [ConversationMessage], limit: Int) async throws -> [ExtractedMemory]
+    func extract(messages: [ConversationMessage], limit: Int) async throws -> [MemoryCandidate]
 }
 
 public struct RecallPlan: Sendable {
     public var query: String
-    public var memoryTypes: Set<MemoryType>?
 
-    public init(query: String, memoryTypes: Set<MemoryType>? = nil) {
+    public init(query: String) {
         self.query = query
-        self.memoryTypes = memoryTypes
     }
 }
 
@@ -131,20 +150,23 @@ public protocol RecallPlanner: Sendable {
 }
 
 public struct QueryAnalysis: Sendable {
-    public var entities: [String]
+    public var entities: [MemoryEntity]
     public var keyTerms: [String]
-    public var suggestedMemoryTypes: Set<MemoryType>?
+    public var facetHints: [FacetHint]
+    public var topics: [String]
     public var isHowToQuery: Bool
 
     public init(
-        entities: [String] = [],
+        entities: [MemoryEntity] = [],
         keyTerms: [String] = [],
-        suggestedMemoryTypes: Set<MemoryType>? = nil,
+        facetHints: [FacetHint] = [],
+        topics: [String] = [],
         isHowToQuery: Bool = false
     ) {
         self.entities = entities
         self.keyTerms = keyTerms
-        self.suggestedMemoryTypes = suggestedMemoryTypes
+        self.facetHints = facetHints
+        self.topics = topics
         self.isHowToQuery = isHowToQuery
     }
 }
@@ -165,13 +187,12 @@ public protocol Chunker: Sendable {
 public struct MemoryConfiguration: Sendable {
     public var databaseURL: URL
     public var embeddingProvider: any EmbeddingProvider
-    public var queryExpander: (any QueryExpander)?
+    public var structuredQueryExpander: (any StructuredQueryExpander)?
     public var reranker: (any Reranker)?
     public var contentTagger: (any ContentTagger)?
     public var memoryExtractor: (any MemoryExtractor)?
     public var recallPlanner: (any RecallPlanner)?
     public var queryAnalyzer: (any QueryAnalyzer)?
-    public var memoryTyping: MemoryTypingConfiguration
     public var tokenizer: any Tokenizer
     public var chunker: any Chunker
     public var supportedFileExtensions: Set<String>
@@ -184,13 +205,12 @@ public struct MemoryConfiguration: Sendable {
     public init(
         databaseURL: URL,
         embeddingProvider: any EmbeddingProvider,
-        queryExpander: (any QueryExpander)? = nil,
+        structuredQueryExpander: (any StructuredQueryExpander)? = nil,
         reranker: (any Reranker)? = nil,
         contentTagger: (any ContentTagger)? = nil,
         memoryExtractor: (any MemoryExtractor)? = nil,
         recallPlanner: (any RecallPlanner)? = nil,
         queryAnalyzer: (any QueryAnalyzer)? = nil,
-        memoryTyping: MemoryTypingConfiguration = .default,
         tokenizer: any Tokenizer = DefaultTokenizer(),
         chunker: any Chunker = DefaultChunker(),
         supportedFileExtensions: Set<String> = Self.defaultSupportedExtensions,
@@ -202,13 +222,12 @@ public struct MemoryConfiguration: Sendable {
     ) {
         self.databaseURL = databaseURL
         self.embeddingProvider = embeddingProvider
-        self.queryExpander = queryExpander
+        self.structuredQueryExpander = structuredQueryExpander
         self.reranker = reranker
         self.contentTagger = contentTagger
         self.memoryExtractor = memoryExtractor
         self.recallPlanner = recallPlanner
         self.queryAnalyzer = queryAnalyzer
-        self.memoryTyping = memoryTyping
         self.tokenizer = tokenizer
         self.chunker = chunker
         self.supportedFileExtensions = supportedFileExtensions

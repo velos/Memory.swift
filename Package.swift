@@ -59,7 +59,7 @@ let package = Package(
         ),
         .target(
             name: "MemoryCoreMLEmbedding",
-            dependencies: ["Memory"],
+            dependencies: ["Memory", "MemoryNaturalLanguage"],
             path: "Sources/MemoryCoreMLEmbedding",
             resources: [
                 .copy("Resources/vocab.txt"),
@@ -72,6 +72,7 @@ let package = Package(
                 "Memory",
                 "MemoryNaturalLanguage",
                 "MemoryAppleIntelligence",
+                "MemoryCoreMLEmbedding",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/MemoryCLI"

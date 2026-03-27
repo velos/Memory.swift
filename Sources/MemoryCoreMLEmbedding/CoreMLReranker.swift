@@ -17,7 +17,7 @@ public actor CoreMLReranker: Reranker {
         maxSequenceLength: Int = 512,
         batchSize: Int = 8,
         documentCharacterLimit: Int = 4_096,
-        identifier: String = "coreml-tinybert-reranker",
+        identifier: String = "coreml-reranker-v1",
         computeUnits: MLComputeUnits = .all
     ) throws {
         self.identifier = identifier

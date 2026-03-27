@@ -12,6 +12,25 @@ public struct StoredChunkTag: Sendable, Codable, Hashable {
     }
 }
 
+public struct StoredMemoryEntity: Sendable, Codable, Hashable {
+    public var label: String
+    public var value: String
+    public var normalizedValue: String
+    public var confidence: Double?
+
+    public init(
+        label: String,
+        value: String,
+        normalizedValue: String,
+        confidence: Double? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.normalizedValue = normalizedValue
+        self.confidence = confidence.map { min(1, max(0, $0)) }
+    }
+}
+
 public struct StoredChunkInput: Sendable {
     public var ordinal: Int
     public var content: String
@@ -22,7 +41,7 @@ public struct StoredChunkInput: Sendable {
     public var memoryTypeOverrideSource: String?
     public var memoryTypeOverrideConfidence: Double?
     public var contentTags: [StoredChunkTag]
-    public var memoryCategory: String?
+    public var memoryKind: String?
     public var importance: Double
     public var accessCount: Int
     public var lastAccessedAt: Date?
@@ -39,7 +58,7 @@ public struct StoredChunkInput: Sendable {
         memoryTypeOverrideSource: String? = nil,
         memoryTypeOverrideConfidence: Double? = nil,
         contentTags: [StoredChunkTag] = [],
-        memoryCategory: String? = nil,
+        memoryKind: String? = nil,
         importance: Double = 0.5,
         accessCount: Int = 0,
         lastAccessedAt: Date? = nil,
@@ -55,7 +74,7 @@ public struct StoredChunkInput: Sendable {
         self.memoryTypeOverrideSource = memoryTypeOverrideSource
         self.memoryTypeOverrideConfidence = memoryTypeOverrideConfidence
         self.contentTags = contentTags
-        self.memoryCategory = memoryCategory
+        self.memoryKind = memoryKind
         self.importance = min(1, max(0, importance))
         self.accessCount = max(0, accessCount)
         self.lastAccessedAt = lastAccessedAt
@@ -69,6 +88,10 @@ public struct StoredDocumentInput: Sendable {
     public var title: String?
     public var modifiedAt: Date
     public var checksum: String
+    public var memoryID: String?
+    public var memoryKind: String?
+    public var memoryStatus: String?
+    public var memoryCanonicalKey: String?
     public var memoryType: String
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
@@ -79,6 +102,10 @@ public struct StoredDocumentInput: Sendable {
         title: String?,
         modifiedAt: Date,
         checksum: String,
+        memoryID: String? = nil,
+        memoryKind: String? = nil,
+        memoryStatus: String? = nil,
+        memoryCanonicalKey: String? = nil,
         memoryType: String = "factual",
         memoryTypeSource: String = "fallback",
         memoryTypeConfidence: Double? = nil,
@@ -88,6 +115,10 @@ public struct StoredDocumentInput: Sendable {
         self.title = title
         self.modifiedAt = modifiedAt
         self.checksum = checksum
+        self.memoryID = memoryID
+        self.memoryKind = memoryKind
+        self.memoryStatus = memoryStatus
+        self.memoryCanonicalKey = memoryCanonicalKey
         self.memoryType = memoryType
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
@@ -103,11 +134,15 @@ public struct StoredChunkEmbedding: Sendable {
     public var documentPath: String
     public var title: String?
     public var modifiedAt: Date
+    public var memoryID: String?
+    public var memoryKind: String?
+    public var memoryStatus: String?
+    public var memoryCanonicalKey: String?
     public var memoryType: String
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
     public var contentTags: [StoredChunkTag]
-    public var memoryCategory: String
+    public var memoryKindFallback: String
     public var importance: Double
     public var accessCount: Int
     public var lastAccessedAt: Date?
@@ -122,11 +157,15 @@ public struct StoredChunkEmbedding: Sendable {
         documentPath: String,
         title: String?,
         modifiedAt: Date,
+        memoryID: String? = nil,
+        memoryKind: String? = nil,
+        memoryStatus: String? = nil,
+        memoryCanonicalKey: String? = nil,
         memoryType: String,
         memoryTypeSource: String,
         memoryTypeConfidence: Double?,
         contentTags: [StoredChunkTag] = [],
-        memoryCategory: String,
+        memoryKindFallback: String,
         importance: Double,
         accessCount: Int,
         lastAccessedAt: Date?,
@@ -140,11 +179,15 @@ public struct StoredChunkEmbedding: Sendable {
         self.documentPath = documentPath
         self.title = title
         self.modifiedAt = modifiedAt
+        self.memoryID = memoryID
+        self.memoryKind = memoryKind
+        self.memoryStatus = memoryStatus
+        self.memoryCanonicalKey = memoryCanonicalKey
         self.memoryType = memoryType
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
         self.contentTags = contentTags
-        self.memoryCategory = memoryCategory
+        self.memoryKindFallback = memoryKindFallback
         self.importance = min(1, max(0, importance))
         self.accessCount = max(0, accessCount)
         self.lastAccessedAt = lastAccessedAt
@@ -159,11 +202,15 @@ public struct StoredChunkMetadata: Sendable {
     public var documentPath: String
     public var title: String?
     public var modifiedAt: Date
+    public var memoryID: String?
+    public var memoryKind: String?
+    public var memoryStatus: String?
+    public var memoryCanonicalKey: String?
     public var memoryType: String
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
     public var contentTags: [StoredChunkTag]
-    public var memoryCategory: String
+    public var memoryKindFallback: String
     public var importance: Double
     public var accessCount: Int
     public var lastAccessedAt: Date?
@@ -176,11 +223,15 @@ public struct StoredChunkMetadata: Sendable {
         documentPath: String,
         title: String?,
         modifiedAt: Date,
+        memoryID: String? = nil,
+        memoryKind: String? = nil,
+        memoryStatus: String? = nil,
+        memoryCanonicalKey: String? = nil,
         memoryType: String,
         memoryTypeSource: String,
         memoryTypeConfidence: Double?,
         contentTags: [StoredChunkTag] = [],
-        memoryCategory: String,
+        memoryKindFallback: String,
         importance: Double,
         accessCount: Int,
         lastAccessedAt: Date?,
@@ -192,17 +243,115 @@ public struct StoredChunkMetadata: Sendable {
         self.documentPath = documentPath
         self.title = title
         self.modifiedAt = modifiedAt
+        self.memoryID = memoryID
+        self.memoryKind = memoryKind
+        self.memoryStatus = memoryStatus
+        self.memoryCanonicalKey = memoryCanonicalKey
         self.memoryType = memoryType
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
         self.contentTags = contentTags
-        self.memoryCategory = memoryCategory
+        self.memoryKindFallback = memoryKindFallback
         self.importance = min(1, max(0, importance))
         self.accessCount = max(0, accessCount)
         self.lastAccessedAt = lastAccessedAt
         self.source = source
         self.createdAt = createdAt
     }
+}
+
+public struct StoredMemoryInput: Sendable {
+    public var id: String
+    public var title: String?
+    public var kind: String
+    public var status: String
+    public var canonicalKey: String?
+    public var text: String
+    public var tags: [String]
+    public var facetTags: [String]
+    public var entities: [StoredMemoryEntity]
+    public var topics: [String]
+    public var importance: Double
+    public var confidence: Double?
+    public var source: String
+    public var createdAt: Date
+    public var eventAt: Date?
+    public var updatedAt: Date
+    public var supersedesID: String?
+    public var supersededByID: String?
+    public var metadata: [String: String]
+
+    public init(
+        id: String,
+        title: String?,
+        kind: String,
+        status: String,
+        canonicalKey: String?,
+        text: String,
+        tags: [String],
+        facetTags: [String],
+        entities: [StoredMemoryEntity],
+        topics: [String],
+        importance: Double,
+        confidence: Double?,
+        source: String,
+        createdAt: Date,
+        eventAt: Date?,
+        updatedAt: Date,
+        supersedesID: String?,
+        supersededByID: String?,
+        metadata: [String: String]
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.status = status
+        self.canonicalKey = canonicalKey
+        self.text = text
+        self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
+        self.importance = min(1, max(0, importance))
+        self.confidence = confidence.map { min(1, max(0, $0)) }
+        self.source = source
+        self.createdAt = createdAt
+        self.eventAt = eventAt
+        self.updatedAt = updatedAt
+        self.supersedesID = supersedesID
+        self.supersededByID = supersededByID
+        self.metadata = metadata
+    }
+}
+
+public struct StoredMemoryRecord: Sendable, Codable, Hashable {
+    public var id: String
+    public var title: String?
+    public var kind: String
+    public var status: String
+    public var canonicalKey: String?
+    public var text: String
+    public var tags: [String]
+    public var facetTags: [String]
+    public var entities: [StoredMemoryEntity]
+    public var topics: [String]
+    public var importance: Double
+    public var confidence: Double?
+    public var source: String
+    public var createdAt: Date
+    public var eventAt: Date?
+    public var updatedAt: Date
+    public var supersedesID: String?
+    public var supersededByID: String?
+    public var metadata: [String: String]
+    public var chunkID: Int64?
+    public var documentPath: String?
+    public var accessCount: Int
+    public var lastAccessedAt: Date?
+    public var legacyDocumentType: String
+    public var legacyDocumentTypeSource: String
+    public var legacyDocumentTypeConfidence: Double?
+    public var contentTags: [StoredChunkTag]
 }
 
 public enum StoredMemorySort: Sendable {
@@ -226,7 +375,7 @@ public actor MemoryStorage {
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
     private static let schemaMetadataTableName = "memory_schema_metadata"
-    private static let schemaVersion = 1
+    private static let schemaVersion = 3
     private static let legacyTableNames: Set<String> = [
         "grdb_migrations",
         "documents",
@@ -292,19 +441,27 @@ public actor MemoryStorage {
                     title,
                     modified_at,
                     checksum,
+                    memory_id,
+                    memory_kind,
+                    memory_status,
+                    memory_canonical_key,
                     memory_type,
                     memory_type_source,
                     memory_type_confidence,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     input.path,
                     input.title,
                     input.modifiedAt.timeIntervalSince1970,
                     input.checksum,
+                    input.memoryID,
+                    input.memoryKind,
+                    input.memoryStatus,
+                    input.memoryCanonicalKey,
                     input.memoryType,
                     input.memoryTypeSource,
                     input.memoryTypeConfidence,
@@ -325,7 +482,7 @@ public actor MemoryStorage {
                         memory_type_override,
                         memory_type_override_source,
                         memory_type_override_confidence,
-                        memory_category,
+                        memory_kind,
                         importance,
                         access_count,
                         last_accessed_at,
@@ -343,7 +500,7 @@ public actor MemoryStorage {
                         chunk.memoryTypeOverride,
                         chunk.memoryTypeOverrideSource,
                         chunk.memoryTypeOverrideConfidence,
-                        chunk.memoryCategory ?? "observation",
+                        chunk.memoryKind,
                         chunk.importance,
                         chunk.accessCount,
                         chunk.lastAccessedAt?.timeIntervalSince1970,
@@ -422,10 +579,14 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
+                d.memory_id AS memory_id,
+                d.memory_kind AS memory_kind,
+                d.memory_status AS memory_status,
+                d.memory_canonical_key AS memory_canonical_key,
                 COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                 COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
                 COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                c.memory_category AS memory_category,
+                COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
                 c.importance AS importance,
                 c.access_count AS access_count,
                 c.last_accessed_at AS last_accessed_at,
@@ -453,10 +614,14 @@ public actor MemoryStorage {
             d.path AS document_path,
             d.title AS title,
             d.modified_at AS modified_at,
+            d.memory_id AS memory_id,
+            d.memory_kind AS memory_kind,
+            d.memory_status AS memory_status,
+            d.memory_canonical_key AS memory_canonical_key,
             COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
             COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
             COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-            c.memory_category AS memory_category,
+            COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
             c.importance AS importance,
             c.access_count AS access_count,
             c.last_accessed_at AS last_accessed_at,
@@ -480,10 +645,14 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
+                d.memory_id AS memory_id,
+                d.memory_kind AS memory_kind,
+                d.memory_status AS memory_status,
+                d.memory_canonical_key AS memory_canonical_key,
                 COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                 COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
                 COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                c.memory_category AS memory_category,
+                COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
                 c.importance AS importance,
                 c.access_count AS access_count,
                 c.last_accessed_at AS last_accessed_at,
@@ -516,10 +685,14 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
+                d.memory_id AS memory_id,
+                d.memory_kind AS memory_kind,
+                d.memory_status AS memory_status,
+                d.memory_canonical_key AS memory_canonical_key,
                 COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                 COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
                 COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                c.memory_category AS memory_category,
+                COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
                 c.importance AS importance,
                 c.access_count AS access_count,
                 c.last_accessed_at AS last_accessed_at,
@@ -538,7 +711,7 @@ public actor MemoryStorage {
     public func listMemoryMetadata(
         limit: Int,
         sort: StoredMemorySort,
-        memoryCategory: String? = nil,
+        memoryKind: String? = nil,
         allowedMemoryTypes: Set<String>? = nil
     ) throws -> [StoredChunkMetadata] {
         guard limit > 0 else { return [] }
@@ -546,10 +719,12 @@ public actor MemoryStorage {
         var arguments: [Any?] = []
         var filters: [String] = []
 
-        if let memoryCategory {
-            let trimmed = memoryCategory.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        filters.append("d.memory_id IS NOT NULL")
+
+        if let memoryKind {
+            let trimmed = memoryKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if !trimmed.isEmpty {
-                filters.append("c.memory_category = ?")
+                filters.append("d.memory_kind = ?")
                 arguments.append(trimmed)
             }
         }
@@ -579,10 +754,14 @@ public actor MemoryStorage {
             d.path AS document_path,
             d.title AS title,
             d.modified_at AS modified_at,
+            d.memory_id AS memory_id,
+            d.memory_kind AS memory_kind,
+            d.memory_status AS memory_status,
+            d.memory_canonical_key AS memory_canonical_key,
             COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
             COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
             COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-            c.memory_category AS memory_category,
+            COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
             c.importance AS importance,
             c.access_count AS access_count,
             c.last_accessed_at AS last_accessed_at,
@@ -598,6 +777,302 @@ public actor MemoryStorage {
         arguments.append(limit)
 
         return try database.fetchAll(sql: sql, arguments: arguments).map(Self.makeChunkMetadata(from:))
+    }
+
+    public func fetchMemoryChunkIDs(
+        kinds: Set<String>? = nil,
+        statuses: Set<String>? = nil
+    ) throws -> [Int64] {
+        var arguments: [Any?] = []
+        var filters: [String] = ["d.memory_id IS NOT NULL"]
+
+        if let kinds, !kinds.isEmpty {
+            let orderedKinds = kinds.sorted()
+            filters.append("d.memory_kind IN (\(SQLiteDatabase.placeholders(count: orderedKinds.count)))")
+            arguments.append(contentsOf: orderedKinds)
+        }
+
+        if let statuses, !statuses.isEmpty {
+            let orderedStatuses = statuses.sorted()
+            filters.append("d.memory_status IN (\(SQLiteDatabase.placeholders(count: orderedStatuses.count)))")
+            arguments.append(contentsOf: orderedStatuses)
+        }
+
+        return try database.fetchAll(
+            sql: """
+            SELECT c.id
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE \(filters.joined(separator: " AND "))
+            ORDER BY c.id ASC
+            """,
+            arguments: arguments,
+            as: Int64.self
+        )
+    }
+
+    public func fetchStoredMemory(id: String) throws -> StoredMemoryRecord? {
+        let row = try database.fetchOne(
+            sql: """
+            SELECT
+                m.id AS id,
+                m.title AS title,
+                m.kind AS kind,
+                m.status AS status,
+                m.canonical_key AS canonical_key,
+                m.text AS text,
+                m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
+                m.importance AS importance,
+                m.confidence AS confidence,
+                m.source AS source,
+                m.created_at AS created_at,
+                m.event_at AS event_at,
+                m.updated_at AS updated_at,
+                m.supersedes_id AS supersedes_id,
+                m.superseded_by_id AS superseded_by_id,
+                m.metadata_json AS metadata_json,
+                c.id AS chunk_id,
+                d.path AS document_path,
+                COALESCE(c.access_count, 0) AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM memories m
+            LEFT JOIN documents d ON d.memory_id = m.id
+            LEFT JOIN chunks c ON c.document_id = d.id AND c.ordinal = 0
+            WHERE m.id = ?
+            """,
+            arguments: [id]
+        )
+
+        return row.map(Self.makeStoredMemoryRecord(from:))
+    }
+
+    public func listStoredMemories(
+        limit: Int,
+        sort: StoredMemorySort,
+        kinds: Set<String>? = nil,
+        statuses: Set<String>? = nil
+    ) throws -> [StoredMemoryRecord] {
+        guard limit > 0 else { return [] }
+
+        var arguments: [Any?] = []
+        var filters: [String] = []
+
+        if let kinds, !kinds.isEmpty {
+            let orderedKinds = kinds.sorted()
+            filters.append("m.kind IN (\(SQLiteDatabase.placeholders(count: orderedKinds.count)))")
+            arguments.append(contentsOf: orderedKinds)
+        }
+
+        if let statuses, !statuses.isEmpty {
+            let orderedStatuses = statuses.sorted()
+            filters.append("m.status IN (\(SQLiteDatabase.placeholders(count: orderedStatuses.count)))")
+            arguments.append(contentsOf: orderedStatuses)
+        }
+
+        let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
+
+        let orderClause: String
+        switch sort {
+        case .recent:
+            orderClause = "ORDER BY m.created_at DESC, m.id DESC"
+        case .importance:
+            orderClause = "ORDER BY m.importance DESC, m.created_at DESC, m.id DESC"
+        case .mostAccessed:
+            orderClause = "ORDER BY COALESCE(c.access_count, 0) DESC, COALESCE(c.last_accessed_at, 0) DESC, m.created_at DESC, m.id DESC"
+        }
+
+        arguments.append(limit)
+
+        return try database.fetchAll(
+            sql: """
+            SELECT
+                m.id AS id,
+                m.title AS title,
+                m.kind AS kind,
+                m.status AS status,
+                m.canonical_key AS canonical_key,
+                m.text AS text,
+                m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
+                m.importance AS importance,
+                m.confidence AS confidence,
+                m.source AS source,
+                m.created_at AS created_at,
+                m.event_at AS event_at,
+                m.updated_at AS updated_at,
+                m.supersedes_id AS supersedes_id,
+                m.superseded_by_id AS superseded_by_id,
+                m.metadata_json AS metadata_json,
+                c.id AS chunk_id,
+                d.path AS document_path,
+                COALESCE(c.access_count, 0) AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM memories m
+            LEFT JOIN documents d ON d.memory_id = m.id
+            LEFT JOIN chunks c ON c.document_id = d.id AND c.ordinal = 0
+            \(whereClause)
+            \(orderClause)
+            LIMIT ?
+            """,
+            arguments: arguments
+        ).map(Self.makeStoredMemoryRecord(from:))
+    }
+
+    public func findStoredMemory(
+        kind: String,
+        canonicalKey: String,
+        statuses: Set<String>
+    ) throws -> StoredMemoryRecord? {
+        let orderedStatuses = statuses.sorted()
+        let row = try database.fetchOne(
+            sql: """
+            SELECT
+                m.id AS id,
+                m.title AS title,
+                m.kind AS kind,
+                m.status AS status,
+                m.canonical_key AS canonical_key,
+                m.text AS text,
+                m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
+                m.importance AS importance,
+                m.confidence AS confidence,
+                m.source AS source,
+                m.created_at AS created_at,
+                m.event_at AS event_at,
+                m.updated_at AS updated_at,
+                m.supersedes_id AS supersedes_id,
+                m.superseded_by_id AS superseded_by_id,
+                m.metadata_json AS metadata_json,
+                c.id AS chunk_id,
+                d.path AS document_path,
+                COALESCE(c.access_count, 0) AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM memories m
+            LEFT JOIN documents d ON d.memory_id = m.id
+            LEFT JOIN chunks c ON c.document_id = d.id AND c.ordinal = 0
+            WHERE m.kind = ? AND m.canonical_key = ?
+              AND m.status IN (\(SQLiteDatabase.placeholders(count: orderedStatuses.count)))
+            ORDER BY m.updated_at DESC
+            LIMIT 1
+            """,
+            arguments: [kind, canonicalKey] + orderedStatuses
+        )
+
+        return row.map(Self.makeStoredMemoryRecord(from:))
+    }
+
+    public func findDuplicateStoredMemory(kind: String, text: String) throws -> StoredMemoryRecord? {
+        let row = try database.fetchOne(
+            sql: """
+            SELECT
+                m.id AS id,
+                m.title AS title,
+                m.kind AS kind,
+                m.status AS status,
+                m.canonical_key AS canonical_key,
+                m.text AS text,
+                m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
+                m.importance AS importance,
+                m.confidence AS confidence,
+                m.source AS source,
+                m.created_at AS created_at,
+                m.event_at AS event_at,
+                m.updated_at AS updated_at,
+                m.supersedes_id AS supersedes_id,
+                m.superseded_by_id AS superseded_by_id,
+                m.metadata_json AS metadata_json,
+                c.id AS chunk_id,
+                d.path AS document_path,
+                COALESCE(c.access_count, 0) AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM memories m
+            LEFT JOIN documents d ON d.memory_id = m.id
+            LEFT JOIN chunks c ON c.document_id = d.id AND c.ordinal = 0
+            WHERE m.kind = ? AND m.text = ? AND m.status = 'active'
+            ORDER BY m.updated_at DESC
+            LIMIT 1
+            """,
+            arguments: [kind, text]
+        )
+
+        return row.map(Self.makeStoredMemoryRecord(from:))
+    }
+
+    public func insertStoredMemory(_ input: StoredMemoryInput) throws {
+        try database.execute(
+            sql: """
+            INSERT INTO memories (
+                id, kind, status, canonical_key, title, text, tags_json, facet_tags_json,
+                entities_json, topics_json, importance, confidence, source, created_at,
+                event_at, updated_at, supersedes_id, superseded_by_id, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                input.id,
+                input.kind,
+                input.status,
+                input.canonicalKey,
+                input.title,
+                input.text,
+                Self.encodeStringArray(input.tags),
+                Self.encodeStringArray(input.facetTags),
+                Self.encodeStoredMemoryEntities(input.entities),
+                Self.encodeStringArray(input.topics),
+                input.importance,
+                input.confidence,
+                input.source,
+                input.createdAt.timeIntervalSince1970,
+                input.eventAt?.timeIntervalSince1970,
+                input.updatedAt.timeIntervalSince1970,
+                input.supersedesID,
+                input.supersededByID,
+                Self.encodeMetadata(input.metadata),
+            ]
+        )
+    }
+
+    public func updateStoredMemoryStatus(
+        id: String,
+        status: String,
+        supersededByID: String? = nil,
+        updatedAt: Date = Date()
+    ) throws {
+        try database.execute(
+            sql: """
+            UPDATE memories
+            SET status = ?, superseded_by_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            arguments: [status, supersededByID, updatedAt.timeIntervalSince1970, id]
+        )
     }
 
     public func recordChunkAccesses(_ chunkIDs: [Int64], accessedAt: Date = Date()) throws {
@@ -676,6 +1151,78 @@ public actor MemoryStorage {
             }
             .prefix(effectiveLimit)
             .map { $0 }
+    }
+
+    public func contentTagSearch(
+        tagNames: [String],
+        limit: Int,
+        allowedChunkIDs: Set<Int64>? = nil,
+        allowedMemoryTypes: Set<String>? = nil
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+
+        let normalizedTags = Array(
+            Set(
+                tagNames
+                    .map {
+                        $0
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .lowercased()
+                    }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+
+        guard !normalizedTags.isEmpty else { return [] }
+        if let allowedChunkIDs, allowedChunkIDs.isEmpty {
+            return []
+        }
+        if let allowedMemoryTypes, allowedMemoryTypes.isEmpty {
+            return []
+        }
+
+        var arguments: [Any?] = normalizedTags
+        var predicates: [String] = [
+            "json_extract(jt.value, '$.name') IN (\(SQLiteDatabase.placeholders(count: normalizedTags.count)))"
+        ]
+
+        if let allowedChunkIDs {
+            let sortedChunkIDs = Array(allowedChunkIDs).sorted()
+            predicates.append("c.id IN (\(SQLiteDatabase.placeholders(count: sortedChunkIDs.count)))")
+            arguments.append(contentsOf: sortedChunkIDs)
+        }
+
+        if let allowedMemoryTypes {
+            let sortedTypes = Array(allowedMemoryTypes).sorted()
+            predicates.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(SQLiteDatabase.placeholders(count: sortedTypes.count)))")
+            arguments.append(contentsOf: sortedTypes)
+        }
+
+        arguments.append(limit)
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT
+                c.id AS chunk_id,
+                SUM(COALESCE(json_extract(jt.value, '$.confidence'), 0.6)) AS score
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            JOIN json_each(COALESCE(c.content_tags_json, '[]')) jt
+            WHERE \(predicates.joined(separator: " AND "))
+            GROUP BY c.id
+            ORDER BY score DESC, c.id ASC
+            LIMIT ?
+            """,
+            arguments: arguments
+        )
+
+        return rows.map { row in
+            LexicalHit(
+                chunkID: row["chunk_id"],
+                score: row["score"]
+            )
+        }
     }
 
     public func vectorSearch(
@@ -838,10 +1385,14 @@ public actor MemoryStorage {
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
+                d.memory_id AS memory_id,
+                d.memory_kind AS memory_kind,
+                d.memory_status AS memory_status,
+                d.memory_canonical_key AS memory_canonical_key,
                 COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
                 COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
                 COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-                c.memory_category AS memory_category,
+                COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
                 c.importance AS importance,
                 c.access_count AS access_count,
                 c.last_accessed_at AS last_accessed_at,
@@ -856,50 +1407,6 @@ public actor MemoryStorage {
             """,
             arguments: [contextID]
         ).map(Self.makeChunkMetadata(from:))
-    }
-
-    @discardableResult
-    public func setDocumentMemoryType(
-        path: String,
-        type: String,
-        source: String,
-        confidence: Double?
-    ) throws -> Bool {
-        try database.transaction {
-            let now = Date().timeIntervalSince1970
-            try database.execute(
-                sql: """
-                UPDATE documents
-                SET memory_type = ?, memory_type_source = ?, memory_type_confidence = ?, updated_at = ?
-                WHERE path = ?
-                """,
-                arguments: [type, source, confidence, now, path]
-            )
-            return database.changesCount > 0
-        }
-    }
-
-    @discardableResult
-    public func setChunkMemoryTypeOverride(
-        chunkID: Int64,
-        type: String?,
-        source: String?,
-        confidence: Double?
-    ) throws -> Bool {
-        try database.transaction {
-            try database.execute(
-                sql: """
-                UPDATE chunks
-                SET
-                    memory_type_override = ?,
-                    memory_type_override_source = ?,
-                    memory_type_override_confidence = ?
-                WHERE id = ?
-                """,
-                arguments: [type, source, confidence, chunkID]
-            )
-            return database.changesCount > 0
-        }
     }
 
     private static func openDatabase(at databaseURL: URL) throws -> SQLiteDatabase {
@@ -974,15 +1481,39 @@ public actor MemoryStorage {
                 sql: "SELECT version FROM \(Self.schemaMetadataTableName) LIMIT 1",
                 as: Int.self
             )
+            guard let version else {
+                throw SQLiteError(message: "Missing schema version.")
+            }
+            if version < Self.schemaVersion {
+                try database.transaction {
+                    try migrateSchema(in: database, from: version)
+                }
+                return
+            }
             guard version == Self.schemaVersion else {
-                let description = version.map(String.init) ?? "missing"
-                throw SQLiteError(message: "Unsupported schema version \(description).")
+                throw SQLiteError(message: "Unsupported schema version \(version).")
             }
             return
         }
 
         try database.transaction {
             try createLatestSchema(in: database)
+        }
+    }
+
+    private static func migrateSchema(in database: SQLiteDatabase, from version: Int) throws {
+        var currentVersion = version
+        while currentVersion < Self.schemaVersion {
+            switch currentVersion {
+            case 1:
+                try migrateV1ToV2(in: database)
+                currentVersion = 2
+            case 2:
+                try migrateV2ToV3(in: database)
+                currentVersion = 3
+            default:
+                throw SQLiteError(message: "Unsupported schema migration path from version \(currentVersion).")
+            }
         }
     }
 
@@ -1003,6 +1534,10 @@ public actor MemoryStorage {
                 title TEXT,
                 modified_at REAL NOT NULL,
                 checksum TEXT NOT NULL,
+                memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+                memory_kind TEXT,
+                memory_status TEXT,
+                memory_canonical_key TEXT,
                 memory_type TEXT NOT NULL DEFAULT 'factual',
                 memory_type_source TEXT NOT NULL DEFAULT 'fallback',
                 memory_type_confidence REAL,
@@ -1023,7 +1558,7 @@ public actor MemoryStorage {
                 memory_type_override TEXT,
                 memory_type_override_source TEXT,
                 memory_type_override_confidence REAL,
-                memory_category TEXT NOT NULL DEFAULT 'observation',
+                memory_kind TEXT,
                 importance REAL NOT NULL DEFAULT 0.5,
                 access_count INTEGER NOT NULL DEFAULT 0,
                 last_accessed_at REAL,
@@ -1034,6 +1569,34 @@ public actor MemoryStorage {
             """
         )
         try database.execute(sql: "CREATE INDEX chunks_document_ordinal ON chunks(document_id, ordinal)")
+
+        try database.execute(
+            sql: """
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                canonical_key TEXT,
+                title TEXT,
+                text TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                facet_tags_json TEXT NOT NULL DEFAULT '[]',
+                entities_json TEXT NOT NULL DEFAULT '[]',
+                topics_json TEXT NOT NULL DEFAULT '[]',
+                importance REAL NOT NULL DEFAULT 0.5,
+                confidence REAL,
+                source TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                event_at REAL,
+                updated_at REAL NOT NULL,
+                supersedes_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+                superseded_by_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX memories_kind_status ON memories(kind, status)")
+        try database.execute(sql: "CREATE INDEX memories_canonical_key ON memories(kind, canonical_key)")
 
         try database.execute(
             sql: """
@@ -1117,14 +1680,159 @@ public actor MemoryStorage {
         )
 
         try database.execute(sql: "CREATE INDEX documents_memory_type ON documents(memory_type)")
+        try database.execute(sql: "CREATE INDEX documents_memory_id ON documents(memory_id)")
+        try database.execute(sql: "CREATE INDEX documents_memory_kind_status ON documents(memory_kind, memory_status)")
         try database.execute(sql: "CREATE INDEX chunks_memory_type_override ON chunks(memory_type_override)")
-        try database.execute(sql: "CREATE INDEX chunks_memory_category ON chunks(memory_category)")
+        try database.execute(sql: "CREATE INDEX chunks_memory_kind ON chunks(memory_kind)")
         try database.execute(sql: "CREATE INDEX chunks_importance ON chunks(importance)")
         try database.execute(sql: "CREATE INDEX chunks_access_count ON chunks(access_count)")
         try database.execute(sql: "CREATE INDEX chunks_created_at ON chunks(created_at)")
 
         try database.execute(
             sql: "INSERT INTO \(Self.schemaMetadataTableName) (version) VALUES (?)",
+            arguments: [Self.schemaVersion]
+        )
+    }
+
+    private static func migrateV1ToV2(in database: SQLiteDatabase) throws {
+        try database.execute(sql: "ALTER TABLE documents ADD COLUMN memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL")
+        try database.execute(sql: "ALTER TABLE documents ADD COLUMN memory_kind TEXT")
+        try database.execute(sql: "ALTER TABLE documents ADD COLUMN memory_status TEXT")
+        try database.execute(sql: "ALTER TABLE documents ADD COLUMN memory_canonical_key TEXT")
+
+        try database.execute(sql: "ALTER TABLE chunks ADD COLUMN memory_kind TEXT")
+
+        try database.execute(
+            sql: """
+            CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                canonical_key TEXT,
+                title TEXT,
+                text TEXT NOT NULL,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                importance REAL NOT NULL DEFAULT 0.5,
+                confidence REAL,
+                source TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                event_at REAL,
+                updated_at REAL NOT NULL,
+                supersedes_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+                superseded_by_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX memories_kind_status ON memories(kind, status)")
+        try database.execute(sql: "CREATE INDEX memories_canonical_key ON memories(kind, canonical_key)")
+        try database.execute(sql: "CREATE INDEX documents_memory_id ON documents(memory_id)")
+        try database.execute(sql: "CREATE INDEX documents_memory_kind_status ON documents(memory_kind, memory_status)")
+        try database.execute(sql: "CREATE INDEX chunks_memory_kind ON chunks(memory_kind)")
+
+        let legacyRows = try database.fetchAll(
+            sql: """
+            SELECT
+                d.path AS path,
+                d.title AS title,
+                d.created_at AS created_at,
+                d.updated_at AS updated_at,
+                c.content AS content,
+                c.memory_category AS memory_category,
+                c.importance AS importance,
+                c.source AS source
+            FROM documents d
+            JOIN chunks c ON c.document_id = d.id
+            WHERE d.path LIKE 'memory://%' AND c.ordinal = 0
+            """
+        )
+
+        for row in legacyRows {
+            let path: String = row["path"]
+            let memoryID = path.replacingOccurrences(of: "memory://", with: "")
+            let legacyKind: String? = row["memory_category"]
+            let kind = mapLegacyMemoryKind(legacyKind)
+            let createdAt = Date(timeIntervalSince1970: row["created_at"])
+            let updatedAt = Date(timeIntervalSince1970: row["updated_at"])
+            let text: String = row["content"]
+            let canonicalKey = makeCanonicalKey(kind: kind, text: text)
+            try database.execute(
+                sql: """
+                INSERT OR REPLACE INTO memories (
+                    id, kind, status, canonical_key, title, text, tags_json, importance,
+                    confidence, source, created_at, event_at, updated_at, supersedes_id,
+                    superseded_by_id, metadata_json
+                )
+                VALUES (?, ?, 'active', ?, ?, ?, '[]', ?, NULL, ?, ?, NULL, ?, NULL, NULL, '{}')
+                """,
+                arguments: [
+                    memoryID,
+                    kind,
+                    canonicalKey,
+                    row["title"] as String?,
+                    text,
+                    row["importance"] as Double,
+                    row["source"] as String,
+                    createdAt.timeIntervalSince1970,
+                    updatedAt.timeIntervalSince1970,
+                ]
+            )
+            try database.execute(
+                sql: """
+                UPDATE documents
+                SET memory_id = ?, memory_kind = ?, memory_status = 'active', memory_canonical_key = ?
+                WHERE path = ?
+                """,
+                arguments: [memoryID, kind, canonicalKey, path]
+            )
+            try database.execute(
+                sql: """
+                UPDATE chunks
+                SET memory_kind = ?
+                WHERE document_id = (SELECT id FROM documents WHERE path = ?)
+                """,
+                arguments: [kind, path]
+            )
+        }
+
+        try database.execute(
+            sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
+            arguments: [2]
+        )
+    }
+
+    private static func migrateV2ToV3(in database: SQLiteDatabase) throws {
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN facet_tags_json TEXT NOT NULL DEFAULT '[]'")
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN entities_json TEXT NOT NULL DEFAULT '[]'")
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'")
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT id, kind, text, tags_json
+            FROM memories
+            """
+        )
+
+        for row in rows {
+            let kind: String = row["kind"]
+            let text: String = row["text"]
+            let tags = Self.decodeStringArray(row["tags_json"])
+            let facetTags = deriveFacetTags(kind: kind, text: text, tags: tags)
+            try database.execute(
+                sql: """
+                UPDATE memories
+                SET facet_tags_json = ?, entities_json = '[]', topics_json = '[]'
+                WHERE id = ?
+                """,
+                arguments: [
+                    Self.encodeStringArray(facetTags),
+                    row["id"] as String,
+                ]
+            )
+        }
+
+        try database.execute(
+            sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
             arguments: [Self.schemaVersion]
         )
     }
@@ -1368,11 +2076,15 @@ public actor MemoryStorage {
             documentPath: row["document_path"],
             title: row["title"],
             modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+            memoryID: row["memory_id"],
+            memoryKind: row["memory_kind"],
+            memoryStatus: row["memory_status"],
+            memoryCanonicalKey: row["memory_canonical_key"],
             memoryType: row["memory_type"],
             memoryTypeSource: row["memory_type_source"],
             memoryTypeConfidence: row["memory_type_confidence"],
             contentTags: Self.decodeContentTags(row["content_tags_json"]),
-            memoryCategory: row["memory_category"],
+            memoryKindFallback: row["memory_kind_fallback"],
             importance: row["importance"],
             accessCount: row["access_count"],
             lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
@@ -1388,16 +2100,52 @@ public actor MemoryStorage {
             documentPath: row["document_path"],
             title: row["title"],
             modifiedAt: Date(timeIntervalSince1970: row["modified_at"]),
+            memoryID: row["memory_id"],
+            memoryKind: row["memory_kind"],
+            memoryStatus: row["memory_status"],
+            memoryCanonicalKey: row["memory_canonical_key"],
             memoryType: row["memory_type"],
             memoryTypeSource: row["memory_type_source"],
             memoryTypeConfidence: row["memory_type_confidence"],
             contentTags: Self.decodeContentTags(row["content_tags_json"]),
-            memoryCategory: row["memory_category"],
+            memoryKindFallback: row["memory_kind_fallback"],
             importance: row["importance"],
             accessCount: row["access_count"],
             lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
             source: row["source"],
             createdAt: Date(timeIntervalSince1970: row["created_at"])
+        )
+    }
+
+    private static func makeStoredMemoryRecord(from row: SQLiteRow) -> StoredMemoryRecord {
+        StoredMemoryRecord(
+            id: row["id"],
+            title: row["title"],
+            kind: row["kind"],
+            status: row["status"],
+            canonicalKey: row["canonical_key"],
+            text: row["text"],
+            tags: Self.decodeStringArray(row["tags_json"]),
+            facetTags: Self.decodeStringArray(row["facet_tags_json"]),
+            entities: Self.decodeStoredMemoryEntities(row["entities_json"]),
+            topics: Self.decodeStringArray(row["topics_json"]),
+            importance: row["importance"],
+            confidence: row["confidence"],
+            source: row["source"],
+            createdAt: Date(timeIntervalSince1970: row["created_at"]),
+            eventAt: Self.decodeTimestamp(row["event_at"]),
+            updatedAt: Date(timeIntervalSince1970: row["updated_at"]),
+            supersedesID: row["supersedes_id"],
+            supersededByID: row["superseded_by_id"],
+            metadata: Self.decodeMetadata(row["metadata_json"]),
+            chunkID: row["chunk_id"],
+            documentPath: row["document_path"],
+            accessCount: row["access_count"],
+            lastAccessedAt: Self.decodeTimestamp(row["last_accessed_at"]),
+            legacyDocumentType: row["legacy_document_type"],
+            legacyDocumentTypeSource: row["legacy_document_type_source"],
+            legacyDocumentTypeConfidence: row["legacy_document_type_confidence"],
+            contentTags: Self.decodeContentTags(row["content_tags_json"])
         )
     }
 
@@ -1435,9 +2183,149 @@ public actor MemoryStorage {
         return (try? JSONDecoder().decode([StoredChunkTag].self, from: data)) ?? []
     }
 
+    private static func encodeStringArray(_ values: [String]) -> String {
+        guard !values.isEmpty else { return "[]" }
+        guard
+            let data = try? JSONEncoder().encode(values),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return encoded
+    }
+
+    private static func decodeStringArray(_ raw: String?) -> [String] {
+        guard let raw else { return [] }
+        guard let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+
+    private static func encodeStoredMemoryEntities(_ values: [StoredMemoryEntity]) -> String {
+        guard !values.isEmpty else { return "[]" }
+        guard
+            let data = try? JSONEncoder().encode(values),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return encoded
+    }
+
+    private static func decodeStoredMemoryEntities(_ raw: String?) -> [StoredMemoryEntity] {
+        guard let raw else { return [] }
+        guard let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([StoredMemoryEntity].self, from: data)) ?? []
+    }
+
+    private static func encodeMetadata(_ metadata: [String: String]) -> String {
+        guard !metadata.isEmpty else { return "{}" }
+        guard
+            let data = try? JSONEncoder().encode(metadata),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return encoded
+    }
+
+    private static func decodeMetadata(_ raw: String?) -> [String: String] {
+        guard let raw else { return [:] }
+        guard let data = raw.data(using: .utf8) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
     private static func decodeTimestamp(_ raw: Double?) -> Date? {
         guard let raw else { return nil }
         return Date(timeIntervalSince1970: raw)
+    }
+
+    private static func mapLegacyMemoryKind(_ raw: String?) -> String {
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "fact":
+            return "fact"
+        case "decision":
+            return "decision"
+        case "goal", "todo":
+            return "commitment"
+        case "event":
+            return "episode"
+        case "preference", "identity":
+            return "profile"
+        case "observation":
+            return "handoff"
+        default:
+            return "fact"
+        }
+    }
+
+    private static func deriveFacetTags(kind: String, text: String, tags: [String]) -> [String] {
+        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let loweredText = text.lowercased()
+        let loweredTags = Set(tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        var facets: [String] = []
+
+        func add(_ raw: String) {
+            guard !facets.contains(raw) else { return }
+            facets.append(raw)
+        }
+
+        if loweredText.contains("prefer") || loweredText.contains("favorite") || loweredTags.contains("preference") {
+            add("preference")
+        }
+        if loweredText.contains("project") || loweredText.contains("repo") || loweredText.contains("repository") {
+            add("project")
+        }
+        if loweredText.contains("goal") || loweredText.contains("objective") {
+            add("goal")
+        }
+        if loweredText.contains("todo") || loweredText.contains("task") || loweredText.contains("follow up") {
+            add("task")
+        }
+        if loweredText.contains("tool") || loweredText.contains("sdk") || loweredText.contains("framework") || loweredText.contains("sqlite") {
+            add("tool")
+        }
+        if loweredText.contains("today") || loweredText.contains("tomorrow") || loweredText.contains("deadline") || loweredText.contains("urgent") {
+            add("time_sensitive")
+        }
+        if loweredText.contains("constraint") || loweredText.contains("blocked") || loweredText.contains("cannot") {
+            add("constraint")
+        }
+        if loweredText.contains("lesson") || loweredText.contains("learned") || loweredText.contains("takeaway") {
+            add("lesson")
+        }
+        if loweredText.contains("feel") || loweredText.contains("frustrated") || loweredText.contains("happy") {
+            add("emotion")
+        }
+        if loweredText.contains("name") || loweredText.contains("role") || loweredText.contains("timezone") {
+            add("identity_signal")
+        }
+
+        switch normalizedKind {
+        case "profile":
+            add("fact_about_user")
+        case "fact":
+            add("fact_about_world")
+        case "decision":
+            add("decision_topic")
+        case "commitment":
+            add("task")
+        default:
+            break
+        }
+
+        return Array(facets.prefix(6))
+    }
+
+    private static func makeCanonicalKey(kind: String, text: String) -> String? {
+        let tokens = text
+            .lowercased()
+            .split { character in !character.isLetter && !character.isNumber }
+            .map(String.init)
+            .filter { $0.count >= 3 }
+        guard !tokens.isEmpty else { return nil }
+        let prefix = tokens.prefix(6).joined(separator: "-")
+        return "\(kind):\(prefix)"
     }
 }
 

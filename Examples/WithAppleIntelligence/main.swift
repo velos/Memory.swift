@@ -12,14 +12,12 @@ struct AppleIntelligenceExample {
         var config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
 
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            config.queryExpander = AppleIntelligenceQueryExpander()
+            config.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander()
             config.reranker = AppleIntelligenceReranker()
-            config.memoryTyping.classifier = FallbackMemoryTypeClassifier(
-                primary: AppleIntelligenceMemoryTypeClassifier(),
-                fallback: HeuristicMemoryTypeClassifier()
-            )
-        } else {
-            config.memoryTyping.classifier = HeuristicMemoryTypeClassifier()
+        }
+
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isContentTaggingAvailable {
+            config.contentTagger = AppleIntelligenceContentTagger()
         }
 
         let index = try MemoryIndex(configuration: config)

@@ -38,31 +38,59 @@ actor ConstantEmbeddingProvider: EmbeddingProvider {
     }
 }
 
-actor StaticQueryExpander: QueryExpander {
-    let identifier = "static-query-expander"
-    let alternates: [String]
+actor StaticStructuredQueryExpander: StructuredQueryExpander {
+    let identifier = "static-structured-query-expander"
+    let expansion: StructuredQueryExpansion
 
-    init(alternates: [String]) {
-        self.alternates = alternates
+    init(
+        lexicalQueries: [String] = [],
+        semanticQueries: [String] = [],
+        hypotheticalDocuments: [String] = [],
+        facetHints: [FacetHint] = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = []
+    ) {
+        self.expansion = StructuredQueryExpansion(
+            lexicalQueries: lexicalQueries,
+            semanticQueries: semanticQueries,
+            hypotheticalDocuments: hypotheticalDocuments,
+            facetHints: facetHints,
+            entities: entities,
+            topics: topics
+        )
     }
 
-    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
-        Array(alternates.prefix(max(0, limit)))
+    func expand(query: SearchQuery, analysis: QueryAnalysis, limit: Int) async throws -> StructuredQueryExpansion {
+        expansion
     }
 }
 
-actor RecordingQueryExpander: QueryExpander {
-    let identifier = "recording-query-expander"
-    let alternates: [String]
+actor RecordingStructuredQueryExpander: StructuredQueryExpander {
+    let identifier = "recording-structured-query-expander"
+    let expansion: StructuredQueryExpansion
     private var invocationCount = 0
 
-    init(alternates: [String]) {
-        self.alternates = alternates
+    init(
+        lexicalQueries: [String] = [],
+        semanticQueries: [String] = [],
+        hypotheticalDocuments: [String] = [],
+        facetHints: [FacetHint] = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = []
+    ) {
+        self.expansion = StructuredQueryExpansion(
+            lexicalQueries: lexicalQueries,
+            semanticQueries: semanticQueries,
+            hypotheticalDocuments: hypotheticalDocuments,
+            facetHints: facetHints,
+            entities: entities,
+            topics: topics
+        )
     }
 
-    func expand(query: SearchQuery, limit: Int) async throws -> [String] {
+    func expand(query: SearchQuery, analysis: QueryAnalysis, limit: Int) async throws -> StructuredQueryExpansion {
         invocationCount += 1
-        return Array(alternates.prefix(max(0, limit)))
+        return expansion
     }
 
     func calls() -> Int {
@@ -151,39 +179,6 @@ actor StaticContentTagger: ContentTagger {
         }
         return []
     }
-}
-
-actor StaticMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier: String
-    let assignment: MemoryTypeAssignment?
-
-    init(
-        identifier: String = "static-memory-type-classifier",
-        assignment: MemoryTypeAssignment?
-    ) {
-        self.identifier = identifier
-        self.assignment = assignment
-    }
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        assignment
-    }
-}
-
-actor ThrowingMemoryTypeClassifier: MemoryTypeClassifier {
-    let identifier: String
-
-    init(identifier: String = "throwing-memory-type-classifier") {
-        self.identifier = identifier
-    }
-
-    func classify(documentText: String, kind: DocumentKind, sourceURL: URL?) async throws -> MemoryTypeAssignment? {
-        throw TestClassifierError.forcedFailure
-    }
-}
-
-enum TestClassifierError: Error {
-    case forcedFailure
 }
 
 func makeTemporaryDirectory(function: String = #function) throws -> URL {

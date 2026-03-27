@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import Memory
 import MemoryAppleIntelligence
+import MemoryCoreMLEmbedding
 import MemoryNaturalLanguage
 
 struct StoredCollection: Codable, Hashable {
@@ -100,25 +101,15 @@ struct CLIContext {
     }
 
     func makeIndex() throws -> MemoryIndex {
-        var configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
-        var typingConfiguration = configuration.memoryTyping
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            typingConfiguration.classifier = FallbackMemoryTypeClassifier(
-                primary: AppleIntelligenceMemoryTypeClassifier(),
-                fallback: HeuristicMemoryTypeClassifier()
+        if let models = resolveDefaultCoreMLModels() {
+            let configuration = try MemoryConfiguration.coreMLDefault(
+                databaseURL: paths.indexFileURL,
+                models: models
             )
-        } else {
-            typingConfiguration.classifier = HeuristicMemoryTypeClassifier()
+            return try MemoryIndex(configuration: configuration)
         }
-        configuration.memoryTyping = typingConfiguration
 
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
-            configuration.queryExpander = AppleIntelligenceQueryExpander()
-            configuration.reranker = AppleIntelligenceReranker()
-            if AppleIntelligenceSupport.isContentTaggingAvailable {
-                configuration.contentTagger = AppleIntelligenceContentTagger()
-            }
-        }
+        let configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
         return try MemoryIndex(configuration: configuration)
     }
 
@@ -128,6 +119,41 @@ struct CLIContext {
         }
         return collection
     }
+}
+
+private enum CLIDefaultCoreMLModels {
+    static let embedding = "embedding-v1"
+}
+
+private func resolveDefaultCoreMLModels() -> CoreMLDefaultModels? {
+    guard
+        let embedding = resolveDefaultModelURL(
+            environmentKey: "MEMORY_EMBEDDING_MODEL_URL",
+            modelName: CLIDefaultCoreMLModels.embedding
+        )
+    else {
+        return nil
+    }
+
+    return CoreMLDefaultModels(embedding: embedding)
+}
+
+private func resolveDefaultModelURL(environmentKey: String, modelName: String) -> URL? {
+    let fileManager = FileManager.default
+    let environment = ProcessInfo.processInfo.environment
+    if let raw = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !raw.isEmpty,
+       fileManager.fileExists(atPath: raw) {
+        return URL(fileURLWithPath: raw)
+    }
+
+    let filename = "\(modelName).mlpackage"
+    let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+    let candidates = [
+        cwd.appendingPathComponent("Models").appendingPathComponent(filename),
+        cwd.deletingLastPathComponent().appendingPathComponent("Models").appendingPathComponent(filename),
+    ]
+    return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
 }
 
 @main
@@ -358,13 +384,6 @@ struct SearchCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
-    @Option(
-        name: .long,
-        parsing: .upToNextOption,
-        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
-    )
-    var memoryType: [String] = []
-
     mutating func run() async throws {
         try await runSearch(
             mode: .keyword,
@@ -372,8 +391,7 @@ struct SearchCommand: AsyncParsableCommand {
             collection: collection,
             all: all,
             files: files,
-            minScore: minScore,
-            memoryTypes: memoryType
+            minScore: minScore
         )
     }
 }
@@ -396,13 +414,6 @@ struct VSearchCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
-    @Option(
-        name: .long,
-        parsing: .upToNextOption,
-        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
-    )
-    var memoryType: [String] = []
-
     mutating func run() async throws {
         try await runSearch(
             mode: .semantic,
@@ -410,8 +421,7 @@ struct VSearchCommand: AsyncParsableCommand {
             collection: collection,
             all: all,
             files: files,
-            minScore: minScore,
-            memoryTypes: memoryType
+            minScore: minScore
         )
     }
 }
@@ -434,13 +444,6 @@ struct QueryCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum fused score threshold.")
     var minScore: Double = 0
 
-    @Option(
-        name: .long,
-        parsing: .upToNextOption,
-        help: "Memory type filter (repeatable): factual, procedural, episodic, semantic, emotional, social, contextual, temporal."
-    )
-    var memoryType: [String] = []
-
     mutating func run() async throws {
         try await runSearch(
             mode: .hybrid,
@@ -448,8 +451,7 @@ struct QueryCommand: AsyncParsableCommand {
             collection: collection,
             all: all,
             files: files,
-            minScore: minScore,
-            memoryTypes: memoryType
+            minScore: minScore
         )
     }
 }
@@ -542,8 +544,7 @@ private func runSearch(
     collection: String?,
     all: Bool,
     files: Bool,
-    minScore: Double,
-    memoryTypes: [String]
+    minScore: Double
 ) async throws {
     let context = try CLIContext.load()
 
@@ -567,15 +568,13 @@ private func runSearch(
     let resultLimit = all ? 2_000 : 20
     let rerankLimit = mode == .hybrid ? 50 : 0
     let expansionLimit = mode == .hybrid ? 2 : 0
-    let parsedMemoryTypes = try parseMemoryTypes(memoryTypes)
     let query = SearchQuery(
         text: queryText,
         limit: resultLimit,
         semanticCandidateLimit: mode.semanticLimit,
         lexicalCandidateLimit: mode.lexicalLimit,
         rerankLimit: rerankLimit,
-        expansionLimit: expansionLimit,
-        memoryTypes: parsedMemoryTypes
+        expansionLimit: expansionLimit
     )
 
     var results = try await index.search(query)
@@ -603,7 +602,7 @@ private func runSearch(
     for result in results {
         let docID = "#" + String(result.chunkID, radix: 16)
         print(
-            "\(docID)\t[type=\(result.memoryType.rawValue)]\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)"
+            "\(docID)\t[score=\(String(format: "%.3f", result.score.blended))]\t\(result.documentPath)"
         )
         print(result.snippet)
         print("")
@@ -621,34 +620,6 @@ private func parseCollectionRef(_ value: String) -> String? {
 
 private func normalizeCollectionArgument(_ value: String) -> String {
     parseCollectionRef(value) ?? value
-}
-
-private func parseMemoryTypes(_ values: [String]) throws -> Set<MemoryType>? {
-    guard !values.isEmpty else { return nil }
-
-    var parsed: Set<MemoryType> = []
-    var invalid: [String] = []
-
-    for raw in values {
-        let candidates = raw.split(separator: ",").map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        for candidate in candidates where !candidate.isEmpty {
-            if let type = MemoryType.parse(candidate) {
-                parsed.insert(type)
-            } else {
-                invalid.append(candidate)
-            }
-        }
-    }
-
-    if !invalid.isEmpty {
-        let allowed = MemoryType.allCases.map(\.rawValue).joined(separator: ", ")
-        throw ValidationError("Invalid memory type(s): \(invalid.joined(separator: ", ")). Allowed: \(allowed)")
-    }
-
-    return parsed.isEmpty ? nil : parsed
 }
 
 private func resolveDocumentTarget(_ target: String, context: CLIContext) async throws -> URL {

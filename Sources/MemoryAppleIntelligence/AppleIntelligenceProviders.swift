@@ -27,7 +27,7 @@ public enum AppleIntelligenceSupport {
 
 #if canImport(FoundationModels)
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-public actor AppleIntelligenceQueryExpander: QueryExpander {
+public actor AppleIntelligenceStructuredQueryExpander: StructuredQueryExpander {
     public let identifier: String
 
     private let model: SystemLanguageModel
@@ -36,7 +36,7 @@ public actor AppleIntelligenceQueryExpander: QueryExpander {
     private let sessionInstructions: String
 
     public init(
-        identifier: String = "apple-intelligence-query-expander",
+        identifier: String = "apple-intelligence-structured-query-expander",
         model: SystemLanguageModel = .default,
         responseTimeoutSeconds: Double = 12,
         options: GenerationOptions = GenerationOptions(
@@ -56,55 +56,191 @@ public actor AppleIntelligenceQueryExpander: QueryExpander {
             """
     }
 
-    public func expand(query: SearchQuery, limit: Int) async throws -> [String] {
-        guard limit > 0 else { return [] }
-        guard model.isAvailable else { return [] }
+    public func expand(
+        query: SearchQuery,
+        analysis: QueryAnalysis,
+        limit: Int
+    ) async throws -> StructuredQueryExpansion {
+        guard limit > 0 else { return StructuredQueryExpansion() }
+        guard model.isAvailable else { return StructuredQueryExpansion() }
 
-        let requested = min(8, max(1, limit))
+        let requested = min(5, max(1, limit))
         let prompt = """
         Original query:
         \(query.text)
 
-        Return up to \(requested) alternate phrasings that improve retrieval recall.
-        Keep the original intent exactly.
+        Query analysis:
+        facets: \(analysis.facetHints.map(\.tag.rawValue).joined(separator: ", "))
+        entities: \(analysis.entities.map(\.value).joined(separator: ", "))
+        topics: \(analysis.topics.joined(separator: ", "))
+        isHowTo: \(analysis.isHowToQuery ? "true" : "false")
+
+        Return a structured retrieval expansion with:
+        - up to 2 lexical queries
+        - up to 2 semantic queries
+        - up to 1 hypothetical document snippet
+        - facet hints chosen only from: \(FacetTag.allCases.map(\.rawValue).joined(separator: ", "))
+        - entity labels chosen only from: \(EntityLabel.allCases.map(\.rawValue).joined(separator: ", "))
+        Preserve intent and do not add new facts.
         """
 
-        let generatedAlternates = try await withGenerationTimeout(
+        let generated = try await withGenerationTimeout(
             seconds: responseTimeoutSeconds,
             label: "\(identifier).expand"
         ) { [model, sessionInstructions, options] in
             let response = try await LanguageModelSession(model: model, instructions: sessionInstructions).respond(
                 to: prompt,
-                generating: QueryExpansionGeneration.self,
+                generating: StructuredQueryExpansionGeneration.self,
                 options: options
             )
-            return response.content.alternates
+            return response.content
         }
 
-        var seen: Set<String> = []
-        var alternates: [String] = []
-
-        for alternate in generatedAlternates {
-            let trimmed = alternate.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-
-            let key = normalize(trimmed)
-            guard !seen.contains(key) else { continue }
-            seen.insert(key)
-
-            alternates.append(trimmed)
-            if alternates.count >= requested {
-                break
-            }
-        }
-
-        return alternates
+        return StructuredQueryExpansion(
+            lexicalQueries: normalizeTextList(generated.lexicalQueries, maxCount: min(2, requested), excluding: query.text),
+            semanticQueries: normalizeTextList(generated.semanticQueries, maxCount: min(2, requested), excluding: query.text),
+            hypotheticalDocuments: normalizeTextList(generated.hypotheticalDocuments, maxCount: 1, excluding: ""),
+            facetHints: normalizeFacetHints(generated.facetHints, maxCount: 4),
+            entities: normalizeEntities(generated.entities, maxCount: 6),
+            topics: normalizeTopics(generated.topics, maxCount: 6)
+        )
     }
 
     private func normalize(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
 
+    private func normalizeTextList(
+        _ values: [String],
+        maxCount: Int,
+        excluding original: String
+    ) -> [String] {
+        guard maxCount > 0 else { return [] }
+
+        var normalized: [String] = []
+        var seen: Set<String> = []
+        if !original.isEmpty {
+            seen.insert(normalize(original))
+        }
+
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = normalize(trimmed)
+            guard seen.insert(key).inserted else { continue }
+            normalized.append(trimmed)
+            if normalized.count >= maxCount {
+                break
+            }
+        }
+        return normalized
+    }
+
+    private func normalizeFacetHints(
+        _ generated: [GeneratedFacetHint],
+        maxCount: Int
+    ) -> [FacetHint] {
+        guard maxCount > 0 else { return [] }
+
+        var deduped: [FacetTag: FacetHint] = [:]
+        for hint in generated {
+            guard let tag = FacetTag.parse(hint.tag) else { continue }
+            let candidate = FacetHint(
+                tag: tag,
+                confidence: hint.confidence ?? 0.75,
+                isExplicit: hint.isExplicit ?? false
+            )
+            if let existing = deduped[tag] {
+                if candidate.confidence > existing.confidence {
+                    deduped[tag] = candidate
+                }
+            } else {
+                deduped[tag] = candidate
+            }
+        }
+
+        return deduped.values
+            .sorted { lhs, rhs in
+                if lhs.confidence == rhs.confidence {
+                    return lhs.tag.rawValue < rhs.tag.rawValue
+                }
+                return lhs.confidence > rhs.confidence
+            }
+            .prefix(maxCount)
+            .map { $0 }
+    }
+
+    private func normalizeEntities(
+        _ generated: [GeneratedMemoryEntity],
+        maxCount: Int
+    ) -> [MemoryEntity] {
+        guard maxCount > 0 else { return [] }
+
+        var deduped: [String: MemoryEntity] = [:]
+        for entity in generated {
+            guard let label = EntityLabel.parse(entity.label) else { continue }
+            let value = entity.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            let normalizedValue = normalizeEntityValue(entity.normalizedValue ?? value)
+            guard !normalizedValue.isEmpty else { continue }
+
+            let candidate = MemoryEntity(
+                label: label,
+                value: value,
+                normalizedValue: normalizedValue,
+                confidence: entity.confidence
+            )
+            if let existing = deduped[normalizedValue] {
+                if (candidate.confidence ?? 0) > (existing.confidence ?? 0) {
+                    deduped[normalizedValue] = candidate
+                }
+            } else {
+                deduped[normalizedValue] = candidate
+            }
+        }
+
+        return deduped.values
+            .sorted { lhs, rhs in
+                if lhs.normalizedValue == rhs.normalizedValue {
+                    return lhs.value < rhs.value
+                }
+                return lhs.normalizedValue < rhs.normalizedValue
+            }
+            .prefix(maxCount)
+            .map { $0 }
+    }
+
+    private func normalizeTopics(_ topics: [String], maxCount: Int) -> [String] {
+        guard maxCount > 0 else { return [] }
+
+        var normalized: [String] = []
+        var seen: Set<String> = []
+        for topic in topics {
+            let candidate = topic
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+                .prefix(4)
+                .joined(separator: " ")
+            guard !candidate.isEmpty else { continue }
+            guard seen.insert(candidate).inserted else { continue }
+            normalized.append(candidate)
+            if normalized.count >= maxCount {
+                break
+            }
+        }
+        return normalized
+    }
+
+    private func normalizeEntityValue(_ raw: String) -> String {
+        let punctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`")
+        return raw
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(punctuation))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -281,83 +417,6 @@ public actor AppleIntelligenceReranker: Reranker {
         let numerator = Double(position)
         let denominator = Double(max(1, count - 1))
         return max(0.0, 1.0 - (numerator / denominator))
-    }
-}
-
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-public actor AppleIntelligenceMemoryTypeClassifier: MemoryTypeClassifier {
-    public let identifier: String
-
-    private let model: SystemLanguageModel
-    private let session: LanguageModelSession
-    private let options: GenerationOptions
-    private let maxInputCharacters: Int
-
-    public init(
-        identifier: String = "apple-intelligence-memory-type-classifier",
-        model: SystemLanguageModel = .default,
-        maxInputCharacters: Int = 6_000,
-        options: GenerationOptions = GenerationOptions(
-            sampling: .greedy,
-            temperature: 0.0,
-            maximumResponseTokens: 160
-        )
-    ) {
-        self.identifier = identifier
-        self.model = model
-        self.options = options
-        self.maxInputCharacters = max(1_000, maxInputCharacters)
-        self.session = LanguageModelSession(
-            model: model,
-            instructions: """
-            Classify memory content into exactly one of:
-            factual, procedural, episodic, semantic, emotional, social, contextual, temporal.
-            Return only the best matching type and confidence from 0.0 to 1.0.
-            """
-        )
-    }
-
-    public func classify(
-        documentText: String,
-        kind: DocumentKind,
-        sourceURL: URL?
-    ) async throws -> MemoryTypeAssignment? {
-        guard model.isAvailable else { return nil }
-
-        let trimmed = documentText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let excerpt = String(trimmed.prefix(maxInputCharacters))
-        let location = sourceURL?.path ?? "unknown"
-        let prompt = """
-        Document kind: \(kind.rawValue)
-        Source path: \(location)
-
-        Content:
-        \(excerpt)
-
-        Output requirements:
-        - memoryType must be one of: factual, procedural, episodic, semantic, emotional, social, contextual, temporal
-        - confidence must be between 0.0 and 1.0
-        """
-
-        let response = try await session.respond(
-            to: prompt,
-            generating: MemoryTypeClassificationGeneration.self,
-            options: options
-        )
-
-        guard let type = MemoryType.parse(response.content.memoryType) else {
-            return nil
-        }
-
-        let confidence = min(1, max(0, response.content.confidence))
-        return MemoryTypeAssignment(
-            type: type,
-            source: .automatic,
-            confidence: confidence,
-            classifierID: identifier
-        )
     }
 }
 
@@ -572,9 +631,54 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Alternate query phrasings for retrieval.")
-private struct QueryExpansionGeneration {
-    var alternates: [String]
+@Generable(description: "Structured retrieval expansion output.")
+private struct StructuredQueryExpansionGeneration {
+    @Guide(description: "Lexical BM25-oriented query rewrites.", .maximumCount(2))
+    var lexicalQueries: [String]
+
+    @Guide(description: "Semantic dense-retrieval query rewrites.", .maximumCount(2))
+    var semanticQueries: [String]
+
+    @Guide(description: "One hypothetical retrieval snippet.", .maximumCount(1))
+    var hypotheticalDocuments: [String]
+
+    @Guide(description: "Facet hints for broad routing.", .maximumCount(4))
+    var facetHints: [GeneratedFacetHint]
+
+    @Guide(description: "Entity hints for retrieval.", .maximumCount(6))
+    var entities: [GeneratedMemoryEntity]
+
+    @Guide(description: "Short normalized topic phrases.", .maximumCount(6))
+    var topics: [String]
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@Generable(description: "A retrieval facet hint.")
+private struct GeneratedFacetHint {
+    @Guide(description: "Facet tag raw value.")
+    var tag: String
+
+    @Guide(description: "Confidence between 0 and 1.")
+    var confidence: Double?
+
+    @Guide(description: "Whether the facet was explicit in the query.")
+    var isExplicit: Bool?
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+@Generable(description: "A structured entity hint for retrieval.")
+private struct GeneratedMemoryEntity {
+    @Guide(description: "Entity label raw value.")
+    var label: String
+
+    @Guide(description: "Original entity value.")
+    var value: String
+
+    @Guide(description: "Optional normalized entity value.")
+    var normalizedValue: String?
+
+    @Guide(description: "Confidence between 0 and 1.")
+    var confidence: Double?
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -586,13 +690,6 @@ private struct RerankGeneration {
         .maximumCount(64)
     )
     var rankedChunkIDs: [String]
-}
-
-@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Memory type classification for one document.")
-private struct MemoryTypeClassificationGeneration {
-    var memoryType: String
-    var confidence: Double
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)

@@ -40,7 +40,6 @@ public struct SearchQuery: Sendable {
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
     public var contextID: ContextID?
-    public var memoryTypes: Set<MemoryType>?
     public var includeTagScoring: Bool
 
     public init(
@@ -49,11 +48,10 @@ public struct SearchQuery: Sendable {
         semanticCandidateLimit: Int = 200,
         lexicalCandidateLimit: Int = 200,
         rerankLimit: Int = 50,
-        expansionLimit: Int = 2,
+        expansionLimit: Int = 5,
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
         contextID: ContextID? = nil,
-        memoryTypes: Set<MemoryType>? = nil,
         includeTagScoring: Bool = true
     ) {
         self.text = text
@@ -65,7 +63,6 @@ public struct SearchQuery: Sendable {
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
         self.contextID = contextID
-        self.memoryTypes = memoryTypes
         self.includeTagScoring = includeTagScoring
     }
 }
@@ -105,9 +102,9 @@ public struct SearchResult: Sendable {
     public var content: String
     public var snippet: String
     public var modifiedAt: Date
-    public var memoryType: MemoryType
-    public var memoryTypeSource: MemoryTypeSource
-    public var memoryTypeConfidence: Double?
+    public var memoryID: String?
+    public var memoryKind: MemoryKind?
+    public var memoryStatus: MemoryStatus?
     public var score: SearchScoreBreakdown
 
     public init(
@@ -117,9 +114,9 @@ public struct SearchResult: Sendable {
         content: String,
         snippet: String,
         modifiedAt: Date,
-        memoryType: MemoryType = .factual,
-        memoryTypeSource: MemoryTypeSource = .fallback,
-        memoryTypeConfidence: Double? = nil,
+        memoryID: String? = nil,
+        memoryKind: MemoryKind? = nil,
+        memoryStatus: MemoryStatus? = nil,
         score: SearchScoreBreakdown
     ) {
         self.chunkID = chunkID
@@ -128,28 +125,121 @@ public struct SearchResult: Sendable {
         self.content = content
         self.snippet = snippet
         self.modifiedAt = modifiedAt
-        self.memoryType = memoryType
-        self.memoryTypeSource = memoryTypeSource
-        self.memoryTypeConfidence = memoryTypeConfidence
+        self.memoryID = memoryID
+        self.memoryKind = memoryKind
+        self.memoryStatus = memoryStatus
         self.score = score
     }
 }
 
-public enum MemoryCategory: String, CaseIterable, Codable, Sendable {
+public enum MemoryKind: String, CaseIterable, Codable, Sendable {
+    case profile
     case fact
-    case preference
     case decision
-    case identity
-    case event
-    case observation
-    case goal
-    case todo
+    case commitment
+    case episode
+    case procedure
+    case handoff
 
-    public static func parse(_ raw: String) -> MemoryCategory? {
+    public static func parse(_ raw: String) -> MemoryKind? {
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return MemoryCategory(rawValue: normalized)
+        return MemoryKind(rawValue: normalized)
+    }
+}
+
+public enum MemoryStatus: String, CaseIterable, Codable, Sendable {
+    case active
+    case superseded
+    case resolved
+    case archived
+
+    public static func parse(_ raw: String) -> MemoryStatus? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return MemoryStatus(rawValue: normalized)
+    }
+}
+
+public enum FacetTag: String, CaseIterable, Codable, Sendable {
+    case preference = "preference"
+    case person = "person"
+    case relationship = "relationship"
+    case project = "project"
+    case goal = "goal"
+    case task = "task"
+    case decisionTopic = "decision_topic"
+    case tool = "tool"
+    case location = "location"
+    case timeSensitive = "time_sensitive"
+    case constraint = "constraint"
+    case habit = "habit"
+    case factAboutUser = "fact_about_user"
+    case factAboutWorld = "fact_about_world"
+    case lesson = "lesson"
+    case emotion = "emotion"
+    case identitySignal = "identity_signal"
+
+    public static func parse(_ raw: String) -> FacetTag? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return FacetTag(rawValue: normalized)
+    }
+}
+
+public struct FacetHint: Codable, Hashable, Sendable {
+    public var tag: FacetTag
+    public var confidence: Double
+    public var isExplicit: Bool
+
+    public init(
+        tag: FacetTag,
+        confidence: Double,
+        isExplicit: Bool
+    ) {
+        self.tag = tag
+        self.confidence = min(1, max(0, confidence))
+        self.isExplicit = isExplicit
+    }
+}
+
+public enum EntityLabel: String, CaseIterable, Codable, Sendable {
+    case person
+    case organization
+    case product
+    case project
+    case tool
+    case location
+    case date
+    case other
+
+    public static func parse(_ raw: String) -> EntityLabel? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return EntityLabel(rawValue: normalized)
+    }
+}
+
+public struct MemoryEntity: Codable, Hashable, Sendable {
+    public var label: EntityLabel
+    public var value: String
+    public var normalizedValue: String
+    public var confidence: Double?
+
+    public init(
+        label: EntityLabel,
+        value: String,
+        normalizedValue: String,
+        confidence: Double? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.normalizedValue = normalizedValue
+        self.confidence = confidence.map { min(1, max(0, $0)) }
     }
 }
 
@@ -171,79 +261,118 @@ public struct ConversationMessage: Sendable, Codable, Hashable {
     }
 }
 
-public struct ExtractedMemory: Sendable, Codable, Hashable {
+public struct MemoryCandidate: Sendable, Codable, Hashable {
     public var text: String
-    public var category: MemoryCategory
+    public var kind: MemoryKind
+    public var status: MemoryStatus
     public var importance: Double
+    public var confidence: Double?
     public var createdAt: Date?
+    public var eventAt: Date?
     public var source: String
     public var tags: [String]
+    public var facetTags: Set<FacetTag>
+    public var entities: [MemoryEntity]
+    public var topics: [String]
+    public var canonicalKey: String?
+    public var metadata: [String: String]
 
     public init(
         text: String,
-        category: MemoryCategory,
+        kind: MemoryKind,
+        status: MemoryStatus = .active,
         importance: Double = 0.5,
+        confidence: Double? = nil,
         createdAt: Date? = nil,
+        eventAt: Date? = nil,
         source: String = "extract",
-        tags: [String] = []
+        tags: [String] = [],
+        facetTags: Set<FacetTag> = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = [],
+        canonicalKey: String? = nil,
+        metadata: [String: String] = [:]
     ) {
         self.text = text
-        self.category = category
+        self.kind = kind
+        self.status = status
         self.importance = min(1, max(0, importance))
+        self.confidence = confidence.map { min(1, max(0, $0)) }
         self.createdAt = createdAt
+        self.eventAt = eventAt
         self.source = source
         self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
+        self.canonicalKey = canonicalKey
+        self.metadata = metadata
     }
 }
 
 public struct MemoryRecord: Sendable, Codable, Hashable {
+    public var id: String
     public var chunkID: Int64
     public var documentPath: String
     public var title: String?
     public var text: String
-    public var category: MemoryCategory
+    public var kind: MemoryKind
+    public var status: MemoryStatus
+    public var canonicalKey: String?
     public var importance: Double
+    public var confidence: Double?
     public var accessCount: Int
     public var createdAt: Date
+    public var eventAt: Date?
     public var modifiedAt: Date
     public var lastAccessedAt: Date?
-    public var memoryType: MemoryType
-    public var memoryTypeSource: MemoryTypeSource
-    public var memoryTypeConfidence: Double?
     public var tags: [ContentTag]
+    public var facetTags: Set<FacetTag>
+    public var entities: [MemoryEntity]
+    public var topics: [String]
     public var score: SearchScoreBreakdown?
 
     public init(
+        id: String,
         chunkID: Int64,
         documentPath: String,
         title: String?,
         text: String,
-        category: MemoryCategory,
+        kind: MemoryKind,
+        status: MemoryStatus,
+        canonicalKey: String?,
         importance: Double,
+        confidence: Double?,
         accessCount: Int,
         createdAt: Date,
+        eventAt: Date?,
         modifiedAt: Date,
         lastAccessedAt: Date?,
-        memoryType: MemoryType,
-        memoryTypeSource: MemoryTypeSource,
-        memoryTypeConfidence: Double?,
         tags: [ContentTag],
+        facetTags: Set<FacetTag> = [],
+        entities: [MemoryEntity] = [],
+        topics: [String] = [],
         score: SearchScoreBreakdown? = nil
     ) {
+        self.id = id
         self.chunkID = chunkID
         self.documentPath = documentPath
         self.title = title
         self.text = text
-        self.category = category
+        self.kind = kind
+        self.status = status
+        self.canonicalKey = canonicalKey
         self.importance = min(1, max(0, importance))
+        self.confidence = confidence.map { min(1, max(0, $0)) }
         self.accessCount = max(0, accessCount)
         self.createdAt = createdAt
+        self.eventAt = eventAt
         self.modifiedAt = modifiedAt
         self.lastAccessedAt = lastAccessedAt
-        self.memoryType = memoryType
-        self.memoryTypeSource = memoryTypeSource
-        self.memoryTypeConfidence = memoryTypeConfidence
         self.tags = tags
+        self.facetTags = facetTags
+        self.entities = entities
+        self.topics = topics
         self.score = score
     }
 }
@@ -271,7 +400,7 @@ public enum RecallMode: Sendable {
     case hybrid(query: String)
     case recent
     case important
-    case typed(category: MemoryCategory)
+    case kind(MemoryKind)
 }
 
 public enum RecallSort: String, Codable, Sendable {
@@ -294,7 +423,7 @@ public struct RecallFeatures: OptionSet, Sendable, Hashable {
     public static let rerank = RecallFeatures(rawValue: 1 << 4)
     public static let planner = RecallFeatures(rawValue: 1 << 5)
 
-    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion, .rerank]
+    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion]
 }
 
 public struct MemoryRecallResponse: Sendable, Codable, Hashable {
@@ -331,9 +460,9 @@ public struct MemorySearchReference: Sendable, Codable, Hashable {
     public let snippet: String
     public let lineRange: MemoryLineRange?
     public let source: MemoryDocumentSource
-    public let memoryType: MemoryType
-    public let memoryTypeSource: MemoryTypeSource
-    public let memoryTypeConfidence: Double?
+    public let memoryID: String?
+    public let memoryKind: MemoryKind?
+    public let memoryStatus: MemoryStatus?
     public let score: SearchScoreBreakdown
 }
 
@@ -373,13 +502,34 @@ public struct Chunk: Sendable {
     }
 }
 
+public enum IndexingStage: String, Sendable, Codable {
+    case typing
+    case chunking
+    case tagging
+    case embedding
+    case indexWrite = "index_write"
+    case total
+}
+
 public enum IndexingEvent: Sendable {
     case started(totalDocuments: Int)
     case readingDocument(path: String, index: Int, total: Int)
     case chunked(path: String, chunks: Int)
     case embedded(path: String, chunks: Int)
+    case stageTiming(path: String, stage: IndexingStage, durationMs: Double)
     case stored(path: String)
     case completed(processedDocuments: Int, totalChunks: Int)
+}
+
+public enum SearchStage: String, Sendable, Codable {
+    case analysis
+    case expansion
+    case queryEmbedding = "query_embedding"
+    case semanticSearch = "semantic_search"
+    case lexicalSearch = "lexical_search"
+    case fusion
+    case rerank
+    case total
 }
 
 public enum SearchEvent: Sendable {
@@ -390,6 +540,7 @@ public enum SearchEvent: Sendable {
     case lexicalCandidates(count: Int)
     case fusedCandidates(count: Int)
     case reranked(count: Int)
+    case stageTiming(stage: SearchStage, durationMs: Double)
     case completed(count: Int)
 }
 
