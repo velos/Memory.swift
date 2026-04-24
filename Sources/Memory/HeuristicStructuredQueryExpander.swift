@@ -105,6 +105,17 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty && !expansionNoiseTerms.contains($0) })
                 .prefix(4)
         )
+        let derivedPhrases = derivedSalientTerms(from: original)
+            .filter { $0.split(separator: " ").count >= 2 }
+
+        if let derivedPhrase = derivedPhrases.first {
+            appendCandidate(
+                compactJoined(prioritizedEntities + [derivedPhrase]),
+                to: &queries,
+                seen: &seen,
+                limit: limit
+            )
+        }
 
         let keywordRewrite = compactJoined(
             prioritizedEntities + Array(salientTerms.prefix(6)) + prioritizedTerms
@@ -324,6 +335,16 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         }
         if lower.contains("turn in") || lower.contains("deliver") {
             terms.append("return")
+        }
+        if lower.contains("student loan"),
+           lower.contains("school"),
+           (lower.contains("not qualified")
+            || lower.contains("wasn't actually qualified")
+            || lower.contains("wasn’t actually qualified")
+            || lower.contains("wasn t actually qualified")
+            || lower.contains("eligible")) {
+            terms.append("false certification discharge")
+            terms.append("loan discharge")
         }
         return terms
     }

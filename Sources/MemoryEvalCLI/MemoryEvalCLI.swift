@@ -497,6 +497,22 @@ private struct QueryExpansionCaseResult: Codable {
     var expandedReciprocalRankAtK: Double?
     var reciprocalRankDeltaAtK: Double?
     var rankImprovementAtK: Int?
+    var branchDiagnostics: QueryExpansionBranchDiagnostics?
+}
+
+private struct QueryExpansionBranchDiagnostics: Codable {
+    var classification: String
+    var baselineSemanticRankAtK: Int?
+    var baselineLexicalRankAtK: Int?
+    var expandedSemanticRankAtK: Int?
+    var expandedLexicalRankAtK: Int?
+    var expansionSourceHits: [QueryExpansionSourceHit]
+}
+
+private struct QueryExpansionSourceHit: Codable {
+    var kind: String
+    var query: String
+    var rankAtK: Int?
 }
 
 private struct QueryExpansionSuiteReport: Codable {
@@ -518,6 +534,7 @@ private struct QueryExpansionSuiteReport: Codable {
     var retrievalMRRDelta: Double?
     var failureTaxonomyCounts: [String: Int]?
     var taxonomyMetrics: [QueryExpansionTaxonomyMetric]?
+    var branchClassificationCounts: [String: Int]?
     var latencyStats: RecallLatencyStats?
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
@@ -2422,6 +2439,12 @@ private func runQueryExpansionSuite(
     let allFeatures = recallFeatures(for: config)
     var baselineFeatures = allFeatures
     baselineFeatures.remove(.expansion)
+    let collectBranchDiagnostics = cases.contains { entry in
+        if let tags = entry.failureTaxonomy, tags.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return true
+        }
+        return entry.sourceDataset != nil || entry.sourceQueryId != nil
+    }
 
     var results: [QueryExpansionCaseResult] = []
     var expandedSearchObservations: [RecallQueryResult] = []
@@ -2504,6 +2527,7 @@ private func runQueryExpansionSuite(
         var expandedBestRank: Int? = nil
         var baselineReciprocalRank: Double? = nil
         var expandedReciprocalRank: Double? = nil
+        var branchDiagnostics: QueryExpansionBranchDiagnostics? = nil
 
         if !documents.isEmpty, let relevantIDs = entry.relevantDocumentIds, !relevantIDs.isEmpty {
             let relevantSet = Set(relevantIDs)
@@ -2603,7 +2627,10 @@ private func runQueryExpansionSuite(
                     baselineCollector.record(event)
                 }
             )
-            baselineDocumentIDs = baselineRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            baselineDocumentIDs = queryExpansionDocumentIDs(
+                from: baselineRefs,
+                documentIDByPath: candidateDocumentIDByPath
+            )
             baselineHit = baselineDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
             baselineBestRank = firstRelevantRank(in: baselineDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
             baselineReciprocalRank = reciprocalRank(for: baselineBestRank)
@@ -2621,10 +2648,31 @@ private func runQueryExpansionSuite(
                 }
             )
             let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
-            expandedDocumentIDs = expandedRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            expandedDocumentIDs = queryExpansionDocumentIDs(
+                from: expandedRefs,
+                documentIDByPath: candidateDocumentIDByPath
+            )
             expandedHit = expandedDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
             expandedBestRank = firstRelevantRank(in: expandedDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
             expandedReciprocalRank = reciprocalRank(for: expandedBestRank)
+
+            if collectBranchDiagnostics {
+                branchDiagnostics = try await queryExpansionBranchDiagnostics(
+                    query: queryText,
+                    expansion: expansion,
+                    index: candidateIndex,
+                    documentIDByPath: candidateDocumentIDByPath,
+                    relevantDocumentIds: relevantSet,
+                    baselineRank: baselineBestRank,
+                    expandedRank: expandedBestRank,
+                    reciprocalRankDelta: reciprocalRankDelta(
+                        baseline: baselineReciprocalRank,
+                        expanded: expandedReciprocalRank
+                    ),
+                    profile: profile,
+                    maxK: maxK
+                )
+            }
 
             expandedSearchObservations.append(
                 RecallQueryResult(
@@ -2700,7 +2748,8 @@ private func runQueryExpansionSuite(
                 rankImprovementAtK: rankImprovement(
                     baselineRank: baselineBestRank,
                     expandedRank: expandedBestRank
-                )
+                ),
+                branchDiagnostics: branchDiagnostics
             )
         )
 
@@ -2762,11 +2811,201 @@ private func runQueryExpansionSuite(
         retrievalMRRDelta: retrievalMRRDelta,
         failureTaxonomyCounts: failureTaxonomyCounts.isEmpty ? nil : failureTaxonomyCounts,
         taxonomyMetrics: queryExpansionTaxonomyMetrics(from: sortedResults),
+        branchClassificationCounts: queryExpansionBranchClassificationCounts(from: sortedResults),
         latencyStats: computeLatencyStats(queryResults: expandedSearchObservations),
         stageLatencyStats: computeRecallStageLatencyStats(queryResults: expandedSearchObservations),
         candidateCountStats: computeRecallCandidateCountStats(queryResults: expandedSearchObservations),
         caseResults: sortedResults
     )
+}
+
+private func queryExpansionDocumentIDs(
+    from references: [MemorySearchReference],
+    documentIDByPath: [String: String]
+) -> [String] {
+    references.compactMap { documentIDByPath[$0.documentPath] }
+}
+
+private func queryExpansionBranchDiagnostics(
+    query: String,
+    expansion: StructuredQueryExpansion,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    baselineRank: Int?,
+    expandedRank: Int?,
+    reciprocalRankDelta: Double?,
+    profile: EvalProfile,
+    maxK: Int
+) async throws -> QueryExpansionBranchDiagnostics {
+    let baselineSemanticRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.semantic]
+    )
+    let baselineLexicalRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.lexical]
+    )
+    let expandedSemanticRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.semantic, .expansion]
+    )
+    let expandedLexicalRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.lexical, .expansion]
+    )
+
+    var sourceHits: [QueryExpansionSourceHit] = []
+    for lexicalQuery in uniqueQueryExpansionSources(expansion.lexicalQueries) {
+        let rank = try await queryExpansionBranchRank(
+            query: lexicalQuery,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.lexical]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "lexical", query: lexicalQuery, rankAtK: rank))
+    }
+    for semanticQuery in uniqueQueryExpansionSources(expansion.semanticQueries) {
+        let rank = try await queryExpansionBranchRank(
+            query: semanticQuery,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.semantic]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "semantic", query: semanticQuery, rankAtK: rank))
+    }
+    for hypotheticalDocument in uniqueQueryExpansionSources(expansion.hypotheticalDocuments) {
+        let rank = try await queryExpansionBranchRank(
+            query: hypotheticalDocument,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.semantic]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "hypothetical_document", query: hypotheticalDocument, rankAtK: rank))
+    }
+
+    let branchRanks = [
+        baselineSemanticRank,
+        baselineLexicalRank,
+        expandedSemanticRank,
+        expandedLexicalRank
+    ]
+    let classification = classifyQueryExpansionBranch(
+        baselineRank: baselineRank,
+        expandedRank: expandedRank,
+        reciprocalRankDelta: reciprocalRankDelta,
+        branchRanks: branchRanks,
+        sourceHits: sourceHits
+    )
+
+    return QueryExpansionBranchDiagnostics(
+        classification: classification,
+        baselineSemanticRankAtK: baselineSemanticRank,
+        baselineLexicalRankAtK: baselineLexicalRank,
+        expandedSemanticRankAtK: expandedSemanticRank,
+        expandedLexicalRankAtK: expandedLexicalRank,
+        expansionSourceHits: sourceHits
+    )
+}
+
+private func queryExpansionBranchRank(
+    query: String,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    profile: EvalProfile,
+    maxK: Int,
+    features: RecallFeatures
+) async throws -> Int? {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let references = try await index.memorySearch(
+        query: trimmed,
+        limit: dedupedDocumentLimitForProfile(profile: profile, maxK: maxK),
+        features: features,
+        dedupeDocuments: true,
+        includeLineRanges: false
+    )
+    let documentIDs = queryExpansionDocumentIDs(from: references, documentIDByPath: documentIDByPath)
+    return firstRelevantRank(in: documentIDs, relevant: relevantDocumentIds, maxK: maxK)
+}
+
+private func uniqueQueryExpansionSources(_ queries: [String]) -> [String] {
+    var seen: Set<String> = []
+    var result: [String] = []
+    for query in queries {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        let key = normalizeForMatch(trimmed)
+        guard !key.isEmpty, seen.insert(key).inserted else { continue }
+        result.append(trimmed)
+    }
+    return result
+}
+
+private func classifyQueryExpansionBranch(
+    baselineRank: Int?,
+    expandedRank: Int?,
+    reciprocalRankDelta: Double?,
+    branchRanks: [Int?],
+    sourceHits: [QueryExpansionSourceHit]
+) -> String {
+    let epsilon = 0.000_000_1
+    if let reciprocalRankDelta, reciprocalRankDelta > epsilon {
+        return "improved"
+    }
+    if let reciprocalRankDelta, reciprocalRankDelta < -epsilon {
+        return "regression_prone"
+    }
+    if expandedRank == 1 {
+        return "already_good"
+    }
+    let hasBranchCoverage = branchRanks.contains(where: { $0 != nil })
+        || sourceHits.contains(where: { $0.rankAtK != nil })
+        || baselineRank != nil
+        || expandedRank != nil
+    if !hasBranchCoverage {
+        return "candidate_coverage_miss"
+    }
+    return "fusion_ranking_miss"
+}
+
+private func queryExpansionBranchClassificationCounts(from results: [QueryExpansionCaseResult]) -> [String: Int]? {
+    var counts: [String: Int] = [:]
+    for result in results {
+        guard let classification = result.branchDiagnostics?.classification else { continue }
+        counts[classification, default: 0] += 1
+    }
+    return counts.isEmpty ? nil : counts
 }
 
 private func queryExpansionTaxonomyMetrics(from results: [QueryExpansionCaseResult]) -> [QueryExpansionTaxonomyMetric]? {
@@ -4635,6 +4874,13 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
                 .joined(separator: ", ")
             lines.append("- Failure taxonomy: \(summary)")
         }
+        if let counts = queryExpansion.branchClassificationCounts, !counts.isEmpty {
+            let summary = counts
+                .sorted { lhs, rhs in lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            lines.append("- Branch classifications: \(summary)")
+        }
         if let taxonomyMetrics = queryExpansion.taxonomyMetrics, !taxonomyMetrics.isEmpty {
             lines.append("")
             lines.append("### Query Expansion By Taxonomy")
@@ -4644,6 +4890,21 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
             for metric in taxonomyMetrics {
                 lines.append(
                     "| `\(metric.tag)` | \(metric.caseCount) | \(percent(metric.expandedHitRate)) | \(format(metric.expandedMRR)) | \(format(metric.mrrDelta)) | \(metric.improvedCount) | \(metric.worsenedCount) | \(metric.flatCount) | \(metric.missCount) |"
+                )
+            }
+        }
+        let branchCases = queryExpansion.caseResults.filter { $0.branchDiagnostics != nil }
+        if !branchCases.isEmpty {
+            lines.append("")
+            lines.append("### Query Expansion Branch Diagnostics")
+            lines.append("")
+            lines.append("| Case | Classification | Final Ranks | Branch Ranks | Best Expansion Source | Taxonomy |")
+            lines.append("|---|---|---|---|---|---|")
+            for result in branchCases {
+                guard let diagnostics = result.branchDiagnostics else { continue }
+                let finalRanks = "base \(rankLabel(result.baselineBestRankAtK)), expanded \(rankLabel(result.expandedBestRankAtK))"
+                lines.append(
+                    "| `\(markdownTableCell(result.id))` | `\(markdownTableCell(diagnostics.classification))` | \(markdownTableCell(finalRanks)) | \(markdownTableCell(queryExpansionBranchRankSummary(diagnostics))) | \(markdownTableCell(queryExpansionSourceHitSummary(diagnostics.expansionSourceHits))) | \(markdownTableCell((result.failureTaxonomy ?? []).joined(separator: ", "))) |"
                 )
             }
         }
@@ -4802,6 +5063,44 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
     }
 
     return lines.joined(separator: "\n")
+}
+
+private func rankLabel(_ rank: Int?) -> String {
+    rank.map(String.init) ?? "-"
+}
+
+private func markdownTableCell(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "|", with: "/")
+        .replacingOccurrences(of: "\n", with: " ")
+}
+
+private func queryExpansionBranchRankSummary(_ diagnostics: QueryExpansionBranchDiagnostics) -> String {
+    "base semantic \(rankLabel(diagnostics.baselineSemanticRankAtK)), base lexical \(rankLabel(diagnostics.baselineLexicalRankAtK)), expanded semantic \(rankLabel(diagnostics.expandedSemanticRankAtK)), expanded lexical \(rankLabel(diagnostics.expandedLexicalRankAtK))"
+}
+
+private func queryExpansionSourceHitSummary(_ hits: [QueryExpansionSourceHit]) -> String {
+    guard let best = hits
+        .compactMap({ hit -> (QueryExpansionSourceHit, Int)? in
+            guard let rank = hit.rankAtK else { return nil }
+            return (hit, rank)
+        })
+        .sorted(by: { lhs, rhs in
+            if lhs.1 == rhs.1 {
+                return lhs.0.kind < rhs.0.kind
+            }
+            return lhs.1 < rhs.1
+        })
+        .first
+    else {
+        return "-"
+    }
+    return "\(best.0.kind) \(best.1): \(truncateForMarkdown(best.0.query, maxLength: 80))"
+}
+
+private func truncateForMarkdown(_ value: String, maxLength: Int) -> String {
+    guard value.count > maxLength else { return value }
+    return String(value.prefix(max(0, maxLength - 3))) + "..."
 }
 
 private func parseKValues(_ raw: String) throws -> [Int] {

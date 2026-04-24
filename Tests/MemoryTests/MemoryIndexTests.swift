@@ -145,6 +145,85 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func rankOneLexicalExpansionHitSurvivesFusion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("false-certification.md"),
+            "False Certification Discharge. A student loan can be discharged when a school falsely certified eligibility for a loan."
+        )
+        for i in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(i).md"),
+                "school attended lender eligible student loan qualified debt account repayment option \(i). school attended lender eligible student loan debt."
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["false certification discharge"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let queryText = "The school I attended told the lender that I was eligible for a student loan but I was not qualified, can I get rid of this debt?"
+        let baselineResults = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 0
+            )
+        )
+        #expect(baselineResults.first?.documentPath.contains("false-certification.md") != true)
+
+        let results = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 3
+            )
+        )
+
+        #expect(results.first?.documentPath.contains("false-certification.md") == true)
+
+        let documentListSurfaceResults = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 18,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 200,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        #expect(documentListSurfaceResults.first?.documentPath.contains("false-certification.md") == true)
+
+        let references = try await index.memorySearch(
+            query: queryText,
+            limit: 3,
+            features: [.lexical, .expansion],
+            dedupeDocuments: true,
+            includeLineRanges: false
+        )
+        #expect(references.first?.documentPath.contains("false-certification.md") == true)
+    }
+
+    @Test
     func strongLexicalSignalSkipsQueryExpansion() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -188,6 +267,47 @@ struct MemoryIndexTests {
 
         let calls = await expander.calls()
         #expect(calls == 0)
+    }
+
+    @Test
+    func verboseLexicalQuestionsStillRunQueryExpansion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let verboseQuery = "incident response runbook for payments deployment rollback owner escalation timeline and customer notices"
+        try writeFile(
+            docs.appendingPathComponent("runbook.md"),
+            "\(verboseQuery). \(verboseQuery). \(verboseQuery)."
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "general observations and feedback collected during the quarterly planning session"
+        )
+
+        let expander = RecordingStructuredQueryExpander(lexicalQueries: ["deployment rollout checklist"])
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: expander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        _ = try await index.search(
+            SearchQuery(
+                text: verboseQuery,
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let calls = await expander.calls()
+        #expect(calls == 1)
     }
 
     @Test
@@ -319,6 +439,25 @@ struct MemoryIndexTests {
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("same address") }))
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("valuable information") }) == false)
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("last question") }) == false)
+    }
+
+    @Test
+    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanRescueTerms() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let query = SearchQuery(
+            text: "The school I attended told the lender that I was eligible for a student loan but I wasn't actually qualified, is there any way to get rid of this debt?"
+        )
+        let analysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["school", "attended", "lender", "eligible", "student", "loan"],
+            facetHints: [],
+            topics: ["school attended told", "attended told lender", "student loan debt"],
+            isHowToQuery: false
+        )
+
+        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
+
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("false certification discharge") }))
     }
 
     @Test

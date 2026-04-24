@@ -50,6 +50,8 @@ public actor MemoryIndex {
     private let strongLexicalProbeLimit = 20
     private let strongLexicalMinScore = 0.10
     private let strongLexicalMinGap = 0.05
+    private let strongLexicalMaxExpansionSkipTokenCount = 12
+    private let lexicalExpansionPromotionRankLimit = 1
 
     private struct WeightedQuery {
         var text: String
@@ -300,6 +302,7 @@ public actor MemoryIndex {
 
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
+        var lexicalExpansionPromotionRRF: [Int64: Double] = [:]
         var semanticCandidateCount = 0
         var lexicalCandidateCount = 0
         var semanticSearchDurationMs = 0.0
@@ -338,6 +341,15 @@ public actor MemoryIndex {
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
+                if index > 0, expandedQuery.expansionType == .lexical {
+                    accumulateLexicalExpansionPromotion(
+                        for: lexicalHits,
+                        queryText: expandedQuery.text,
+                        primaryQueryText: normalizedText,
+                        weight: expandedQuery.weight,
+                        into: &lexicalExpansionPromotionRRF
+                    )
+                }
             }
         }
 
@@ -405,6 +417,7 @@ public actor MemoryIndex {
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
+            lexicalExpansionPromotionRRF: lexicalExpansionPromotionRRF,
             query: query,
             primaryQueryText: normalizedText,
             queryTags: queryTags,
@@ -1386,6 +1399,15 @@ public actor MemoryIndex {
 
     private func containsAny(_ text: String, needles: [String]) -> Bool {
         needles.contains(where: text.contains)
+    }
+
+    private func containsAnyRecallStatusCue(_ text: String, cues: [String]) -> Bool {
+        let normalizedText = " \(normalizedComparisonKey(for: text)) "
+        return cues.contains { cue in
+            let normalizedCue = normalizedComparisonKey(for: cue)
+            guard !normalizedCue.isEmpty else { return false }
+            return normalizedText.contains(" \(normalizedCue) ")
+        }
     }
 
     private func prepareCandidateForIngest(_ candidate: MemoryCandidate) -> PreparedMemoryCandidate? {
@@ -2729,9 +2751,9 @@ public actor MemoryIndex {
         let analysis = configuration.queryAnalyzer?.analyze(query: query) ?? heuristicQueryAnalysis(for: query)
 
         let statuses: Set<MemoryStatus>?
-        if containsAny(lower, needles: ["historical", "previous", "old", "superseded", "archived"]) {
+        if containsAnyRecallStatusCue(lower, cues: ["historical", "previous", "old", "superseded", "archived"]) {
             statuses = Set(MemoryStatus.allCases)
-        } else if containsAny(lower, needles: ["done", "completed", "resolved", "what happened"]) {
+        } else if containsAnyRecallStatusCue(lower, cues: ["done", "completed", "resolved", "what happened"]) {
             statuses = [.active, .resolved]
         } else {
             statuses = nil
@@ -2971,9 +2993,52 @@ public actor MemoryIndex {
         }
     }
 
+    private func accumulateLexicalExpansionPromotion(
+        for hits: [LexicalHit],
+        queryText: String,
+        primaryQueryText: String,
+        weight: Double,
+        into scores: inout [Int64: Double]
+    ) {
+        guard weight > 0 else { return }
+        let tokenCount = normalizedComparisonKey(for: queryText).split(separator: " ").count
+        let isConciseLowOverlap = tokenCount <= 5
+            && lexicalQueryOverlapRatio(queryText, primaryQueryText) <= 0.35
+        let isTemporalOrAggregate = isTemporalOrAggregateRecallQuery(primaryQueryText)
+        guard isConciseLowOverlap || isTemporalOrAggregate else { return }
+
+        let basePromotion = isConciseLowOverlap ? 0.75 : 0.18
+        for hit in hits.prefix(lexicalExpansionPromotionRankLimit) {
+            let contribution = weight * basePromotion
+            scores[hit.chunkID] = max(scores[hit.chunkID] ?? 0, contribution)
+        }
+    }
+
+    private func lexicalQueryOverlapRatio(_ lhs: String, _ rhs: String) -> Double {
+        let left = Set(normalizedComparisonKey(for: lhs).split(separator: " ").map(String.init))
+        let right = Set(normalizedComparisonKey(for: rhs).split(separator: " ").map(String.init))
+        guard !left.isEmpty else { return 1 }
+        return Double(left.intersection(right).count) / Double(left.count)
+    }
+
+    private func isTemporalOrAggregateRecallQuery(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        if isTimeAnchoredQuery(queryText) {
+            return true
+        }
+
+        let recallIntentPhrases = [
+            "as of", "count", "days passed", "first", "from earliest to latest",
+            "how many", "how much", "last time", "most recently", "order of",
+            "what month", "when did", "which date"
+        ]
+        return recallIntentPhrases.contains { lower.contains($0) }
+    }
+
     private func fuseCandidates(
         semanticRRF: [Int64: Double],
         lexicalRRF: [Int64: Double],
+        lexicalExpansionPromotionRRF: [Int64: Double],
         query: SearchQuery,
         primaryQueryText: String,
         queryTags: [ContentTag],
@@ -2994,7 +3059,7 @@ public actor MemoryIndex {
             guard let metadata = metadataMap[chunkID] else { continue }
 
             let semantic = semanticRRF[chunkID] ?? 0
-            let lexical = lexicalRRF[chunkID] ?? 0
+            let lexical = (lexicalRRF[chunkID] ?? 0) + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
@@ -3270,6 +3335,10 @@ public actor MemoryIndex {
 
     private func hasStrongLexicalSignal(query: SearchQuery, hits: [LexicalHit]) -> Bool {
         guard query.expansionLimit > 0, configuration.structuredQueryExpander != nil else {
+            return false
+        }
+        let queryTokenCount = normalizedComparisonKey(for: query.text).split(separator: " ").count
+        guard queryTokenCount <= strongLexicalMaxExpansionSkipTokenCount else {
             return false
         }
         guard let top = hits.first else { return false }
