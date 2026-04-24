@@ -3,10 +3,43 @@ import CryptoKit
 import Foundation
 import MemoryStorage
 
+private final class MemoryAsyncLock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var locked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if locked {
+                waiters.append(continuation)
+                lock.unlock()
+            } else {
+                locked = true
+                lock.unlock()
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        lock.lock()
+        if waiters.isEmpty {
+            locked = false
+            lock.unlock()
+        } else {
+            let continuation = waiters.removeFirst()
+            lock.unlock()
+            continuation.resume()
+        }
+    }
+}
+
 public actor MemoryIndex {
     private let configuration: MemoryConfiguration
     private let storage: MemoryStorage
     private let fileManager: FileManager
+    private let ingestLock = MemoryAsyncLock()
 
     private let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private let codeExtensions: Set<String> = [
@@ -28,6 +61,8 @@ public actor MemoryIndex {
         var facets: Set<FacetTag>
         var entityValues: Set<String>
         var topics: Set<String>
+        var temporalIntent: RecallTemporalIntent
+        var preferredStatuses: Set<MemoryStatus>
     }
 
     private struct StructuredSearchPlan {
@@ -37,6 +72,8 @@ public actor MemoryIndex {
         var facetTagNames: [String]
         var entityTagNames: [String]
         var topicTagNames: [String]
+        var temporalIntent: RecallTemporalIntent
+        var preferredStatuses: Set<MemoryStatus>
     }
 
     private struct PreparedMemoryCandidate {
@@ -55,11 +92,13 @@ public actor MemoryIndex {
         var topics: [String]
         var canonicalKey: String?
         var metadata: [String: String]
+        var proposedAction: MemoryWriteAction?
     }
 
     private struct IngestConsolidationResult {
         var primaryMemoryID: String
         var impactedMemoryIDs: Set<String>
+        var action: MemoryWriteAction
     }
 
     private let minimumAutoWriteConfidence = 0.55
@@ -187,17 +226,18 @@ public actor MemoryIndex {
     }
 
     public func search(_ query: SearchQuery) async throws -> [SearchResult] {
-        try await search(query, events: nil, allowedChunkIDsOverride: nil)
+        try await search(query, events: nil, allowedChunkIDsOverride: nil, recallPlan: nil)
     }
 
     public func search(_ query: SearchQuery, events: SearchEventHandler?) async throws -> [SearchResult] {
-        try await search(query, events: events, allowedChunkIDsOverride: nil)
+        try await search(query, events: events, allowedChunkIDsOverride: nil, recallPlan: nil)
     }
 
     private func search(
         _ query: SearchQuery,
         events: SearchEventHandler?,
-        allowedChunkIDsOverride: Set<Int64>?
+        allowedChunkIDsOverride: Set<Int64>?,
+        recallPlan: RecallPlan?
     ) async throws -> [SearchResult] {
         let normalizedText = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return [] }
@@ -243,7 +283,9 @@ public actor MemoryIndex {
             query: query,
             normalizedText: normalizedText,
             analysis: queryAnalysis,
-            skipExpansion: lexicalProbe.strongSignal
+            recallPlan: recallPlan,
+            skipExpansion: lexicalProbe.strongSignal,
+            events: events
         )
         events?(.stageTiming(stage: .expansion, durationMs: elapsedMilliseconds(since: expansionStart)))
         events?(.expandedQueries(count: max(0, searchPlan.expandedQueries.count - 1)))
@@ -356,9 +398,9 @@ public actor MemoryIndex {
         events?(.lexicalCandidates(count: lexicalCandidateCount))
 
         let fusionStart = DispatchTime.now().uptimeNanoseconds
-        let querySignals = queryMatchSignals(from: searchPlan.analysis)
+        let querySignals = queryMatchSignals(from: searchPlan.analysis, plan: recallPlan)
         let queryTags = query.includeTagScoring
-            ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis)
+            ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
             : []
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
@@ -385,6 +427,13 @@ public actor MemoryIndex {
                 events?(.reranked(count: rerankCount))
             } catch {
                 // Fall back to fused ordering if reranking fails.
+                events?(
+                    .providerFailure(
+                        stage: .rerank,
+                        provider: reranker.identifier,
+                        message: error.localizedDescription
+                    )
+                )
                 fused = fused.map {
                     var updated = $0
                     updated.score.blended = updated.score.fused
@@ -538,8 +587,27 @@ public actor MemoryIndex {
         from messages: [ConversationMessage],
         limit: Int = 50
     ) async throws -> [MemoryCandidate] {
-        guard limit > 0 else { return [] }
-        guard !messages.isEmpty else { return [] }
+        try await extractDetailed(from: messages, limit: limit).candidates
+    }
+
+    public func extractDetailed(
+        from text: String,
+        limit: Int = 50
+    ) async throws -> MemoryExtractionResult {
+        try await extractDetailed(
+            from: [
+                ConversationMessage(role: .user, content: text),
+            ],
+            limit: limit
+        )
+    }
+
+    public func extractDetailed(
+        from messages: [ConversationMessage],
+        limit: Int = 50
+    ) async throws -> MemoryExtractionResult {
+        guard limit > 0 else { return MemoryExtractionResult() }
+        guard !messages.isEmpty else { return MemoryExtractionResult() }
 
         if let extractor = configuration.memoryExtractor {
             return try await extractor.extract(messages: messages, limit: limit)
@@ -549,22 +617,38 @@ public actor MemoryIndex {
     }
 
     public func ingest(_ memories: [MemoryCandidate]) async throws -> MemoryIngestResult {
+        await ingestLock.acquire()
+        do {
+            let result = try await ingestUnlocked(memories)
+            ingestLock.release()
+            return result
+        } catch {
+            ingestLock.release()
+            throw error
+        }
+    }
+
+    private func ingestUnlocked(_ memories: [MemoryCandidate]) async throws -> MemoryIngestResult {
         guard !memories.isEmpty else {
             return MemoryIngestResult(requestedCount: 0, storedCount: 0, discardedCount: 0, records: [])
         }
 
         var records: [MemoryRecord] = []
+        var actions: [MemoryWriteAction] = []
         var discardedCount = 0
         records.reserveCapacity(memories.count)
+        actions.reserveCapacity(memories.count)
 
         for memory in memories {
             guard let prepared = prepareCandidateForIngest(memory) else {
                 discardedCount += 1
+                actions.append(.noWrite)
                 continue
             }
 
             do {
                 let consolidation = try await ingestPreparedCandidate(prepared)
+                actions.append(consolidation.action)
                 for impactedMemoryID in consolidation.impactedMemoryIDs {
                     try await materializeStoredMemory(id: impactedMemoryID)
                 }
@@ -574,6 +658,9 @@ public actor MemoryIndex {
                     records.append(record)
                 } else {
                     discardedCount += 1
+                    if actions.indices.contains(actions.count - 1) {
+                        actions[actions.count - 1] = .noWrite
+                    }
                 }
             } catch {
                 throw normalizeError(error)
@@ -584,7 +671,8 @@ public actor MemoryIndex {
             requestedCount: memories.count,
             storedCount: records.count,
             discardedCount: discardedCount,
-            records: records
+            records: records,
+            actions: actions
         )
     }
 
@@ -604,40 +692,38 @@ public actor MemoryIndex {
         let effectiveLimit = max(1, limit)
         switch mode {
         case let .hybrid(query):
-            var queryText = query
-
-            if features.contains(.planner), let planner = configuration.recallPlanner {
-                do {
-                    if let plan = try await planner.plan(
-                        query: query,
-                        conversationContext: conversationContext,
-                        features: features
-                    ) {
-                        let plannedQuery = plan.query.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !plannedQuery.isEmpty {
-                            queryText = plannedQuery
-                        }
-                    }
-                } catch {
-                    // Planner failures should not break retrieval.
-                }
-            }
-
-            let effectiveKinds = resolveKindsFilter(for: mode, requestedKinds: kinds)
+            let plan = try await resolveRecallPlan(
+                query: query,
+                conversationContext: conversationContext,
+                features: features,
+                events: events
+            )
+            let queryText = plan.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? query : plan.query
+            let effectiveKinds = intersectKinds(resolveKindsFilter(for: mode, requestedKinds: kinds), plan.kinds)
+            let effectiveStatuses = plan.statuses ?? statuses
+            let effectiveFacets = intersectFacets(facets, plan.facets)
+            let effectiveEntityValues = mergeFilterValues(entityValues, plan.entityValues)
+            let effectiveTopics = mergeFilterValues(topics, plan.topics)
             let allowedChunkIDs = try await resolveMemoryChunkFilter(
                 kinds: effectiveKinds,
-                statuses: statuses,
-                facets: facets,
-                entityValues: entityValues,
-                topics: topics
+                statuses: effectiveStatuses,
+                facets: effectiveFacets,
+                entityValues: effectiveEntityValues,
+                topics: effectiveTopics
             )
             if allowedChunkIDs?.isEmpty == true {
                 return MemoryRecallResponse(records: [])
             }
 
-            let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
-            let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
-            let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
+            let semanticLimit = features.contains(.semantic)
+                ? max(plan.semanticCandidateLimit ?? configuration.semanticCandidateLimit, effectiveLimit * 4)
+                : 0
+            let lexicalLimit = features.contains(.lexical)
+                ? max(plan.lexicalCandidateLimit ?? configuration.lexicalCandidateLimit, effectiveLimit * 4)
+                : 0
+            let rerankLimit = features.contains(.rerank)
+                ? min(80, max(plan.rerankLimit ?? 40, effectiveLimit * 2))
+                : 0
             let expansionLimit = features.contains(.expansion) ? 5 : 0
 
             let searchResults = try await search(
@@ -651,7 +737,8 @@ public actor MemoryIndex {
                     includeTagScoring: features.contains(.tags)
                 ),
                 events: events,
-                allowedChunkIDsOverride: allowedChunkIDs
+                allowedChunkIDsOverride: allowedChunkIDs,
+                recallPlan: plan
             )
 
             var records: [MemoryRecord] = []
@@ -733,39 +820,43 @@ public actor MemoryIndex {
         guard !normalizedQuery.isEmpty else { return [] }
 
         let effectiveLimit = max(1, limit)
-        var queryText = normalizedQuery
+        let plan = try await resolveRecallPlan(
+            query: normalizedQuery,
+            conversationContext: conversationContext,
+            features: features,
+            events: events
+        )
+        let queryText = plan.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? normalizedQuery : plan.query
 
-        if features.contains(.planner), let planner = configuration.recallPlanner {
-            do {
-                if let plan = try await planner.plan(
-                    query: normalizedQuery,
-                    conversationContext: conversationContext,
-                    features: features
-                ) {
-                    let plannedQuery = plan.query.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !plannedQuery.isEmpty {
-                        queryText = plannedQuery
-                    }
-                }
-            } catch {
-                // Planner failures should not break retrieval.
-            }
-        }
+        let effectiveKinds = intersectKinds(kinds, plan.kinds)
+        let effectiveFacets = intersectFacets(facets, plan.facets)
+        let effectiveEntityValues = mergeFilterValues(entityValues, plan.entityValues)
+        let effectiveTopics = mergeFilterValues(topics, plan.topics)
+        let hasEntityFilter = !(effectiveEntityValues ?? []).isEmpty
+        let hasTopicFilter = !(effectiveTopics ?? []).isEmpty
+        let usesMemoryOnlyFilter = effectiveKinds != nil || effectiveFacets != nil || hasEntityFilter || hasTopicFilter
+        let effectiveStatuses = statuses ?? plan.statuses ?? (usesMemoryOnlyFilter ? [.active] : nil)
 
         let allowedChunkIDs = try await resolveMemoryChunkFilter(
-            kinds: kinds,
-            statuses: statuses,
-            facets: facets,
-            entityValues: entityValues,
-            topics: topics
+            kinds: effectiveKinds,
+            statuses: effectiveStatuses,
+            facets: effectiveFacets,
+            entityValues: effectiveEntityValues,
+            topics: effectiveTopics
         )
-        if (kinds != nil || statuses != nil), allowedChunkIDs?.isEmpty == true {
+        if (effectiveKinds != nil || effectiveStatuses != nil), allowedChunkIDs?.isEmpty == true {
             return []
         }
 
-        let semanticLimit = features.contains(.semantic) ? max(configuration.semanticCandidateLimit, effectiveLimit * 4) : 0
-        let lexicalLimit = features.contains(.lexical) ? max(configuration.lexicalCandidateLimit, effectiveLimit * 4) : 0
-        let rerankLimit = features.contains(.rerank) ? min(80, max(40, effectiveLimit * 2)) : 0
+        let semanticLimit = features.contains(.semantic)
+            ? max(plan.semanticCandidateLimit ?? configuration.semanticCandidateLimit, effectiveLimit * 4)
+            : 0
+        let lexicalLimit = features.contains(.lexical)
+            ? max(plan.lexicalCandidateLimit ?? configuration.lexicalCandidateLimit, effectiveLimit * 4)
+            : 0
+        let rerankLimit = features.contains(.rerank)
+            ? min(80, max(plan.rerankLimit ?? 40, effectiveLimit * 2))
+            : 0
         let expansionLimit = features.contains(.expansion) ? 5 : 0
         let searchLimit = dedupeDocuments
             ? min(400, max(effectiveLimit * 6, effectiveLimit))
@@ -782,7 +873,8 @@ public actor MemoryIndex {
                 includeTagScoring: features.contains(.tags)
             ),
             events: events,
-            allowedChunkIDsOverride: allowedChunkIDs
+            allowedChunkIDsOverride: allowedChunkIDs,
+            recallPlan: plan
         )
 
         var references: [MemorySearchReference] = []
@@ -792,6 +884,13 @@ public actor MemoryIndex {
         var documentTextCache: [String: String] = [:]
 
         for result in searchResults {
+            if statuses == nil,
+               plan.statuses == nil,
+               let memoryStatus = result.memoryStatus,
+               memoryStatus != .active {
+                continue
+            }
+
             if dedupeDocuments {
                 let key = normalizedComparisonKey(for: result.documentPath)
                 guard seenDocumentKeys.insert(key).inserted else { continue }
@@ -1011,85 +1110,216 @@ public actor MemoryIndex {
         )
     }
 
-    private func heuristicExtract(messages: [ConversationMessage], limit: Int) -> [MemoryCandidate] {
-        let allText = messages
-            .map(\.content)
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !allText.isEmpty else { return [] }
-
-        let normalized = allText.replacingOccurrences(of: "\r\n", with: "\n")
-        let rawSegments = normalized.split { character in
-            character == "\n" || character == "." || character == "!" || character == "?"
-        }
-
+    private func heuristicExtract(messages: [ConversationMessage], limit: Int) -> MemoryExtractionResult {
         var extracted: [MemoryCandidate] = []
-        extracted.reserveCapacity(min(limit, rawSegments.count))
+        extracted.reserveCapacity(limit)
+        var rejected: [MemoryRejectedSpan] = []
+        var rationales: [String] = []
 
         var seen: Set<String> = []
-        for rawSegment in rawSegments {
-            let segment = String(rawSegment).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard segment.count >= 18 else { continue }
+        for message in messages {
+            let normalized = message.content
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
 
-            let key = normalizedComparisonKey(for: segment)
-            guard seen.insert(key).inserted else { continue }
+            let rawSegments = normalized.split { character in
+                character == "\n" || character == "." || character == "!" || character == "?"
+            }
 
-            let kind = inferKind(forExtractedText: segment)
-            let status = inferStatus(forExtractedText: segment, kind: kind)
-            let importance = inferredImportance(for: kind)
-            let confidence = inferredConfidence(for: kind)
-            let facetTags = inferFacetTags(forExtractedText: segment, kind: kind)
-            let entities = inferEntities(forExtractedText: segment)
-            let topics = inferTopics(forExtractedText: segment, seedTags: inferredTags(forExtractedText: segment))
+            for rawSegment in rawSegments {
+                let segment = String(rawSegment).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard segment.count >= 18 else {
+                    if !segment.isEmpty {
+                        rejected.append(MemoryRejectedSpan(text: segment, reason: "too_short", confidence: 0.9))
+                    }
+                    continue
+                }
 
-            extracted.append(
-                MemoryCandidate(
-                    text: segment,
-                    kind: kind,
-                    status: status,
-                    importance: importance,
-                    confidence: confidence,
-                    createdAt: nil,
-                    eventAt: kind == .episode ? Date() : nil,
-                    source: "heuristic_extract",
-                    tags: inferredTags(forExtractedText: segment),
-                    facetTags: facetTags,
-                    entities: entities,
-                    topics: topics,
-                    canonicalKey: resolveCanonicalKey(for: kind, text: segment, explicitKey: nil)
+                let key = normalizedComparisonKey(for: segment)
+                guard seen.insert(key).inserted else {
+                    rejected.append(MemoryRejectedSpan(text: segment, reason: "duplicate_span", confidence: 0.9))
+                    continue
+                }
+
+                let kind = inferKind(forExtractedText: segment)
+                guard isExtractableMemorySegment(segment, kind: kind, role: message.role) else {
+                    rejected.append(MemoryRejectedSpan(text: segment, reason: "not_memory_worthy", confidence: 0.85))
+                    continue
+                }
+
+                let status = inferStatus(forExtractedText: segment, kind: kind)
+                let importance = inferredImportance(for: kind)
+                let confidence = inferredConfidence(for: kind)
+                let facetTags = inferFacetTags(forExtractedText: segment, kind: kind)
+                let entities = inferEntities(forExtractedText: segment)
+                let topics = inferTopics(forExtractedText: segment, seedTags: inferredTags(forExtractedText: segment))
+
+                extracted.append(
+                    MemoryCandidate(
+                        text: segment,
+                        kind: kind,
+                        status: status,
+                        importance: importance,
+                        confidence: confidence,
+                        createdAt: nil,
+                        eventAt: kind == .episode ? Date() : nil,
+                        source: "heuristic_extract",
+                        tags: inferredTags(forExtractedText: segment),
+                        facetTags: facetTags,
+                        entities: entities,
+                        topics: topics,
+                        canonicalKey: resolveCanonicalKey(
+                            for: kind,
+                            text: segment,
+                            explicitKey: nil,
+                            entities: entities,
+                            topics: topics
+                        )
+                    )
                 )
-            )
+                rationales.append("\(kind.rawValue):\(status.rawValue):\(segment)")
 
-            if extracted.count >= limit {
-                break
+                if extracted.count >= limit {
+                    return MemoryExtractionResult(
+                        candidates: extracted,
+                        rejectedSpans: rejected,
+                        proposedActions: extracted.map(proposedWriteAction(for:)),
+                        rationale: rationales
+                    )
+                }
             }
         }
 
-        return extracted
+        return MemoryExtractionResult(
+            candidates: extracted,
+            rejectedSpans: rejected,
+            proposedActions: extracted.map(proposedWriteAction(for:)),
+            rationale: rationales
+        )
     }
 
     private func inferKind(forExtractedText text: String) -> MemoryKind {
         let lower = text.lowercased()
 
-        if containsAny(lower, needles: ["runbook", "procedure", "playbook", "workflow", "how to", "step by step"]) {
+        if containsAny(lower, needles: ["runbook", "procedure", "playbook", "workflow", "how to", "step by step", "guide:"]) {
             return .procedure
         }
-        if containsAny(lower, needles: ["decide", "decision", "chose", "choose", "switched to", "agreed", "picked"]) {
+        if containsAny(lower, needles: ["decide", "decision", "chose", "choose", "switch to", "switched", "agreed", "picked", "settled on"]) {
             return .decision
         }
-        if containsAny(lower, needles: ["todo", "to do", "follow up", "action item", "next step", "need to", "must", "should"]) {
+        if containsAny(
+            lower,
+            needles: [
+                "todo", "to do", "done:", "follow up", "action item", "next step",
+                "need to", "must", "should", "finished", "completed", " is done",
+                " is complete", " is completed", " is finished"
+            ]
+        ) {
             return .commitment
         }
-        if containsAny(lower, needles: ["prefer", "preference", "favorite", "timezone", "my name", "i am", "i'm", "my role"]) {
+        if containsAny(
+            lower,
+            needles: [
+                "prefer", "preference", "favorite", "likes", "usually", "works closely",
+                "timezone", "my name", "i am", "i'm", "my role", "role is",
+                " is the maintainer", "standing constraint"
+            ]
+        ) {
             return .profile
         }
         if containsAny(lower, needles: ["handoff", "current status", "blocked on", "next owner", "for the next person", "context"]) {
             return .handoff
         }
-        if containsAny(lower, needles: ["today", "yesterday", "last week", "incident", "meeting", "retrospective", "shipped"]) {
+        if containsAny(lower, needles: ["today", "yesterday", "this morning", "last week", "after the demo", "incident", "meeting", "met ", "retrospective", "shipped", "celebrated"]) {
             return .episode
         }
         return .fact
+    }
+
+    private func isExtractableMemorySegment(
+        _ text: String,
+        kind: MemoryKind,
+        role: ConversationRole? = nil
+    ) -> Bool {
+        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lower.isEmpty else { return false }
+
+        if lower.hasSuffix("?") {
+            return false
+        }
+
+        if role == .assistant,
+           containsAny(
+               lower,
+               needles: [
+                   "i will remember", "i'll remember", "i can remember",
+                   "i have noted", "i noted", "noted that", "i will keep",
+                   "i'll keep", "sure, i can", "happy to explain"
+               ]
+           ) {
+            return false
+        }
+
+        let durableMemoryRequest = containsAny(
+            lower,
+            needles: ["remember that", "please remember", "for future reference", "note that", "keep in mind"]
+        )
+        if isQuestionLikeNonMemorySegment(lower), !durableMemoryRequest {
+            return false
+        }
+
+        let conversationalRequest = containsAny(
+            lower,
+            needles: [
+                "thank you", "thanks", "sounds good", "got it", "okay", "ok ",
+                "can you", "could you", "would you", "please explain", "explain how",
+                "hypothetical question"
+            ]
+        )
+        if conversationalRequest && !durableMemoryRequest {
+            return false
+        }
+
+        switch kind {
+        case .profile, .decision, .commitment, .procedure, .handoff, .episode:
+            return true
+        case .fact:
+            return containsAny(
+                " \(lower) ",
+                needles: [
+                    " is ", " are ", " was ", " were ", " uses ", " use ",
+                    " has ", " have ", " includes ", " requires ", " supports ",
+                    " stores ", " runs ", " ships ", " powers ", " keeps ",
+                    " load ", " loads ", " blocks ", " works "
+                ]
+            )
+        }
+    }
+
+    private func isQuestionLikeNonMemorySegment(_ lower: String) -> Bool {
+        let questionPrefixes = [
+            "what ", "when ", "where ", "which ", "who ", "why ", "how ",
+            "can ", "could ", "would ", "should ", "do ", "does ", "did ",
+            "is ", "are ", "am ", "was ", "were "
+        ]
+        if questionPrefixes.contains(where: { lower.hasPrefix($0) }) {
+            return true
+        }
+
+        if lower.hasPrefix("if "),
+           containsAny(lower, needles: [" what ", " would ", " could ", " should ", " responsibilities"]) {
+            return true
+        }
+
+        return containsAny(
+            lower,
+            needles: [
+                "hypothetical question",
+                "i am asking a hypothetical",
+                "i'm asking a hypothetical"
+            ]
+        )
     }
 
     private func inferStatus(forExtractedText text: String, kind: MemoryKind) -> MemoryStatus {
@@ -1180,7 +1410,9 @@ public actor MemoryIndex {
         let canonicalKey = resolveCanonicalKey(
             for: candidate.kind,
             text: trimmedText,
-            explicitKey: candidate.canonicalKey
+            explicitKey: candidate.canonicalKey,
+            entities: entities,
+            topics: topics
         )
 
         return PreparedMemoryCandidate(
@@ -1198,8 +1430,26 @@ public actor MemoryIndex {
             entities: entities,
             topics: topics,
             canonicalKey: canonicalKey,
-            metadata: candidate.metadata
+            metadata: candidate.metadata,
+            proposedAction: proposedWriteAction(for: candidate)
         )
+    }
+
+    private func proposedWriteAction(for candidate: MemoryCandidate) -> MemoryWriteAction {
+        switch candidate.kind {
+        case .episode:
+            return .appendEpisode
+        case .commitment where candidate.status != .active:
+            return .mergeStatus
+        case .commitment:
+            return .create
+        case .profile:
+            return .replaceActive
+        case .decision:
+            return .supersede
+        case .procedure, .handoff, .fact:
+            return .create
+        }
     }
 
     private func normalizeCandidateTags(_ candidate: MemoryCandidate, text: String) -> [String] {
@@ -1260,14 +1510,15 @@ public actor MemoryIndex {
         let preferred = supplied.isEmpty ? inferTopics(forExtractedText: text, seedTags: seedTags) : supplied
         var normalized: [String] = []
         var seen: Set<String> = []
-        normalized.reserveCapacity(min(preferred.count, 8))
+        let maxTopics = 12
+        normalized.reserveCapacity(min(preferred.count, maxTopics))
 
         for topic in preferred {
             let cleaned = normalizeTopicValue(topic)
             guard !cleaned.isEmpty else { continue }
             guard seen.insert(cleaned).inserted else { continue }
             normalized.append(cleaned)
-            if normalized.count >= 8 {
+            if normalized.count >= maxTopics {
                 break
             }
         }
@@ -1314,6 +1565,13 @@ public actor MemoryIndex {
         }
         if containsAny(lower, needles: ["name", "role", "timezone", "i am", "i'm"]) {
             facets.insert(.identitySignal)
+        }
+        if containsAny(lower, needles: ["maintainer", "owner"]) {
+            facets.insert(.identitySignal)
+        }
+        if containsAny(lower, needles: ["with ", "closely with"]) {
+            facets.insert(.relationship)
+            facets.insert(.person)
         }
 
         switch kind {
@@ -1363,7 +1621,7 @@ public actor MemoryIndex {
                 continue
             }
 
-            if raw.first?.isUppercase == true || raw.contains(".") || raw.contains("/") {
+            if raw.first?.isUppercase == true || raw.contains(".") || raw.contains("/") || raw.contains("+") || raw.contains("-") {
                 current.append(raw)
             } else {
                 flush()
@@ -1394,6 +1652,7 @@ public actor MemoryIndex {
     }
 
     private func inferTopics(forExtractedText text: String, seedTags: [String]) -> [String] {
+        let maxTopics = 12
         let tokens = text
             .lowercased()
             .split { character in
@@ -1412,7 +1671,7 @@ public actor MemoryIndex {
                 guard !candidate.isEmpty else { continue }
                 guard seen.insert(candidate).inserted else { continue }
                 topics.append(candidate)
-                if topics.count >= 8 {
+                if topics.count >= maxTopics {
                     return topics
                 }
             }
@@ -1423,7 +1682,7 @@ public actor MemoryIndex {
             guard !candidate.isEmpty else { continue }
             guard seen.insert(candidate).inserted else { continue }
             topics.append(candidate)
-            if topics.count >= 8 {
+            if topics.count >= maxTopics {
                 break
             }
         }
@@ -1544,20 +1803,29 @@ public actor MemoryIndex {
         }
     }
 
-    private func resolveCanonicalKey(for kind: MemoryKind, text: String, explicitKey: String?) -> String? {
+    private func resolveCanonicalKey(
+        for kind: MemoryKind,
+        text: String,
+        explicitKey: String?,
+        entities: [MemoryEntity] = [],
+        topics: [String] = []
+    ) -> String? {
         if let explicit = normalizeCanonicalKey(explicitKey) {
             return explicit
         }
 
+        let signalSeed = canonicalSignalSeed(text: text, entities: entities, topics: topics)
+
         switch kind {
         case .profile:
-            return profileCanonicalKey(from: text) ?? candidateKeySeed(from: text).map { "profile:\($0)" }
+            return profileCanonicalKey(from: text, signalSeed: signalSeed)
+                ?? signalSeed.map { "profile:\($0)" }
         case .decision:
-            return candidateKeySeed(from: text).map { "decision:\($0)" }
+            return signalSeed.map { "decision:\($0)" }
         case .commitment:
-            return candidateKeySeed(from: text).map { "commitment:\($0)" }
+            return signalSeed.map { "commitment:\($0)" }
         case .procedure:
-            return candidateKeySeed(from: text).map { "procedure:\($0)" }
+            return signalSeed.map { "procedure:\($0)" }
         case .handoff:
             return "handoff:primary"
         case .fact, .episode:
@@ -1574,19 +1842,90 @@ public actor MemoryIndex {
         return cleaned
     }
 
-    private func profileCanonicalKey(from text: String) -> String? {
+    private func profileCanonicalKey(from text: String, signalSeed: String?) -> String? {
         let lower = text.lowercased()
-        let anchors = [
-            "name", "timezone", "time zone", "favorite", "prefer", "preference",
-            "role", "location", "email", "phone", "birthday"
+
+        let explicitAttributes: [(needle: String, key: String)] = [
+            ("timezone", "timezone"),
+            ("time zone", "timezone"),
+            ("editor", "editor"),
+            ("favorite", "favorite"),
+            ("preference", "preference"),
+            ("prefer", "preference"),
+            ("my name", "name"),
+            ("name is", "name"),
+            ("role", "role"),
+            ("maintainer", "role"),
+            ("owner", "role"),
+            ("location", "location"),
+            ("email", "email"),
+            ("phone", "phone"),
+            ("birthday", "birthday")
         ]
 
-        for anchor in anchors where lower.contains(anchor) {
-            let normalizedAnchor = anchor.replacingOccurrences(of: " ", with: "-")
-            return "profile:\(normalizedAnchor)"
+        for attribute in explicitAttributes where lower.contains(attribute.needle) {
+            if attribute.key == "preference" || attribute.key == "favorite" {
+                return signalSeed.map { "profile:\(attribute.key):\($0)" } ?? "profile:\(attribute.key)"
+            }
+            return "profile:\(attribute.key)"
         }
 
         return nil
+    }
+
+    private func canonicalSignalSeed(
+        text: String,
+        entities: [MemoryEntity],
+        topics: [String],
+        maxTokens: Int = 6
+    ) -> String? {
+        var values: [String] = []
+        values.reserveCapacity(entities.count + topics.count + maxTokens)
+
+        for entity in entities {
+            let normalized = normalizeCanonicalKey(entity.normalizedValue) ?? normalizeCanonicalKey(entity.value)
+            if let normalized, !isGenericCanonicalSignal(normalized) {
+                values.append(normalized)
+            }
+        }
+
+        for topic in topics {
+            if let normalized = normalizeCanonicalKey(topic), !isGenericCanonicalSignal(normalized) {
+                values.append(normalized)
+            }
+        }
+
+        if values.isEmpty, let seed = candidateKeySeed(from: text, maxTokens: maxTokens) {
+            values.append(seed)
+        }
+
+        var seen: Set<String> = []
+        let joined = values
+            .flatMap { value in
+                value.split { character in !character.isLetter && !character.isNumber }
+                    .map(String.init)
+            }
+            .filter { token in
+                token.count >= 3
+                    && !queryStopWords.contains(token)
+                    && !canonicalStopWords.contains(token)
+                    && seen.insert(token).inserted
+            }
+            .prefix(maxTokens)
+            .joined(separator: "-")
+
+        return joined.isEmpty ? nil : joined
+    }
+
+    private func isGenericCanonicalSignal(_ value: String) -> Bool {
+        let generic: Set<String> = [
+            "todo", "task", "action", "item", "decision", "profile", "fact",
+            "commitment", "memory", "memories", "project", "repo", "repository"
+        ]
+        let tokens = value
+            .split { character in !character.isLetter && !character.isNumber }
+            .map(String.init)
+        return !tokens.isEmpty && tokens.allSatisfy { generic.contains($0) || queryStopWords.contains($0) }
     }
 
     private func candidateKeySeed(from text: String, maxTokens: Int = 6) -> String? {
@@ -1594,7 +1933,11 @@ public actor MemoryIndex {
             .lowercased()
             .split { character in !character.isLetter && !character.isNumber }
             .map(String.init)
-            .filter { $0.count >= 3 && !queryStopWords.contains($0) }
+            .filter {
+                $0.count >= 3
+                    && !queryStopWords.contains($0)
+                    && !canonicalStopWords.contains($0)
+            }
 
         guard !tokens.isEmpty else { return nil }
         return tokens.prefix(maxTokens).joined(separator: "-")
@@ -1602,22 +1945,32 @@ public actor MemoryIndex {
 
     private func ingestPreparedCandidate(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
         switch candidate.kind {
-        case .fact, .episode:
+        case .fact:
             if let duplicate = try await storage.findDuplicateStoredMemory(
                 kind: candidate.kind.rawValue,
                 text: candidate.text
             ) {
                 return IngestConsolidationResult(
                     primaryMemoryID: duplicate.id,
-                    impactedMemoryIDs: [duplicate.id]
+                    impactedMemoryIDs: [duplicate.id],
+                    action: .dedupe
                 )
             }
-            return try await insertPreparedMemory(candidate)
+            if let duplicate = try await findEquivalentFact(candidate) {
+                return IngestConsolidationResult(
+                    primaryMemoryID: duplicate.id,
+                    impactedMemoryIDs: [duplicate.id],
+                    action: .dedupe
+                )
+            }
+            return try await insertPreparedMemory(candidate, action: .create)
+        case .episode:
+            return try await insertPreparedMemory(candidate, action: .appendEpisode)
         case .profile, .decision, .handoff:
             return try await replaceActiveMemory(candidate)
         case .procedure:
             if candidate.canonicalKey == nil {
-                return try await insertPreparedMemory(candidate)
+                return try await insertPreparedMemory(candidate, action: .create)
             }
             return try await replaceActiveMemory(candidate)
         case .commitment:
@@ -1625,9 +1978,93 @@ public actor MemoryIndex {
         }
     }
 
+    private func findEquivalentFact(_ candidate: PreparedMemoryCandidate) async throws -> StoredMemoryRecord? {
+        guard candidate.kind == .fact else { return nil }
+        let candidateKey = normalizedSemanticKey(for: candidate.text)
+        guard !candidateKey.isEmpty else { return nil }
+
+        let candidates = try await storage.listStoredMemories(
+            limit: 200,
+            sort: .recent,
+            kinds: [MemoryKind.fact.rawValue],
+            statuses: [MemoryStatus.active.rawValue]
+        )
+        return candidates.first { existing in
+            normalizedSemanticKey(for: existing.text) == candidateKey
+        }
+    }
+
+    private func findRelatedCanonicalMemory(
+        _ candidate: PreparedMemoryCandidate,
+        statuses: Set<MemoryStatus>
+    ) async throws -> StoredMemoryRecord? {
+        guard candidate.kind == .commitment || candidate.kind == .decision else { return nil }
+        let candidateTokens = canonicalMatchTokens(
+            text: candidate.text,
+            canonicalKey: candidate.canonicalKey,
+            topics: candidate.topics,
+            tags: candidate.tags
+        )
+        guard candidateTokens.count >= 2 else { return nil }
+
+        let candidates = try await storage.listStoredMemories(
+            limit: 200,
+            sort: .recent,
+            kinds: [candidate.kind.rawValue],
+            statuses: Set(statuses.map(\.rawValue))
+        )
+
+        var best: (record: StoredMemoryRecord, score: Double)?
+        for existing in candidates {
+            let existingTokens = canonicalMatchTokens(
+                text: existing.text,
+                canonicalKey: existing.canonicalKey,
+                topics: existing.topics,
+                tags: existing.tags
+            )
+            guard existingTokens.count >= 2 else { continue }
+
+            let overlap = candidateTokens.intersection(existingTokens)
+            guard overlap.count >= 2 else { continue }
+
+            let coverage = Double(overlap.count) / Double(min(candidateTokens.count, existingTokens.count))
+            let score = coverage + (existing.status == candidate.status.rawValue ? 0.05 : 0)
+            guard coverage >= 0.50 else { continue }
+
+            if best == nil || score > best!.score {
+                best = (existing, score)
+            }
+        }
+
+        return best?.record
+    }
+
+    private func canonicalMatchTokens(
+        text: String,
+        canonicalKey: String?,
+        topics: [String],
+        tags: [String]
+    ) -> Set<String> {
+        let raw = ([text, canonicalKey ?? ""] + topics + tags).joined(separator: " ")
+        let tokens = raw
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+            .map(normalizedSemanticToken)
+            .filter { token in
+                token.count >= 3
+                    && !queryStopWords.contains(token)
+                    && !canonicalStopWords.contains(token)
+                    && !canonicalMatchStopWords.contains(token)
+            }
+        return Set(tokens)
+    }
+
     private func insertPreparedMemory(
         _ candidate: PreparedMemoryCandidate,
-        supersedesID: String? = nil
+        supersedesID: String? = nil,
+        action: MemoryWriteAction? = nil
     ) async throws -> IngestConsolidationResult {
         let memoryID = UUID().uuidString.lowercased()
         try await storage.insertStoredMemory(
@@ -1653,31 +2090,47 @@ public actor MemoryIndex {
                 metadata: candidate.metadata
             )
         )
-        return IngestConsolidationResult(primaryMemoryID: memoryID, impactedMemoryIDs: [memoryID])
+        return IngestConsolidationResult(
+            primaryMemoryID: memoryID,
+            impactedMemoryIDs: [memoryID],
+            action: action ?? candidate.proposedAction ?? .create
+        )
     }
 
     private func replaceActiveMemory(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
         guard let canonicalKey = candidate.canonicalKey else {
-            return try await insertPreparedMemory(candidate)
+            return try await insertPreparedMemory(candidate, action: .create)
         }
 
-        guard let existing = try await storage.findStoredMemory(
+        var existing = try await storage.findStoredMemory(
             kind: candidate.kind.rawValue,
             canonicalKey: canonicalKey,
             statuses: [MemoryStatus.active.rawValue]
-        ) else {
-            return try await insertPreparedMemory(candidate)
+        )
+        let matchedByRelatedKey = existing == nil
+        if existing == nil {
+            existing = try await findRelatedCanonicalMemory(candidate, statuses: [.active])
+        }
+        guard let existing else {
+            return try await insertPreparedMemory(candidate, action: .create)
         }
 
         if normalizedComparisonKey(for: existing.text) == normalizedComparisonKey(for: candidate.text),
            existing.status == candidate.status.rawValue {
             return IngestConsolidationResult(
                 primaryMemoryID: existing.id,
-                impactedMemoryIDs: [existing.id]
+                impactedMemoryIDs: [existing.id],
+                action: .dedupe
             )
         }
 
-        let inserted = try await insertPreparedMemory(candidate, supersedesID: existing.id)
+        var replacement = candidate
+        if matchedByRelatedKey, let existingCanonicalKey = existing.canonicalKey {
+            replacement.canonicalKey = existingCanonicalKey
+        }
+
+        let action: MemoryWriteAction = candidate.kind == .decision ? .supersede : .replaceActive
+        let inserted = try await insertPreparedMemory(replacement, supersedesID: existing.id, action: action)
         try await storage.updateStoredMemoryStatus(
             id: existing.id,
             status: MemoryStatus.superseded.rawValue,
@@ -1687,21 +2140,26 @@ public actor MemoryIndex {
 
         return IngestConsolidationResult(
             primaryMemoryID: inserted.primaryMemoryID,
-            impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id])
+            impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id]),
+            action: action
         )
     }
 
     private func mergeCommitment(_ candidate: PreparedMemoryCandidate) async throws -> IngestConsolidationResult {
         guard let canonicalKey = candidate.canonicalKey else {
-            return try await insertPreparedMemory(candidate)
+            return try await insertPreparedMemory(candidate, action: .create)
         }
 
-        guard let existing = try await storage.findStoredMemory(
+        var existing = try await storage.findStoredMemory(
             kind: candidate.kind.rawValue,
             canonicalKey: canonicalKey,
             statuses: [MemoryStatus.active.rawValue, MemoryStatus.resolved.rawValue]
-        ) else {
-            return try await insertPreparedMemory(candidate)
+        )
+        if existing == nil {
+            existing = try await findRelatedCanonicalMemory(candidate, statuses: [.active, .resolved])
+        }
+        guard let existing else {
+            return try await insertPreparedMemory(candidate, action: .create)
         }
 
         if candidate.status != .active {
@@ -1715,7 +2173,8 @@ public actor MemoryIndex {
             }
             return IngestConsolidationResult(
                 primaryMemoryID: existing.id,
-                impactedMemoryIDs: [existing.id]
+                impactedMemoryIDs: [existing.id],
+                action: existing.status == candidate.status.rawValue ? .dedupe : .mergeStatus
             )
         }
 
@@ -1723,12 +2182,13 @@ public actor MemoryIndex {
            existing.status == candidate.status.rawValue {
             return IngestConsolidationResult(
                 primaryMemoryID: existing.id,
-                impactedMemoryIDs: [existing.id]
+                impactedMemoryIDs: [existing.id],
+                action: .dedupe
             )
         }
 
         if existing.status == MemoryStatus.active.rawValue {
-            let inserted = try await insertPreparedMemory(candidate, supersedesID: existing.id)
+            let inserted = try await insertPreparedMemory(candidate, supersedesID: existing.id, action: .supersede)
             try await storage.updateStoredMemoryStatus(
                 id: existing.id,
                 status: MemoryStatus.superseded.rawValue,
@@ -1737,11 +2197,12 @@ public actor MemoryIndex {
             )
             return IngestConsolidationResult(
                 primaryMemoryID: inserted.primaryMemoryID,
-                impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id])
+                impactedMemoryIDs: inserted.impactedMemoryIDs.union([existing.id]),
+                action: .supersede
             )
         }
 
-        return try await insertPreparedMemory(candidate, supersedesID: existing.id)
+        return try await insertPreparedMemory(candidate, supersedesID: existing.id, action: .create)
     }
 
     private func materializeStoredMemory(id: String) async throws {
@@ -1833,6 +2294,45 @@ public actor MemoryIndex {
         default:
             return requestedKinds
         }
+    }
+
+    private func intersectKinds(_ lhs: Set<MemoryKind>?, _ rhs: Set<MemoryKind>?) -> Set<MemoryKind>? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return lhs.intersection(rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func intersectFacets(_ lhs: Set<FacetTag>?, _ rhs: Set<FacetTag>?) -> Set<FacetTag>? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return lhs.intersection(rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func mergeFilterValues(_ lhs: [String]?, _ rhs: [String]) -> [String]? {
+        var seen: Set<String> = []
+        var merged: [String] = []
+        for value in (lhs ?? []) + rhs {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
+            let key = normalizedComparisonKey(for: normalized)
+            guard seen.insert(key).inserted else { continue }
+            merged.append(normalized)
+        }
+        return merged.isEmpty ? nil : merged
     }
 
     private func resolveMemoryChunkFilter(
@@ -2016,7 +2516,7 @@ public actor MemoryIndex {
         }
 
         let taggingStart = DispatchTime.now().uptimeNanoseconds
-        let chunkTags = await resolveChunkContentTags(chunks: chunks, kind: kind, sourceURL: url)
+        let chunkTags = await resolveChunkContentTags(chunks: chunks, kind: kind, sourceURL: url, events: events)
         events?(.stageTiming(path: url.path, stage: .tagging, durationMs: elapsedMilliseconds(since: taggingStart)))
         let chunkInputs: [StoredChunkInput] = zip(zip(chunks, embeddings), chunkTags).map { element in
             let (pair, contentTags) = element
@@ -2078,7 +2578,8 @@ public actor MemoryIndex {
     private func resolveChunkContentTags(
         chunks: [Chunk],
         kind: DocumentKind,
-        sourceURL: URL
+        sourceURL: URL,
+        events: IndexingEventHandler?
     ) async -> [[StoredChunkTag]] {
         guard let contentTagger = configuration.contentTagger else {
             return Array(repeating: [], count: chunks.count)
@@ -2101,6 +2602,14 @@ public actor MemoryIndex {
                     }
                 )
             } catch {
+                events?(
+                    .providerFailure(
+                        path: sourceURL.path,
+                        stage: .tagging,
+                        provider: contentTagger.identifier,
+                        message: error.localizedDescription
+                    )
+                )
                 collected.append([])
             }
         }
@@ -2108,7 +2617,11 @@ public actor MemoryIndex {
         return collected
     }
 
-    private func resolveQueryContentTags(queryText: String, queryAnalysis: QueryAnalysis) async -> [ContentTag] {
+    private func resolveQueryContentTags(
+        queryText: String,
+        queryAnalysis: QueryAnalysis,
+        events: SearchEventHandler?
+    ) async -> [ContentTag] {
         guard let contentTagger = configuration.contentTagger else { return [] }
 
         do {
@@ -2128,6 +2641,13 @@ public actor MemoryIndex {
             normalized.append(contentsOf: prefixTags)
             return normalizeContentTags(normalized, maxCount: 16)
         } catch {
+            events?(
+                .providerFailure(
+                    stage: .fusion,
+                    provider: contentTagger.identifier,
+                    message: error.localizedDescription
+                )
+            )
             return []
         }
     }
@@ -2136,7 +2656,109 @@ public actor MemoryIndex {
         QueryMatchSignals(
             facets: Set(analysis.facetHints.map(\.tag)),
             entityValues: Set(analysis.entities.map(\.normalizedValue).map(normalizeEntityValue).filter { !$0.isEmpty }),
-            topics: Set(analysis.topics.map(normalizeTopicValue).filter { !$0.isEmpty })
+            topics: Set(analysis.topics.map(normalizeTopicValue).filter { !$0.isEmpty }),
+            temporalIntent: .any,
+            preferredStatuses: []
+        )
+    }
+
+    private func queryMatchSignals(from analysis: QueryAnalysis, plan: RecallPlan?) -> QueryMatchSignals {
+        var signals = queryMatchSignals(from: analysis)
+        if let plan {
+            signals.temporalIntent = plan.temporalIntent
+            signals.preferredStatuses = plan.statuses ?? []
+        }
+        return signals
+    }
+
+    private func resolveRecallPlan(
+        query: String,
+        conversationContext: [ConversationMessage],
+        features: RecallFeatures,
+        events: SearchEventHandler?
+    ) async throws -> RecallPlan {
+        let fallback = heuristicRecallPlan(query: query)
+        guard features.contains(.planner), let planner = configuration.recallPlanner else {
+            return fallback
+        }
+
+        do {
+            guard let planned = try await planner.plan(
+                query: query,
+                conversationContext: conversationContext,
+                features: features
+            ) else {
+                return fallback
+            }
+            return mergeRecallPlans(primary: planned, fallback: fallback)
+        } catch {
+            events?(
+                .providerFailure(
+                    stage: .analysis,
+                    provider: planner.identifier,
+                    message: error.localizedDescription
+                )
+            )
+            return fallback
+        }
+    }
+
+    private func mergeRecallPlans(primary: RecallPlan, fallback: RecallPlan) -> RecallPlan {
+        let query = primary.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? fallback.query
+            : primary.query
+        return RecallPlan(
+            query: query,
+            lexicalQueries: primary.lexicalQueries.isEmpty ? fallback.lexicalQueries : primary.lexicalQueries,
+            semanticQueries: primary.semanticQueries.isEmpty ? fallback.semanticQueries : primary.semanticQueries,
+            hypotheticalDocuments: primary.hypotheticalDocuments.isEmpty ? fallback.hypotheticalDocuments : primary.hypotheticalDocuments,
+            kinds: primary.kinds ?? fallback.kinds,
+            statuses: primary.statuses ?? fallback.statuses,
+            facets: primary.facets ?? fallback.facets,
+            entityValues: primary.entityValues.isEmpty ? fallback.entityValues : primary.entityValues,
+            topics: primary.topics.isEmpty ? fallback.topics : primary.topics,
+            temporalIntent: primary.temporalIntent == .any ? fallback.temporalIntent : primary.temporalIntent,
+            semanticCandidateLimit: primary.semanticCandidateLimit ?? fallback.semanticCandidateLimit,
+            lexicalCandidateLimit: primary.lexicalCandidateLimit ?? fallback.lexicalCandidateLimit,
+            rerankLimit: primary.rerankLimit ?? fallback.rerankLimit
+        )
+    }
+
+    private func heuristicRecallPlan(query: String) -> RecallPlan {
+        let lower = query.lowercased()
+        let analysis = configuration.queryAnalyzer?.analyze(query: query) ?? heuristicQueryAnalysis(for: query)
+
+        let statuses: Set<MemoryStatus>?
+        if containsAny(lower, needles: ["historical", "previous", "old", "superseded", "archived"]) {
+            statuses = Set(MemoryStatus.allCases)
+        } else if containsAny(lower, needles: ["done", "completed", "resolved", "what happened"]) {
+            statuses = [.active, .resolved]
+        } else {
+            statuses = nil
+        }
+
+        let temporalIntent: RecallTemporalIntent
+        if containsAny(lower, needles: ["how many", "total", "count"]) {
+            temporalIntent = .count
+        } else if containsAny(lower, needles: ["most recent", "latest", "last "]) {
+            temporalIntent = .mostRecent
+        } else if isTimeAnchoredQuery(query) {
+            temporalIntent = .timeAnchored
+        } else {
+            temporalIntent = .any
+        }
+
+        return RecallPlan(
+            query: query,
+            lexicalQueries: analysis.keyTerms.isEmpty ? [] : [analysis.keyTerms.joined(separator: " ")],
+            statuses: statuses,
+            facets: nil,
+            entityValues: [],
+            topics: [],
+            temporalIntent: temporalIntent,
+            semanticCandidateLimit: temporalIntent == .count ? configuration.semanticCandidateLimit + 150 : nil,
+            lexicalCandidateLimit: temporalIntent == .count ? configuration.lexicalCandidateLimit + 150 : nil,
+            rerankLimit: temporalIntent == .count || temporalIntent == .timeAnchored ? 60 : nil
         )
     }
 
@@ -2377,8 +2999,17 @@ public actor MemoryIndex {
             let recency = exp(-ageDays / 30.0)
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
             let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
-                + memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
-            let fused = (weights.semantic * semantic) + (weights.lexical * lexical) + (weights.recency * recency) + anchorBonus + tagBonus
+            let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
+            let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
+            let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
+            let fused = (weights.semantic * semantic)
+                + (weights.lexical * lexical)
+                + (weights.recency * recency)
+                + anchorBonus
+                + tagBonus
+                + schemaBonus
+                + temporalBonus
+                + statusBonus
 
             results.append(
                 makeSearchResult(
@@ -2389,6 +3020,9 @@ public actor MemoryIndex {
                         lexical: lexical,
                         recency: recency,
                         tag: tagBonus,
+                        schema: schemaBonus,
+                        temporal: temporalBonus,
+                        status: statusBonus,
                         fused: fused
                     )
                 )
@@ -2410,7 +3044,9 @@ public actor MemoryIndex {
         query: SearchQuery,
         normalizedText: String,
         analysis: QueryAnalysis,
-        skipExpansion: Bool = false
+        recallPlan: RecallPlan?,
+        skipExpansion: Bool = false,
+        events: SearchEventHandler?
     ) async throws -> StructuredSearchPlan {
         var expandedQueries: [WeightedQuery] = [
             WeightedQuery(text: normalizedText, weight: query.originalQueryWeight),
@@ -2422,17 +3058,49 @@ public actor MemoryIndex {
             topics: normalizeTopicValues(analysis.topics, maxCount: 6),
             isHowToQuery: analysis.isHowToQuery
         )
+        var seen: Set<String> = [normalizedComparisonKey(for: normalizedText)]
+        var remainingBudget = max(0, query.expansionLimit)
+        if let recallPlan {
+            let planEntities = recallPlan.entityValues.map {
+                MemoryEntity(label: .other, value: $0, normalizedValue: normalizeEntityValue($0), confidence: 0.7)
+            }
+            mergedAnalysis.entities = normalizeMemoryEntities(mergedAnalysis.entities + planEntities, maxCount: 8)
+            let planFacetHints = makeFacetHints(from: recallPlan.facets ?? [], confidence: 0.78, isExplicit: true)
+            mergedAnalysis.facetHints = normalizeFacetHints(mergedAnalysis.facetHints + planFacetHints, maxCount: 6)
+            mergedAnalysis.topics = normalizeTopicValues(mergedAnalysis.topics + recallPlan.topics, maxCount: 10)
+            appendExpandedQueries(
+                texts: recallPlan.lexicalQueries,
+                type: .lexical,
+                weight: query.expansionQueryWeight,
+                budget: &remainingBudget,
+                seen: &seen,
+                into: &expandedQueries
+            )
+            appendExpandedQueries(
+                texts: recallPlan.semanticQueries,
+                type: .semantic,
+                weight: query.expansionQueryWeight,
+                budget: &remainingBudget,
+                seen: &seen,
+                into: &expandedQueries
+            )
+            appendExpandedQueries(
+                texts: recallPlan.hypotheticalDocuments,
+                type: .hypotheticalDocument,
+                weight: query.expansionQueryWeight * 0.85,
+                budget: &remainingBudget,
+                seen: &seen,
+                into: &expandedQueries
+            )
+        }
 
         guard !skipExpansion,
               query.expansionLimit > 0,
               let structuredExpander = configuration.structuredQueryExpander else {
-            return StructuredSearchPlan(
+            return makeStructuredSearchPlan(
                 expandedQueries: expandedQueries,
                 analysis: mergedAnalysis,
-                entityLexicalQueries: [],
-                facetTagNames: [],
-                entityTagNames: [],
-                topicTagNames: []
+                recallPlan: recallPlan
             )
         }
 
@@ -2447,22 +3115,23 @@ public actor MemoryIndex {
                 limit: query.expansionLimit
             )
         } catch {
-            return StructuredSearchPlan(
+            events?(
+                .providerFailure(
+                    stage: .expansion,
+                    provider: structuredExpander.identifier,
+                    message: error.localizedDescription
+                )
+            )
+            return makeStructuredSearchPlan(
                 expandedQueries: expandedQueries,
                 analysis: mergedAnalysis,
-                entityLexicalQueries: [],
-                facetTagNames: [],
-                entityTagNames: [],
-                topicTagNames: []
+                recallPlan: recallPlan
             )
         }
 
         mergedAnalysis.entities = normalizeMemoryEntities(mergedAnalysis.entities + expansion.entities, maxCount: 6)
         mergedAnalysis.facetHints = normalizeFacetHints(mergedAnalysis.facetHints + expansion.facetHints, maxCount: 4)
         mergedAnalysis.topics = normalizeTopicValues(mergedAnalysis.topics + expansion.topics, maxCount: 6)
-
-        var seen: Set<String> = [normalizedComparisonKey(for: normalizedText)]
-        var remainingBudget = max(0, query.expansionLimit)
         appendExpandedQueries(
             texts: expansion.lexicalQueries,
             type: .lexical,
@@ -2488,19 +3157,33 @@ public actor MemoryIndex {
             into: &expandedQueries
         )
 
-        return StructuredSearchPlan(
+        return makeStructuredSearchPlan(
             expandedQueries: expandedQueries,
             analysis: mergedAnalysis,
-            entityLexicalQueries: Array(mergedAnalysis.entities.prefix(3).map(\.value)),
-            facetTagNames: mergedAnalysis.facetHints
+            recallPlan: recallPlan
+        )
+    }
+
+    private func makeStructuredSearchPlan(
+        expandedQueries: [WeightedQuery],
+        analysis: QueryAnalysis,
+        recallPlan: RecallPlan?
+    ) -> StructuredSearchPlan {
+        StructuredSearchPlan(
+            expandedQueries: expandedQueries,
+            analysis: analysis,
+            entityLexicalQueries: Array(analysis.entities.prefix(4).map(\.value)),
+            facetTagNames: analysis.facetHints
                 .filter { $0.confidence >= 0.55 }
                 .map { "facet:\($0.tag.rawValue)" },
-            entityTagNames: mergedAnalysis.entities
-                .prefix(3)
+            entityTagNames: analysis.entities
+                .prefix(4)
                 .map { "entity:\($0.normalizedValue)" },
-            topicTagNames: mergedAnalysis.topics
-                .prefix(3)
-                .map { "topic:\($0)" }
+            topicTagNames: analysis.topics
+                .prefix(4)
+                .map { "topic:\($0)" },
+            temporalIntent: recallPlan?.temporalIntent ?? .any,
+            preferredStatuses: recallPlan?.statuses ?? []
         )
     }
 
@@ -2794,6 +3477,33 @@ public actor MemoryIndex {
         return entityBonus + facetBonus + topicBonus
     }
 
+    private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
+        switch querySignals.temporalIntent {
+        case .any:
+            return 0
+        case .recent, .mostRecent:
+            let ageDays = max(0, Date().timeIntervalSince(metadata.modifiedAt) / 86_400)
+            return min(0.05, 0.05 * exp(-ageDays / 14.0))
+        case .historical:
+            return metadata.memoryStatus == MemoryStatus.superseded.rawValue || metadata.memoryStatus == MemoryStatus.archived.rawValue ? 0.04 : 0
+        case .timeAnchored, .count:
+            return isTimeAnchoredText(metadata.content) ? 0.025 : 0
+        }
+    }
+
+    private func memoryStatusBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
+        guard let memoryStatus = metadata.memoryStatus,
+              let status = MemoryStatus.parse(memoryStatus),
+              !querySignals.preferredStatuses.isEmpty else {
+            return 0
+        }
+        return querySignals.preferredStatuses.contains(status) ? 0.035 : 0
+    }
+
+    private func isTimeAnchoredText(_ text: String) -> Bool {
+        isTimeAnchoredQuery(text)
+    }
+
     private func anchorTokens(from queryText: String) -> [String] {
         let rawTokens = queryText.split { character in
             !character.isLetter && !character.isNumber
@@ -2837,6 +3547,41 @@ public actor MemoryIndex {
 
     private func normalizedComparisonKey(for text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .joined(separator: " ")
+    }
+
+    private func normalizedSemanticKey(for text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+            .map(normalizedSemanticToken)
+            .filter { !$0.isEmpty && !queryStopWords.contains($0) }
+            .joined(separator: " ")
+    }
+
+    private func normalizedSemanticToken(_ token: String) -> String {
+        switch token {
+        case "repo", "repository":
+            return "repository"
+        case "db", "database":
+            return "database"
+        case "doc", "docs", "documentation":
+            return "docs"
+        case "test", "tests", "testing":
+            return "test"
+        case "migration", "migrations":
+            return "migration"
+        case "embedding", "embeddings":
+            return "embedding"
+        case "cache", "caching":
+            return "cache"
+        default:
+            return token
+        }
     }
 
     private func makeSnippet(content: String, queryText: String?) -> String {
@@ -3081,4 +3826,17 @@ private let queryStopWords: Set<String> = [
     "how", "if", "in", "into", "is", "it", "its", "of", "on", "or", "our",
     "that", "the", "their", "them", "there", "these", "they", "this", "to",
     "up", "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your"
+]
+
+private let canonicalStopWords: Set<String> = [
+    "action", "add", "closed", "commitment", "completed", "decision", "done",
+    "fact", "finished", "item", "memory", "memories", "profile", "resolved",
+    "status", "switched", "switch", "task", "todo"
+]
+
+private let canonicalMatchStopWords: Set<String> = [
+    "actually", "approved", "before", "choose", "chose", "complete", "continue",
+    "current", "decided", "default", "finished", "implement", "implemented",
+    "instead", "launch", "ready", "recently", "remember", "update", "updated",
+    "using"
 ]

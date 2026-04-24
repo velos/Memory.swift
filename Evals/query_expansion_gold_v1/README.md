@@ -7,6 +7,10 @@ This revision is mined from real recall misses and recoveries in:
 - `Evals/general_v2`
 - `Evals/longmemeval_v2`
 
+The general-query slice was refreshed again from the 2026-03-27
+`coreml_default` miss report so that the baseline-vs-expanded retrieval
+check does not only exercise already-recovered examples.
+
 This dataset is intentionally adversarial:
 
 - each query is a real or lightly normalized user query from a larger corpus

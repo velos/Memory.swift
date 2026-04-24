@@ -72,6 +72,9 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
     public var lexical: Double
     public var recency: Double
     public var tag: Double
+    public var schema: Double
+    public var temporal: Double
+    public var status: Double
     public var fused: Double
     public var rerank: Double
     public var blended: Double
@@ -81,6 +84,9 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
         lexical: Double,
         recency: Double,
         tag: Double = 0,
+        schema: Double = 0,
+        temporal: Double = 0,
+        status: Double = 0,
         fused: Double,
         rerank: Double = 0,
         blended: Double? = nil
@@ -89,6 +95,9 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
         self.lexical = lexical
         self.recency = recency
         self.tag = tag
+        self.schema = schema
+        self.temporal = temporal
+        self.status = status
         self.fused = fused
         self.rerank = rerank
         self.blended = blended ?? fused
@@ -310,6 +319,47 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
     }
 }
 
+public enum MemoryWriteAction: String, Sendable, Codable, Hashable {
+    case create
+    case dedupe
+    case replaceActive = "replace_active"
+    case mergeStatus = "merge_status"
+    case supersede
+    case appendEpisode = "append_episode"
+    case noWrite = "no_write"
+}
+
+public struct MemoryRejectedSpan: Sendable, Codable, Hashable {
+    public var text: String
+    public var reason: String
+    public var confidence: Double?
+
+    public init(text: String, reason: String, confidence: Double? = nil) {
+        self.text = text
+        self.reason = reason
+        self.confidence = confidence.map { min(1, max(0, $0)) }
+    }
+}
+
+public struct MemoryExtractionResult: Sendable, Codable, Hashable {
+    public var candidates: [MemoryCandidate]
+    public var rejectedSpans: [MemoryRejectedSpan]
+    public var proposedActions: [MemoryWriteAction]
+    public var rationale: [String]
+
+    public init(
+        candidates: [MemoryCandidate] = [],
+        rejectedSpans: [MemoryRejectedSpan] = [],
+        proposedActions: [MemoryWriteAction] = [],
+        rationale: [String] = []
+    ) {
+        self.candidates = candidates
+        self.rejectedSpans = rejectedSpans
+        self.proposedActions = proposedActions
+        self.rationale = rationale
+    }
+}
+
 public struct MemoryRecord: Sendable, Codable, Hashable {
     public var id: String
     public var chunkID: Int64
@@ -382,17 +432,20 @@ public struct MemoryIngestResult: Sendable, Codable, Hashable {
     public var storedCount: Int
     public var discardedCount: Int
     public var records: [MemoryRecord]
+    public var actions: [MemoryWriteAction]
 
     public init(
         requestedCount: Int,
         storedCount: Int,
         discardedCount: Int,
-        records: [MemoryRecord]
+        records: [MemoryRecord],
+        actions: [MemoryWriteAction] = []
     ) {
         self.requestedCount = max(0, requestedCount)
         self.storedCount = max(0, storedCount)
         self.discardedCount = max(0, discardedCount)
         self.records = records
+        self.actions = actions
     }
 }
 
@@ -423,7 +476,7 @@ public struct RecallFeatures: OptionSet, Sendable, Hashable {
     public static let rerank = RecallFeatures(rawValue: 1 << 4)
     public static let planner = RecallFeatures(rawValue: 1 << 5)
 
-    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion]
+    public static let hybridDefault: RecallFeatures = [.semantic, .lexical, .tags, .expansion, .planner]
 }
 
 public struct MemoryRecallResponse: Sendable, Codable, Hashable {
@@ -516,6 +569,7 @@ public enum IndexingEvent: Sendable {
     case readingDocument(path: String, index: Int, total: Int)
     case chunked(path: String, chunks: Int)
     case embedded(path: String, chunks: Int)
+    case providerFailure(path: String, stage: IndexingStage, provider: String, message: String)
     case stageTiming(path: String, stage: IndexingStage, durationMs: Double)
     case stored(path: String)
     case completed(processedDocuments: Int, totalChunks: Int)
@@ -540,6 +594,7 @@ public enum SearchEvent: Sendable {
     case lexicalCandidates(count: Int)
     case fusedCandidates(count: Int)
     case reranked(count: Int)
+    case providerFailure(stage: SearchStage, provider: String, message: String)
     case stageTiming(stage: SearchStage, durationMs: Double)
     case completed(count: Int)
 }

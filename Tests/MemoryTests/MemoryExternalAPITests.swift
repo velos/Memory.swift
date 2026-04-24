@@ -558,4 +558,247 @@ struct MemoryExternalAPITests {
         #expect(results.records.first?.id == preferred.id)
         #expect(results.records.last?.id == competing.id)
     }
+
+    @Test
+    func heuristicExtractSkipsQuestionsAndChitchat() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "Thanks, can you explain how vector indexes work before we decide anything?"),
+                ConversationMessage(role: .assistant, content: "Sure, I can explain that."),
+            ]
+        )
+
+        #expect(extracted.isEmpty)
+    }
+
+    @Test
+    func detailedExtractReportsRejectedSpansAndProposedActions() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let result = try await index.extractDetailed(
+            from: [
+                ConversationMessage(role: .user, content: "Thanks, can you explain the index first?"),
+                ConversationMessage(role: .user, content: "My role is the maintainer for Memory.swift."),
+                ConversationMessage(role: .user, content: "Action item: add migration tests."),
+            ],
+            limit: 10
+        )
+
+        #expect(result.candidates.count == 2)
+        #expect(result.rejectedSpans.contains(where: { $0.reason == "not_memory_worthy" }))
+        #expect(result.proposedActions.contains(.replaceActive))
+        #expect(result.proposedActions.contains(.create))
+        let extractedProfile = result.candidates.first { candidate in
+            candidate.kind == .profile && candidate.canonicalKey == "profile:role"
+        }
+        let extractedCommitment = result.candidates.first { candidate in
+            candidate.kind == .commitment
+        }
+        #expect(extractedProfile != nil)
+        #expect(extractedCommitment != nil)
+    }
+
+    @Test
+    func memorySearchDefaultsToActiveMemoriesWithoutHidingDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("storage.md"), "The active document mentions SQLite storage.")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let first = try await index.save(
+            text: "Storage decision was LMDB.",
+            kind: .decision,
+            canonicalKey: "decision:storage"
+        )
+        let second = try await index.save(
+            text: "Storage decision is SQLite.",
+            kind: .decision,
+            canonicalKey: "decision:storage"
+        )
+
+        let defaultRefs = try await index.memorySearch(query: "storage decision sqlite", limit: 10)
+        #expect(defaultRefs.contains(where: { $0.documentPath.hasSuffix("storage.md") }))
+        #expect(defaultRefs.contains(where: { $0.memoryID == second.id }))
+        #expect(defaultRefs.contains(where: { $0.memoryID == first.id }) == false)
+
+        let historicalRefs = try await index.memorySearch(
+            query: "storage decision lmdb",
+            limit: 10,
+            statuses: [.superseded]
+        )
+        #expect(historicalRefs.contains(where: { $0.memoryID == first.id }))
+    }
+
+    @Test
+    func ingestReportsWriteActionsForDedupeReplacementAndStatusMerge() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let firstFact = try await index.ingest([
+            MemoryCandidate(text: "The repo uses SQLite as the canonical storage layer.", kind: .fact),
+        ])
+        let duplicateFact = try await index.ingest([
+            MemoryCandidate(text: "The repository uses SQLite as canonical storage layer.", kind: .fact),
+        ])
+        let firstProfile = try await index.ingest([
+            MemoryCandidate(text: "Preferred editor is Vim.", kind: .profile),
+        ])
+        let replacementProfile = try await index.ingest([
+            MemoryCandidate(text: "Preferred editor is Zed.", kind: .profile),
+        ])
+        let activeCommitment = try await index.ingest([
+            MemoryCandidate(
+                text: "Action item: add migration tests.",
+                kind: .commitment,
+                canonicalKey: "commitment:migration-tests"
+            ),
+        ])
+        let resolvedCommitment = try await index.ingest([
+            MemoryCandidate(
+                text: "Done: add migration tests.",
+                kind: .commitment,
+                status: .resolved,
+                canonicalKey: "commitment:migration-tests"
+            ),
+        ])
+
+        #expect(firstFact.actions == [.create])
+        #expect(duplicateFact.actions == [.dedupe])
+        #expect(firstProfile.actions == [.create])
+        #expect(replacementProfile.actions == [.replaceActive])
+        #expect(activeCommitment.actions == [.create])
+        #expect(resolvedCommitment.actions == [.mergeStatus])
+
+        let facts = try await index.recall(mode: .kind(.fact), limit: 10)
+        #expect(facts.records.count == 1)
+    }
+
+    @Test
+    func hybridRecallIncludesResolvedCommitmentsForCompletionQueries() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let active = try await index.save(
+            text: "Action item: add migration tests.",
+            kind: .commitment,
+            canonicalKey: "commitment:migration-tests"
+        )
+        let resolved = try await index.save(
+            text: "Done: add migration tests.",
+            kind: .commitment,
+            status: .resolved,
+            canonicalKey: "commitment:migration-tests"
+        )
+
+        #expect(resolved.id == active.id)
+
+        let activeOnly = try await index.recall(
+            mode: .kind(.commitment),
+            limit: 10,
+            statuses: [.active]
+        )
+        #expect(activeOnly.records.isEmpty)
+
+        let planned = try await index.recall(
+            mode: .hybrid(query: "What happened to migration tests?"),
+            limit: 10
+        )
+        #expect(planned.records.contains(where: { $0.id == active.id && $0.status == .resolved }))
+    }
+
+    @Test
+    func inferredProfileCanonicalKeyReplacesActiveRecord() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let first = try await index.save(text: "Preferred editor is Vim.", kind: .profile)
+        let second = try await index.save(text: "Preferred editor is Zed.", kind: .profile)
+
+        let active = try await index.recall(mode: .kind(.profile), limit: 10)
+        #expect(active.records.count == 1)
+        #expect(active.records.first?.id == second.id)
+        #expect(active.records.first?.canonicalKey == "profile:editor")
+
+        let historical = try await index.recall(
+            mode: .kind(.profile),
+            limit: 10,
+            statuses: [.active, .superseded]
+        )
+        #expect(historical.records.contains(where: { $0.id == first.id && $0.status == .superseded }))
+    }
+
+    @Test
+    func concurrentIdempotentIngestDoesNotDuplicateExactFact() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    _ = try? await index.save(
+                        text: "The repo uses SQLite as the canonical storage layer.",
+                        kind: .fact
+                    )
+                }
+            }
+        }
+
+        let facts = try await index.recall(mode: .kind(.fact), limit: 10)
+        #expect(facts.records.count == 1)
+    }
 }

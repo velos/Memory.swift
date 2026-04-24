@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-24T03:03:00Z",
+  "freshness_hours": 48,
+  "regression_threshold": 0.02,
+  "latency_regression_threshold": 0.15,
+  "notes": [
+    "Reduced regression baseline for the shipped coreml_default path.",
+    "Minimum metrics are accuracy gates for storage, update, agent-memory behavior, and recall-rescue signals.",
+    "longmemeval_v2 values are seeded from the historical LEAF-IR CoreML run because coreml_default replaced that profile name.",
+    "query_expansion_gold_v1 currently tracks retrieval lift explicitly; the present dataset still has 0 lift because baseline and expanded retrieval both hit all cases."
+  ],
+  "required_runs": [
+    {
+      "dataset": "memory_schema_gold_v2",
+      "dataset_root": "Evals/memory_schema_gold_v2",
+      "profile": "coreml_default",
+      "metrics": {
+        "storage.type_accuracy": 1,
+        "storage.macro_f1": 0.875,
+        "storage.facet_micro_f1": 0.8111888111888113,
+        "storage.entity_recall": 0.7090909090909091,
+        "storage.topic_recall": 0.673469387755102,
+        "storage.update_behavior_accuracy": 0.8571428571428571
+      },
+      "minimum_metrics": {
+        "storage.type_accuracy": 0.95,
+        "storage.macro_f1": 0.85,
+        "storage.facet_micro_f1": 0.78,
+        "storage.entity_recall": 0.68,
+        "storage.topic_recall": 0.65,
+        "storage.update_behavior_accuracy": 0.80
+      }
+    },
+    {
+      "dataset": "agent_memory_gold_v1",
+      "dataset_root": "Evals/agent_memory_gold_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 6075.575947761536,
+      "metrics": {
+        "agent_memory.false_write_rate": 0,
+        "agent_memory.expected_write_recall": 1,
+        "agent_memory.active_state_accuracy": 1,
+        "agent_memory.update_behavior_accuracy": 1,
+        "agent_memory.recall_hit_rate": 1,
+        "agent_memory.recall_mrr": 1
+      },
+      "maximum_metrics": {
+        "agent_memory.false_write_rate": 0
+      },
+      "minimum_metrics": {
+        "agent_memory.expected_write_recall": 1,
+        "agent_memory.active_state_accuracy": 1,
+        "agent_memory.update_behavior_accuracy": 1,
+        "agent_memory.recall_hit_rate": 1,
+        "agent_memory.recall_mrr": 1
+      }
+    },
+    {
+      "dataset": "general_v2",
+      "dataset_root": "Evals/general_v2",
+      "profile": "coreml_default",
+      "latency_p95_ms": 525.3410339355469,
+      "metrics": {
+        "recall.hit_at_10": 0.7570422535211268,
+        "recall.recall_at_10": 0.7570422535211268,
+        "recall.mrr_at_10": 0.5488807847082496,
+        "recall.ndcg_at_10": 0.5996841519477116
+      },
+      "minimum_metrics": {
+        "recall.hit_at_10": 0.74,
+        "recall.recall_at_10": 0.74,
+        "recall.mrr_at_10": 0.52,
+        "recall.ndcg_at_10": 0.57
+      }
+    },
+    {
+      "dataset": "longmemeval_v2",
+      "dataset_root": "Evals/longmemeval_v2",
+      "profile": "coreml_leaf_ir",
+      "latency_p95_ms": 4717.131972312927,
+      "metrics": {
+        "recall.hit_at_10": 0.3867403314917127,
+        "recall.recall_at_10": 0.3339779005524862,
+        "recall.mrr_at_10": 0.24001578531965267,
+        "recall.ndcg_at_10": 0.24787419988610815
+      },
+      "minimum_metrics": {
+        "recall.hit_at_10": 0.37,
+        "recall.recall_at_10": 0.32,
+        "recall.mrr_at_10": 0.22,
+        "recall.ndcg_at_10": 0.23
+      }
+    },
+    {
+      "dataset": "query_expansion_gold_v1",
+      "dataset_root": "Evals/query_expansion_gold_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 167.14704036712646,
+      "metrics": {
+        "query_expansion.lexical_coverage_recall": 0.4895833333333333,
+        "query_expansion.semantic_coverage_recall": 0,
+        "query_expansion.hyde_anchor_recall": 0.0625,
+        "query_expansion.entity_recall": 0.2,
+        "query_expansion.topic_recall": 0.0625,
+        "query_expansion.retrieval_baseline_hit_rate": 1,
+        "query_expansion.retrieval_expanded_hit_rate": 1,
+        "query_expansion.retrieval_lift": 0
+      },
+      "minimum_metrics": {
+        "query_expansion.lexical_coverage_recall": 0.45,
+        "query_expansion.entity_recall": 0.18,
+        "query_expansion.retrieval_expanded_hit_rate": 1,
+        "query_expansion.retrieval_lift": 0
+      }
+    }
+  ]
+}

@@ -195,11 +195,50 @@ private struct QueryExpansionCase: Decodable {
     var candidateDocumentIds: [String]?
 }
 
+private struct AgentMemoryScenarioCase: Decodable {
+    var id: String
+    var messages: [AgentMemoryScenarioMessage]
+    var setupMemories: [StorageSeedMemory]?
+    var expectedWriteCount: Int?
+    var expectedMemories: [AgentMemoryExpectedMemory]?
+    var expectedUpdateBehavior: String?
+    var recallQueries: [AgentMemoryRecallExpectation]?
+}
+
+private struct AgentMemoryScenarioMessage: Decodable {
+    var role: String
+    var content: String
+}
+
+private struct AgentMemoryExpectedMemory: Decodable {
+    var kind: String?
+    var status: String?
+    var canonicalKey: String?
+    var textContains: [String]?
+    var facets: [String]?
+    var entities: [String]?
+    var topics: [String]?
+}
+
+private struct AgentMemoryRecallExpectation: Decodable {
+    var query: String
+    var limit: Int?
+    var expectedTextContains: [String]?
+    var expectedKinds: [String]?
+    var expectedStatuses: [String]?
+}
+
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case nlBaseline = "nl_baseline"
     case coreMLDefault = "coreml_default"
+    case coreMLLeafIR = "coreml_leaf_ir"
+    case coreMLRerank = "coreml_rerank"
     case oracleCeiling = "oracle_ceiling"
     case appleAugmented = "apple_augmented"
+
+    static var allCases: [EvalProfile] {
+        [.nlBaseline, .coreMLDefault, .oracleCeiling, .appleAugmented]
+    }
 }
 
 private struct StorageCaseResult: Codable {
@@ -460,6 +499,34 @@ private struct QueryExpansionSuiteReport: Codable {
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
     var caseResults: [QueryExpansionCaseResult]
+}
+
+private struct AgentMemoryScenarioResult: Codable {
+    var id: String
+    var expectedWriteCount: Int
+    var extractedCount: Int
+    var storedCount: Int
+    var matchedExpectedWrites: Int
+    var falseWriteCount: Int
+    var activeStateCorrect: Bool?
+    var expectedUpdateBehavior: String?
+    var observedUpdateBehavior: String?
+    var recallHitCount: Int
+    var recallQueryCount: Int
+    var reciprocalRanks: [Double]
+    var latencyMs: Double
+}
+
+private struct AgentMemorySuiteReport: Codable {
+    var totalScenarios: Int
+    var falseWriteRate: Double
+    var expectedWriteRecall: Double
+    var activeStateAccuracy: Double
+    var updateBehaviorAccuracy: Double
+    var recallHitRate: Double
+    var recallMRR: Double
+    var latencyStats: RecallLatencyStats?
+    var caseResults: [AgentMemoryScenarioResult]
 }
 
 private struct ContentTagGenerationStats {
@@ -1077,6 +1144,7 @@ private struct EvalRunReport: Codable {
     var storage: StorageSuiteReport
     var recall: RecallSuiteReport
     var queryExpansion: QueryExpansionSuiteReport?
+    var agentMemory: AgentMemorySuiteReport?
     var notes: [String]
 }
 
@@ -1166,7 +1234,7 @@ struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "memory_eval",
         abstract: "Evaluation harness for Memory.swift storage and recall quality.",
-        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self],
+        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self, GateCommand.self],
         defaultSubcommand: RunCommand.self
     )
 }
@@ -1360,14 +1428,29 @@ struct RunCommand: AsyncParsableCommand {
             )
         }
 
+        let agentMemoryReport: AgentMemorySuiteReport?
+        if dataset.agentMemoryScenarios.isEmpty {
+            agentMemoryReport = nil
+        } else {
+            agentMemoryReport = try await runAgentMemorySuite(
+                profile: profile,
+                scenarios: dataset.agentMemoryScenarios,
+                datasetRoot: datasetRootURL,
+                root: runRoot,
+                verbose: verbose,
+                responseCache: responseCache
+            )
+        }
+
         let report = EvalRunReport(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: Date(),
             profile: profile,
             datasetRoot: datasetRootURL.path,
             storage: storageReport,
             recall: recallOutput.report,
             queryExpansion: queryExpansionReport,
+            agentMemory: agentMemoryReport,
             notes: [
                 storageReport.mode == "canonical_memory_schema"
                     ? "Storage eval uses the canonical memory extraction and ingest path and scores kind/status/facet/entity/topic/update behavior."
@@ -1376,6 +1459,8 @@ struct RunCommand: AsyncParsableCommand {
                 "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
             ] + notes + recallOutput.notes + (queryExpansionReport != nil ? [
                 "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift with expansion enabled vs disabled."
+            ] : []) + (agentMemoryReport != nil ? [
+                "Agent memory scenario eval scores extraction writes, false writes, active-state/update behavior, recall quality, and latency."
             ] : [])
         )
 
@@ -1436,6 +1521,14 @@ struct RunCommand: AsyncParsableCommand {
                     print("Expansion retrieval lift: \(percent(lift))")
                 }
             }
+        }
+        if let agentMemory = report.agentMemory {
+            print("Agent memory false-write rate: \(percent(agentMemory.falseWriteRate))")
+            print("Agent memory expected-write recall: \(percent(agentMemory.expectedWriteRecall))")
+            print("Agent memory active-state accuracy: \(percent(agentMemory.activeStateAccuracy))")
+            print("Agent memory update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
+            print("Agent memory recall Hit: \(percent(agentMemory.recallHitRate))")
+            print("Agent memory recall MRR: \(format(agentMemory.recallMRR))")
         }
         if let ingestTotal = report.storage.stageLatencyStats?.totalMs {
             print("Indexing total/doc: p50=\(String(format: "%.0f", ingestTotal.p50Ms))ms p95=\(String(format: "%.0f", ingestTotal.p95Ms))ms mean=\(String(format: "%.0f", ingestTotal.meanMs))ms")
@@ -1516,17 +1609,166 @@ struct CompareCommand: AsyncParsableCommand {
     }
 }
 
+private struct EvalBaselineManifest: Codable {
+    var schemaVersion: Int
+    var createdAt: Date?
+    var freshnessHours: Double?
+    var regressionThreshold: Double?
+    var latencyRegressionThreshold: Double?
+    var requiredRuns: [EvalBaselineRequirement]
+}
+
+private struct EvalBaselineRequirement: Codable {
+    var dataset: String
+    var datasetRoot: String?
+    var profile: EvalProfile
+    var maxAgeHours: Double?
+    var metrics: [String: Double]
+    var minimumMetrics: [String: Double]?
+    var maximumMetrics: [String: Double]?
+    var latencyP95Ms: Double?
+}
+
+struct GateCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "gate",
+        abstract: "Validate eval run artifacts against a reduced baseline manifest."
+    )
+
+    @Option(name: .long, help: "Path to eval baseline manifest JSON.")
+    var baseline: String = "Evals/baselines/current.json"
+
+    @Option(name: .long, help: "Override maximum run artifact age in hours.")
+    var maxAgeHours: Double?
+
+    @Argument(help: "Candidate eval run JSON files.")
+    var runs: [String]
+
+    mutating func run() async throws {
+        guard !runs.isEmpty else {
+            throw ValidationError("Provide candidate run JSON paths.")
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let baselineURL = URL(fileURLWithPath: NSString(string: baseline).expandingTildeInPath).standardizedFileURL
+        let manifest = try decoder.decode(EvalBaselineManifest.self, from: Data(contentsOf: baselineURL))
+
+        let reports = try runs.map { path in
+            let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL
+            return try decoder.decode(EvalRunReport.self, from: Data(contentsOf: url))
+        }
+
+        var failures: [String] = []
+        let metricThreshold = manifest.regressionThreshold ?? 0.02
+        let latencyThreshold = manifest.latencyRegressionThreshold ?? 0.15
+        let now = Date()
+
+        for requirement in manifest.requiredRuns {
+            guard let report = reports.first(where: { reportMatchesRequirement($0, requirement: requirement) }) else {
+                failures.append("Missing run for \(requirement.dataset) / \(requirement.profile.rawValue).")
+                continue
+            }
+
+            let allowedAge = maxAgeHours ?? requirement.maxAgeHours ?? manifest.freshnessHours
+            if let allowedAge, allowedAge > 0 {
+                let ageHours = now.timeIntervalSince(report.createdAt) / 3600.0
+                if ageHours > allowedAge {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) is stale: \(String(format: "%.1f", ageHours))h old > \(String(format: "%.1f", allowedAge))h."
+                    )
+                }
+            }
+
+            let candidateMetrics = reducedMetrics(from: report)
+            for (name, minimumValue) in (requirement.minimumMetrics ?? [:]).sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing minimum metric \(name).")
+                    continue
+                }
+                if candidateValue < minimumValue {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) below minimum (minimum \(format(minimumValue)) -> candidate \(format(candidateValue)))."
+                    )
+                }
+            }
+
+            for (name, maximumValue) in (requirement.maximumMetrics ?? [:]).sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing maximum metric \(name).")
+                    continue
+                }
+                if candidateValue > maximumValue {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) above maximum (maximum \(format(maximumValue)) -> candidate \(format(candidateValue)))."
+                    )
+                }
+            }
+
+            for (name, baselineValue) in requirement.metrics.sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing metric \(name).")
+                    continue
+                }
+
+                if metricIsLowerBetter(name) {
+                    let regression = candidateValue - baselineValue
+                    if regression > metricThreshold {
+                        failures.append(
+                            "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) regressed by \(percent(regression)) (baseline \(format(baselineValue)) -> candidate \(format(candidateValue)))."
+                        )
+                    }
+                } else {
+                    let regression = baselineValue - candidateValue
+                    if regression > metricThreshold {
+                        failures.append(
+                            "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) regressed by \(percent(regression)) (baseline \(format(baselineValue)) -> candidate \(format(candidateValue)))."
+                        )
+                    }
+                }
+            }
+
+            if let baselineLatency = requirement.latencyP95Ms,
+               let candidateLatency = p95Latency(from: report),
+               baselineLatency > 0 {
+                let limit = baselineLatency * (1.0 + latencyThreshold)
+                if candidateLatency > limit {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) p95 latency regressed: \(String(format: "%.1f", candidateLatency))ms > \(String(format: "%.1f", limit))ms."
+                    )
+                }
+            } else if requirement.latencyP95Ms != nil {
+                failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing p95 latency.")
+            }
+        }
+
+        if failures.isEmpty {
+            print("Eval gate passed for \(manifest.requiredRuns.count) required run(s).")
+        } else {
+            print("Eval gate failed:")
+            for failure in failures {
+                print("- \(failure)")
+            }
+            throw ExitCode(1)
+        }
+    }
+}
+
 private struct DatasetBundle {
     var storageCases: [StorageCase]
     var recallDocuments: [RecallDocumentCase]
     var recallQueries: [RecallQueryCase]
     var queryExpansionCases: [QueryExpansionCase]
+    var agentMemoryScenarios: [AgentMemoryScenarioCase]
 }
 
 private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageURL = root.appendingPathComponent("storage_cases.jsonl")
     let recallDocumentsURL = root.appendingPathComponent("recall_documents.jsonl")
     let recallQueriesURL = root.appendingPathComponent("recall_queries.jsonl")
+    let agentMemoryScenariosURL = root.appendingPathComponent("scenarios.jsonl")
     let queryExpansionURLCandidates = [
         root.appendingPathComponent("query_expansion_cases.jsonl"),
         root.appendingPathComponent("cases.jsonl"),
@@ -1536,17 +1778,19 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageExists = fileManager.fileExists(atPath: storageURL.path)
     let recallDocumentsExists = fileManager.fileExists(atPath: recallDocumentsURL.path)
     let recallQueriesExists = fileManager.fileExists(atPath: recallQueriesURL.path)
+    let agentMemoryScenariosExists = fileManager.fileExists(atPath: agentMemoryScenariosURL.path)
     let queryExpansionURL = queryExpansionURLCandidates.first { fileManager.fileExists(atPath: $0.path) }
 
-    guard storageExists || recallDocumentsExists || recallQueriesExists || queryExpansionURL != nil else {
+    guard storageExists || recallDocumentsExists || recallQueriesExists || queryExpansionURL != nil || agentMemoryScenariosExists else {
         throw ValidationError(
-            "No dataset files found in \(root.path). Expected one or more of storage_cases.jsonl, recall_documents.jsonl, recall_queries.jsonl, query_expansion_cases.jsonl, or cases.jsonl."
+            "No dataset files found in \(root.path). Expected one or more of storage_cases.jsonl, recall_documents.jsonl, recall_queries.jsonl, query_expansion_cases.jsonl, cases.jsonl, or scenarios.jsonl."
         )
     }
 
     let storageCases: [StorageCase] = storageExists ? try loadJSONLines(from: storageURL) : []
     let recallDocuments: [RecallDocumentCase] = recallDocumentsExists ? try loadJSONLines(from: recallDocumentsURL) : []
     let recallQueries: [RecallQueryCase] = recallQueriesExists ? try loadJSONLines(from: recallQueriesURL) : []
+    let agentMemoryScenarios: [AgentMemoryScenarioCase] = agentMemoryScenariosExists ? try loadJSONLines(from: agentMemoryScenariosURL) : []
     let queryExpansionCases: [QueryExpansionCase]
     if let queryExpansionURL {
         queryExpansionCases = try loadJSONLines(from: queryExpansionURL)
@@ -1568,7 +1812,10 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     if queryExpansionURL != nil && queryExpansionCases.isEmpty {
         throw ValidationError("\(queryExpansionURL!.lastPathComponent) must contain at least one case when present.")
     }
-    if !storageExists && recallDocuments.isEmpty && recallQueries.isEmpty && queryExpansionCases.isEmpty {
+    if agentMemoryScenariosExists && agentMemoryScenarios.isEmpty {
+        throw ValidationError("scenarios.jsonl must contain at least one case when present.")
+    }
+    if !storageExists && recallDocuments.isEmpty && recallQueries.isEmpty && queryExpansionCases.isEmpty && agentMemoryScenarios.isEmpty {
         throw ValidationError("Dataset root \(root.path) does not contain any runnable eval cases.")
     }
 
@@ -1576,7 +1823,8 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
         storageCases: storageCases,
         recallDocuments: recallDocuments,
         recallQueries: recallQueries,
-        queryExpansionCases: queryExpansionCases
+        queryExpansionCases: queryExpansionCases,
+        agentMemoryScenarios: agentMemoryScenarios
     )
 }
 
@@ -2705,6 +2953,339 @@ private func observeUpdateBehavior(
     return "append"
 }
 
+private func runAgentMemorySuite(
+    profile: EvalProfile,
+    scenarios: [AgentMemoryScenarioCase],
+    datasetRoot: URL,
+    root: URL,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
+) async throws -> AgentMemorySuiteReport {
+    let workspace = try prepareIndexWorkspace(
+        suite: .storage,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root.appendingPathComponent("agent_memory", isDirectory: true),
+        cacheEnabled: false,
+        seed: "agent-memory-\(profile.rawValue)-\(scenarios.map(\.id).joined(separator: "|"))"
+    )
+    try resetWorkspaceForRebuild(workspace)
+
+    var progress = DeterminateProgress(label: "agent-memory", total: scenarios.count)
+    var results: [AgentMemoryScenarioResult] = []
+    var totalExpectedWrites = 0
+    var totalMatchedExpectedWrites = 0
+    var noWriteScenarioCount = 0
+    var falseWriteScenarioCount = 0
+    var activeStateExpectedCount = 0
+    var activeStateCorrectCount = 0
+    var updateExpectedCount = 0
+    var updateCorrectCount = 0
+    var totalRecallQueries = 0
+    var totalRecallHits = 0
+    var reciprocalRanks: [Double] = []
+    var latencies: [Double] = []
+
+    for scenario in scenarios {
+        let started = Date()
+        let caseDatabaseURL = workspace.root
+            .appendingPathComponent("cases", isDirectory: true)
+            .appendingPathComponent(safeFilename(scenario.id), isDirectory: true)
+            .appendingPathComponent("index.sqlite")
+        try FileManager.default.createDirectory(
+            at: caseDatabaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: caseDatabaseURL)
+        if let responseCache {
+            installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+        }
+        let index = try MemoryIndex(configuration: config)
+
+        var setupRecords: [MemoryRecord] = []
+        for seed in scenario.setupMemories ?? [] {
+            setupRecords.append(try await saveSeedMemory(seed, in: index, context: "agent-memory scenario \(scenario.id)"))
+        }
+
+        let messages = try parseScenarioMessages(scenario.messages, context: "agent-memory scenario \(scenario.id)")
+        let extracted = try await index.extract(from: messages, limit: 20)
+        let ingestResult = try await index.ingest(extracted)
+        let allRecords = try await fetchAllMemoryRecords(index: index)
+
+        let expectedMemories = scenario.expectedMemories ?? []
+        let expectedWriteCount = scenario.expectedWriteCount ?? expectedMemories.count
+        totalExpectedWrites += expectedWriteCount
+        if expectedWriteCount == 0 {
+            noWriteScenarioCount += 1
+        }
+
+        let matchedExpectedWrites = countMatchedExpectedMemories(
+            expectedMemories,
+            records: allRecords,
+            context: "agent-memory scenario \(scenario.id)"
+        )
+        totalMatchedExpectedWrites += min(expectedWriteCount, matchedExpectedWrites)
+
+        let falseWriteCount = expectedWriteCount == 0
+            ? ingestResult.storedCount
+            : max(0, ingestResult.storedCount - expectedWriteCount)
+        if expectedWriteCount == 0, falseWriteCount > 0 {
+            falseWriteScenarioCount += 1
+        }
+
+        let activeStateCorrect = try activeStateMatchesExpected(
+            expectedMemories,
+            records: allRecords,
+            context: "agent-memory scenario \(scenario.id)"
+        )
+        if let activeStateCorrect {
+            activeStateExpectedCount += 1
+            if activeStateCorrect {
+                activeStateCorrectCount += 1
+            }
+        }
+
+        let observedUpdateBehavior: String?
+        if scenario.expectedUpdateBehavior != nil {
+            observedUpdateBehavior = try await observeUpdateBehavior(
+                index: index,
+                setupRecords: setupRecords,
+                result: ingestResult.records.first
+            )
+            updateExpectedCount += 1
+            if observedUpdateBehavior == scenario.expectedUpdateBehavior {
+                updateCorrectCount += 1
+            }
+        } else {
+            observedUpdateBehavior = nil
+        }
+
+        var scenarioRecallHits = 0
+        var scenarioReciprocalRanks: [Double] = []
+        for expectation in scenario.recallQueries ?? [] {
+            totalRecallQueries += 1
+            let expectedStatuses = try Set((expectation.expectedStatuses ?? []).map {
+                try parseMemoryStatus($0, context: "agent-memory scenario \(scenario.id) recall expectation")
+            })
+            let response = try await index.recall(
+                mode: .hybrid(query: expectation.query),
+                limit: max(1, expectation.limit ?? 10),
+                statuses: expectedStatuses.isEmpty ? [.active] : expectedStatuses
+            )
+            if let rank = try firstMatchingRecallRank(
+                records: response.records,
+                expectation: expectation,
+                context: "agent-memory scenario \(scenario.id)"
+            ) {
+                scenarioRecallHits += 1
+                totalRecallHits += 1
+                let reciprocalRank = 1.0 / Double(rank)
+                scenarioReciprocalRanks.append(reciprocalRank)
+                reciprocalRanks.append(reciprocalRank)
+            } else {
+                scenarioReciprocalRanks.append(0)
+                reciprocalRanks.append(0)
+            }
+        }
+
+        let latencyMs = Date().timeIntervalSince(started) * 1000.0
+        latencies.append(latencyMs)
+
+        results.append(
+            AgentMemoryScenarioResult(
+                id: scenario.id,
+                expectedWriteCount: expectedWriteCount,
+                extractedCount: extracted.count,
+                storedCount: ingestResult.storedCount,
+                matchedExpectedWrites: matchedExpectedWrites,
+                falseWriteCount: falseWriteCount,
+                activeStateCorrect: activeStateCorrect,
+                expectedUpdateBehavior: scenario.expectedUpdateBehavior,
+                observedUpdateBehavior: observedUpdateBehavior,
+                recallHitCount: scenarioRecallHits,
+                recallQueryCount: scenario.recallQueries?.count ?? 0,
+                reciprocalRanks: scenarioReciprocalRanks,
+                latencyMs: latencyMs
+            )
+        )
+
+        if verbose {
+            print("[agent-memory] \(scenario.id): stored=\(ingestResult.storedCount) matched=\(matchedExpectedWrites) recallHits=\(scenarioRecallHits)")
+        }
+        progress.advance(detail: verbose ? scenario.id : nil)
+    }
+
+    return AgentMemorySuiteReport(
+        totalScenarios: scenarios.count,
+        falseWriteRate: safeRatio(falseWriteScenarioCount, noWriteScenarioCount, emptyDefault: 0),
+        expectedWriteRecall: safeRatio(totalMatchedExpectedWrites, totalExpectedWrites, emptyDefault: 1),
+        activeStateAccuracy: safeRatio(activeStateCorrectCount, activeStateExpectedCount, emptyDefault: 1),
+        updateBehaviorAccuracy: safeRatio(updateCorrectCount, updateExpectedCount, emptyDefault: 1),
+        recallHitRate: safeRatio(totalRecallHits, totalRecallQueries, emptyDefault: 1),
+        recallMRR: reciprocalRanks.isEmpty ? 1 : reciprocalRanks.reduce(0, +) / Double(reciprocalRanks.count),
+        latencyStats: computeLatencyStats(samples: latencies),
+        caseResults: results.sorted { $0.id < $1.id }
+    )
+}
+
+private func saveSeedMemory(
+    _ seed: StorageSeedMemory,
+    in index: MemoryIndex,
+    context: String
+) async throws -> MemoryRecord {
+    let kind = try parseMemoryKind(seed.kind, context: "\(context) setup memory")
+    let status = try parseMemoryStatus(seed.status ?? MemoryStatus.active.rawValue, context: "\(context) setup memory")
+    let facetTags = try parseFacetTags(seed.facetTags ?? [], context: "\(context) setup memory")
+    let entities = seed.entityValues?.map {
+        MemoryEntity(label: .other, value: $0, normalizedValue: normalizeForMatch($0))
+    } ?? []
+    return try await index.save(
+        text: seed.text,
+        kind: kind,
+        status: status,
+        facetTags: facetTags,
+        entities: entities,
+        topics: seed.topics ?? [],
+        canonicalKey: seed.canonicalKey
+    )
+}
+
+private func parseScenarioMessages(
+    _ rawMessages: [AgentMemoryScenarioMessage],
+    context: String
+) throws -> [ConversationMessage] {
+    try rawMessages.map { raw in
+        guard let role = ConversationRole(rawValue: raw.role) else {
+            throw ValidationError("Invalid \(context) message role '\(raw.role)'.")
+        }
+        return ConversationMessage(role: role, content: raw.content)
+    }
+}
+
+private func fetchAllMemoryRecords(index: MemoryIndex) async throws -> [MemoryRecord] {
+    var recordsByID: [String: MemoryRecord] = [:]
+    for kind in MemoryKind.allCases {
+        let records = try await index.recall(
+            mode: .kind(kind),
+            limit: 1_000,
+            statuses: [.active, .superseded, .resolved, .archived]
+        ).records
+        for record in records {
+            recordsByID[record.id] = record
+        }
+    }
+    return recordsByID.values.sorted { $0.id < $1.id }
+}
+
+private func countMatchedExpectedMemories(
+    _ expectedMemories: [AgentMemoryExpectedMemory],
+    records: [MemoryRecord],
+    context: String
+) -> Int {
+    var usedIDs: Set<String> = []
+    var count = 0
+    for expected in expectedMemories {
+        if let record = records.first(where: { record in
+            !usedIDs.contains(record.id) && expectedMemoryMatches(expected, record: record)
+        }) {
+            usedIDs.insert(record.id)
+            count += 1
+        }
+    }
+    _ = context
+    return count
+}
+
+private func activeStateMatchesExpected(
+    _ expectedMemories: [AgentMemoryExpectedMemory],
+    records: [MemoryRecord],
+    context: String
+) throws -> Bool? {
+    let statusExpectations = expectedMemories.filter { $0.status != nil }
+    guard !statusExpectations.isEmpty else { return nil }
+    for expected in statusExpectations {
+        guard let rawStatus = expected.status else { continue }
+        let expectedStatus = try parseMemoryStatus(rawStatus, context: context)
+        guard records.contains(where: { record in
+            expectedMemoryMatches(expected, record: record) && record.status == expectedStatus
+        }) else {
+            return false
+        }
+    }
+    return true
+}
+
+private func firstMatchingRecallRank(
+    records: [MemoryRecord],
+    expectation: AgentMemoryRecallExpectation,
+    context: String
+) throws -> Int? {
+    let expectedKinds = try Set((expectation.expectedKinds ?? []).map {
+        try parseMemoryKind($0, context: "\(context) recall expectation").rawValue
+    })
+    let expectedStatuses = try Set((expectation.expectedStatuses ?? []).map {
+        try parseMemoryStatus($0, context: "\(context) recall expectation").rawValue
+    })
+    let expectedText = (expectation.expectedTextContains ?? []).map(normalizeForMatch)
+
+    for (index, record) in records.enumerated() {
+        if !expectedKinds.isEmpty, !expectedKinds.contains(record.kind.rawValue) {
+            continue
+        }
+        if !expectedStatuses.isEmpty, !expectedStatuses.contains(record.status.rawValue) {
+            continue
+        }
+        let text = normalizeForMatch(record.text)
+        if !expectedText.allSatisfy({ text.contains($0) }) {
+            continue
+        }
+        return index + 1
+    }
+    return nil
+}
+
+private func expectedMemoryMatches(
+    _ expected: AgentMemoryExpectedMemory,
+    record: MemoryRecord
+) -> Bool {
+    if let rawKind = expected.kind, record.kind.rawValue != normalizeForMatch(rawKind) {
+        return false
+    }
+    if let rawStatus = expected.status, record.status.rawValue != normalizeForMatch(rawStatus) {
+        return false
+    }
+    if let canonicalKey = expected.canonicalKey,
+       normalizeForMatch(record.canonicalKey ?? "") != normalizeForMatch(canonicalKey) {
+        return false
+    }
+
+    let text = normalizeForMatch(record.text)
+    if !(expected.textContains ?? []).map(normalizeForMatch).allSatisfy({ text.contains($0) }) {
+        return false
+    }
+
+    let recordFacets = Set(record.facetTags.map(\.rawValue).map(normalizeForMatch))
+    let expectedFacets = Set((expected.facets ?? []).map(normalizeForMatch))
+    if !expectedFacets.isSubset(of: recordFacets) {
+        return false
+    }
+
+    let recordEntities = Set(record.entities.map(\.normalizedValue).map(normalizeForMatch))
+    let expectedEntities = Set((expected.entities ?? []).map(normalizeForMatch))
+    if !expectedEntities.isSubset(of: recordEntities) {
+        return false
+    }
+
+    let recordTopics = Set(record.topics.map(normalizeForMatch))
+    let expectedTopics = Set((expected.topics ?? []).map(normalizeForMatch))
+    if !expectedTopics.isSubset(of: recordTopics) {
+        return false
+    }
+
+    return true
+}
+
 private func safeRatio(_ numerator: Int, _ denominator: Int, emptyDefault: Double) -> Double {
     guard denominator > 0 else { return emptyDefault }
     return Double(numerator) / Double(denominator)
@@ -3177,7 +3758,7 @@ private func buildConfiguration(
     switch profile {
     case .nlBaseline:
         return MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
-    case .oracleCeiling, .coreMLDefault:
+    case .oracleCeiling, .coreMLDefault, .coreMLLeafIR, .coreMLRerank:
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
@@ -3534,7 +4115,7 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
     switch profile {
     case .appleAugmented:
         return true
-    case .nlBaseline, .coreMLDefault, .oracleCeiling:
+    case .nlBaseline, .coreMLDefault, .coreMLLeafIR, .coreMLRerank, .oracleCeiling:
         return false
     }
 }
@@ -3694,6 +4275,89 @@ private func checkForRegressions(
     return regressions
 }
 
+private func reportMatchesRequirement(_ report: EvalRunReport, requirement: EvalBaselineRequirement) -> Bool {
+    guard report.profile == requirement.profile else { return false }
+
+    let reportRoot = URL(fileURLWithPath: report.datasetRoot).standardizedFileURL
+    if reportRoot.lastPathComponent == requirement.dataset {
+        return true
+    }
+
+    if let datasetRoot = requirement.datasetRoot {
+        let requiredRoot = URL(fileURLWithPath: datasetRoot).standardizedFileURL
+        return reportRoot.path == requiredRoot.path || reportRoot.path.hasSuffix(requiredRoot.path)
+    }
+
+    return report.datasetRoot.hasSuffix(requirement.dataset)
+}
+
+private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
+    var metrics: [String: Double] = [
+        "storage.type_accuracy": report.storage.typeAccuracy,
+        "storage.macro_f1": report.storage.macroF1,
+        "storage.span_coverage": report.storage.spanCoverage,
+    ]
+
+    if let facetMicroF1 = report.storage.facetMicroF1 {
+        metrics["storage.facet_micro_f1"] = facetMicroF1
+    }
+    if let entityRecall = report.storage.entityRecall {
+        metrics["storage.entity_recall"] = entityRecall
+    }
+    if let topicRecall = report.storage.topicRecall {
+        metrics["storage.topic_recall"] = topicRecall
+    }
+    if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
+        metrics["storage.update_behavior_accuracy"] = updateBehaviorAccuracy
+    }
+
+    if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
+        metrics["recall.hit_at_\(maxKMetric.k)"] = maxKMetric.hitRate
+        metrics["recall.recall_at_\(maxKMetric.k)"] = maxKMetric.recall
+        metrics["recall.mrr_at_\(maxKMetric.k)"] = maxKMetric.mrr
+        metrics["recall.ndcg_at_\(maxKMetric.k)"] = maxKMetric.ndcg
+    }
+
+    if let queryExpansion = report.queryExpansion {
+        metrics["query_expansion.lexical_coverage_recall"] = queryExpansion.lexicalCoverageRecall
+        metrics["query_expansion.semantic_coverage_recall"] = queryExpansion.semanticCoverageRecall
+        metrics["query_expansion.hyde_anchor_recall"] = queryExpansion.hydeAnchorRecall
+        metrics["query_expansion.facet_micro_f1"] = queryExpansion.facetMicroF1
+        metrics["query_expansion.entity_recall"] = queryExpansion.entityRecall
+        metrics["query_expansion.topic_recall"] = queryExpansion.topicRecall
+        if let retrievalBaselineHitRate = queryExpansion.retrievalBaselineHitRate {
+            metrics["query_expansion.retrieval_baseline_hit_rate"] = retrievalBaselineHitRate
+        }
+        if let retrievalExpandedHitRate = queryExpansion.retrievalExpandedHitRate {
+            metrics["query_expansion.retrieval_expanded_hit_rate"] = retrievalExpandedHitRate
+        }
+        if let retrievalLift = queryExpansion.retrievalLift {
+            metrics["query_expansion.retrieval_lift"] = retrievalLift
+        }
+    }
+
+    if let agentMemory = report.agentMemory {
+        metrics["agent_memory.false_write_rate"] = agentMemory.falseWriteRate
+        metrics["agent_memory.expected_write_recall"] = agentMemory.expectedWriteRecall
+        metrics["agent_memory.active_state_accuracy"] = agentMemory.activeStateAccuracy
+        metrics["agent_memory.update_behavior_accuracy"] = agentMemory.updateBehaviorAccuracy
+        metrics["agent_memory.recall_hit_rate"] = agentMemory.recallHitRate
+        metrics["agent_memory.recall_mrr"] = agentMemory.recallMRR
+    }
+
+    return metrics
+}
+
+private func metricIsLowerBetter(_ metricName: String) -> Bool {
+    metricName == "agent_memory.false_write_rate"
+}
+
+private func p95Latency(from report: EvalRunReport) -> Double? {
+    report.recall.latencyStats?.p95Ms
+        ?? report.queryExpansion?.latencyStats?.p95Ms
+        ?? report.agentMemory?.latencyStats?.p95Ms
+}
+
 private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
     let sorted = reports.sorted { $0.createdAt < $1.createdAt }
     let includesExpansion = sorted.contains { $0.queryExpansion != nil }
@@ -3807,6 +4471,22 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
             if let lift = queryExpansion.retrievalLift {
                 lines.append("- Retrieval lift: \(percent(lift))")
             }
+        }
+    }
+
+    if let agentMemory = report.agentMemory {
+        lines.append("")
+        lines.append("## Agent Memory")
+        lines.append("")
+        lines.append("- Scenarios: \(agentMemory.totalScenarios)")
+        lines.append("- False-write rate: \(percent(agentMemory.falseWriteRate))")
+        lines.append("- Expected-write recall: \(percent(agentMemory.expectedWriteRecall))")
+        lines.append("- Active-state accuracy: \(percent(agentMemory.activeStateAccuracy))")
+        lines.append("- Update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
+        lines.append("- Recall Hit: \(percent(agentMemory.recallHitRate))")
+        lines.append("- Recall MRR: \(format(agentMemory.recallMRR))")
+        if let latency = agentMemory.latencyStats {
+            lines.append("- Scenario latency p95: \(String(format: "%.1f", latency.p95Ms)) ms")
         }
     }
 
