@@ -96,7 +96,7 @@
       "dataset": "query_expansion_gold_v1",
       "dataset_root": "Evals/query_expansion_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 167.14704036712646,
+      "latency_p95_ms": 192.30294227600098,
       "metrics": {
         "query_expansion.lexical_coverage_recall": 0.4895833333333333,
         "query_expansion.semantic_coverage_recall": 0,
@@ -105,13 +105,17 @@
         "query_expansion.topic_recall": 0.0625,
         "query_expansion.retrieval_baseline_hit_rate": 1,
         "query_expansion.retrieval_expanded_hit_rate": 1,
-        "query_expansion.retrieval_lift": 0
+        "query_expansion.retrieval_lift": 0,
+        "query_expansion.retrieval_baseline_mrr": 0.45910218253968255,
+        "query_expansion.retrieval_expanded_mrr": 0.5036210317460317,
+        "query_expansion.retrieval_mrr_delta": 0.04451884920634913
       },
       "minimum_metrics": {
         "query_expansion.lexical_coverage_recall": 0.45,
         "query_expansion.entity_recall": 0.18,
         "query_expansion.retrieval_expanded_hit_rate": 1,
-        "query_expansion.retrieval_lift": 0
+        "query_expansion.retrieval_lift": 0,
+        "query_expansion.retrieval_mrr_delta": 0
       }
     }
   ]

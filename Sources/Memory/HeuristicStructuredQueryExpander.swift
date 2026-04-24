@@ -132,6 +132,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     ) -> [String] {
         guard limit > 0 else { return [] }
         guard shouldEmitNarrativeExpansions(
+            original: original,
             analysis: analysis,
             entities: entities,
             topics: topics
@@ -164,6 +165,10 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             )
         }
 
+        if entities.isEmpty && !analysis.isHowToQuery {
+            return queries
+        }
+
         appendCandidate(
             compactJoined(["memory mentioning", primaryTopic]),
             to: &queries,
@@ -182,7 +187,9 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
+        guard analysis.isHowToQuery || entities.isEmpty == false else { return [] }
         guard shouldEmitNarrativeExpansions(
+            original: original,
             analysis: analysis,
             entities: entities,
             topics: topics
@@ -215,6 +222,9 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         var terms: [String] = []
         var seen: Set<String> = []
+        for derived in derivedSalientTerms(from: original) where seen.insert(derived).inserted {
+            terms.append(derived)
+        }
         for token in tokens {
             let normalized = normalizeQueryToken(token)
             guard !normalized.isEmpty else { continue }
@@ -270,11 +280,52 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     }
 
     private func shouldEmitNarrativeExpansions(
+        original: String,
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String]
     ) -> Bool {
-        analysis.isHowToQuery || entities.isEmpty == false
+        analysis.isHowToQuery
+            || entities.isEmpty == false
+            || (isExplicitTemporalOrAggregateRecall(original) && !isPersonalFactLookup(analysis))
+            || (!isPersonalFactLookup(analysis) && topics.contains { topic in topic.split(separator: " ").count >= 3 })
+    }
+
+    private func isPersonalFactLookup(_ analysis: QueryAnalysis) -> Bool {
+        analysis.facetHints.contains { $0.tag == .factAboutUser || $0.tag == .preference || $0.tag == .habit }
+    }
+
+    private func isExplicitTemporalOrAggregateRecall(_ query: String) -> Bool {
+        let lower = query.lowercased()
+        if lower.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if lower.range(of: #"\b\d{1,2}/\d{1,2}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        let phrases = [
+            "how many", "how much", "days passed", "day i", "between",
+            "before", "after", "earliest", "latest", "most recently",
+            "order of", "from earliest to latest", "first", "what month",
+            "which date", "when did", "as of", "past month", "past two months",
+        ]
+        return phrases.contains { lower.contains($0) }
+    }
+
+    private func derivedSalientTerms(from query: String) -> [String] {
+        let lower = query.lowercased()
+        var terms: [String] = []
+        if lower.contains("up to date") || lower.contains("out of date") {
+            terms.append("update")
+        }
+        if lower.contains("license plates") || lower.contains("license plate") {
+            terms.append("plates")
+        }
+        if lower.contains("turn in") || lower.contains("deliver") {
+            terms.append("return")
+        }
+        return terms
     }
 
     private func heuristicallyInferredFacetHints(from query: String) -> [FacetHint] {
@@ -481,6 +532,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         "previous", "conversation", "wanted", "follow", "planning", "wondering",
         "think", "given", "opportunity", "possible", "talk", "let", "going",
         "through", "remind", "reminder", "provided", "help", "please",
+        "needed", "always", "guys", "thing", "mentioned", "document", "actually",
     ]
 
     private let signalTerms: Set<String> = [
@@ -488,7 +540,8 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         "weeks", "day", "days", "time", "times", "money", "spent", "spend",
         "total", "most", "least", "count", "number", "schedule", "tuesday",
         "tuesdays", "thursday", "thursdays", "march", "july", "october",
-        "year", "years", "price", "cost", "paid",
+        "year", "years", "price", "cost", "paid", "order", "earliest",
+        "latest", "first", "recent", "recently", "chronology",
     ]
 
     private let queryPunctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`.")
@@ -503,7 +556,13 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         .decisionTopic: ["decision", "decided", "choose", "choice"],
         .tool: ["tool", "library", "framework", "sdk"],
         .location: ["where", "location", "place", "office"],
-        .timeSensitive: ["today", "tomorrow", "deadline", "schedule", "urgent"],
+        .timeSensitive: [
+            "today", "tomorrow", "deadline", "schedule", "urgent", "when",
+            "date", "month", "months", "day", "days", "before", "after",
+            "between", "earliest", "latest", "first", "recent", "past",
+            "january", "february", "march", "april", "june", "july", "august",
+            "september", "october", "november", "december",
+        ],
         .constraint: ["constraint", "blocked", "limit", "cannot"],
         .habit: ["habit", "usually", "often", "routine"],
         .factAboutUser: ["my", "i am", "i'm", "about me"],

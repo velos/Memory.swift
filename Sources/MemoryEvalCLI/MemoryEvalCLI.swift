@@ -193,6 +193,12 @@ private struct QueryExpansionCase: Decodable {
     var expectedTopics: [String]?
     var relevantDocumentIds: [String]?
     var candidateDocumentIds: [String]?
+    var sourceDataset: String?
+    var sourceQueryId: String?
+    var sourceProfile: String?
+    var sourceRankAtK: Int?
+    var failureTaxonomy: [String]?
+    var rescueReason: String?
 }
 
 private struct AgentMemoryScenarioCase: Decodable {
@@ -461,6 +467,12 @@ private struct RecallSuiteRunOutput {
 private struct QueryExpansionCaseResult: Codable {
     var id: String
     var query: String
+    var sourceDataset: String?
+    var sourceQueryId: String?
+    var sourceProfile: String?
+    var sourceRankAtK: Int?
+    var failureTaxonomy: [String]?
+    var rescueReason: String?
     var lexicalQueries: [String]
     var semanticQueries: [String]
     var hypotheticalDocuments: [String]
@@ -479,6 +491,12 @@ private struct QueryExpansionCaseResult: Codable {
     var expandedRetrievedDocumentIds: [String]?
     var baselineHitAtK: Bool?
     var expandedHitAtK: Bool?
+    var baselineBestRankAtK: Int?
+    var expandedBestRankAtK: Int?
+    var baselineReciprocalRankAtK: Double?
+    var expandedReciprocalRankAtK: Double?
+    var reciprocalRankDeltaAtK: Double?
+    var rankImprovementAtK: Int?
 }
 
 private struct QueryExpansionSuiteReport: Codable {
@@ -495,10 +513,29 @@ private struct QueryExpansionSuiteReport: Codable {
     var retrievalBaselineHitRate: Double?
     var retrievalExpandedHitRate: Double?
     var retrievalLift: Double?
+    var retrievalBaselineMRR: Double?
+    var retrievalExpandedMRR: Double?
+    var retrievalMRRDelta: Double?
+    var failureTaxonomyCounts: [String: Int]?
+    var taxonomyMetrics: [QueryExpansionTaxonomyMetric]?
     var latencyStats: RecallLatencyStats?
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
     var caseResults: [QueryExpansionCaseResult]
+}
+
+private struct QueryExpansionTaxonomyMetric: Codable {
+    var tag: String
+    var caseCount: Int
+    var baselineHitRate: Double
+    var expandedHitRate: Double
+    var baselineMRR: Double
+    var expandedMRR: Double
+    var mrrDelta: Double
+    var improvedCount: Int
+    var worsenedCount: Int
+    var flatCount: Int
+    var missCount: Int
 }
 
 private struct AgentMemoryScenarioResult: Codable {
@@ -1458,7 +1495,7 @@ struct RunCommand: AsyncParsableCommand {
                 "Recall eval uses document-level metrics (deduped by document path).",
                 "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
             ] + notes + recallOutput.notes + (queryExpansionReport != nil ? [
-                "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift with expansion enabled vs disabled."
+                "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift/MRR delta with expansion enabled vs disabled."
             ] : []) + (agentMemoryReport != nil ? [
                 "Agent memory scenario eval scores extraction writes, false writes, active-state/update behavior, recall quality, and latency."
             ] : [])
@@ -1519,6 +1556,12 @@ struct RunCommand: AsyncParsableCommand {
                 print("Expansion retrieval Hit@\(kValues.max() ?? 10): \(percent(expandedHitRate))")
                 if let lift = queryExpansion.retrievalLift {
                     print("Expansion retrieval lift: \(percent(lift))")
+                }
+            }
+            if let expandedMRR = queryExpansion.retrievalExpandedMRR {
+                print("Expansion retrieval MRR@\(kValues.max() ?? 10): \(format(expandedMRR))")
+                if let mrrDelta = queryExpansion.retrievalMRRDelta {
+                    print("Expansion retrieval MRR delta: \(format(mrrDelta))")
                 }
             }
         }
@@ -2401,6 +2444,9 @@ private func runQueryExpansionSuite(
     var retrievalCaseCount = 0
     var baselineHitCount = 0
     var expandedHitCount = 0
+    var baselineReciprocalRankTotal = 0.0
+    var expandedReciprocalRankTotal = 0.0
+    var failureTaxonomyCounts: [String: Int] = [:]
 
     var progress = DeterminateProgress(label: "query-expansion", total: cases.count)
     for entry in cases {
@@ -2454,6 +2500,10 @@ private func runQueryExpansionSuite(
         var expandedDocumentIDs: [String]? = nil
         var baselineHit: Bool? = nil
         var expandedHit: Bool? = nil
+        var baselineBestRank: Int? = nil
+        var expandedBestRank: Int? = nil
+        var baselineReciprocalRank: Double? = nil
+        var expandedReciprocalRank: Double? = nil
 
         if !documents.isEmpty, let relevantIDs = entry.relevantDocumentIds, !relevantIDs.isEmpty {
             let relevantSet = Set(relevantIDs)
@@ -2555,6 +2605,8 @@ private func runQueryExpansionSuite(
             )
             baselineDocumentIDs = baselineRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
             baselineHit = baselineDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+            baselineBestRank = firstRelevantRank(in: baselineDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
+            baselineReciprocalRank = reciprocalRank(for: baselineBestRank)
 
             let expandedCollector = SearchStageTimingCollector()
             let queryStartTime = Date()
@@ -2571,6 +2623,8 @@ private func runQueryExpansionSuite(
             let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
             expandedDocumentIDs = expandedRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
             expandedHit = expandedDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+            expandedBestRank = firstRelevantRank(in: expandedDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
+            expandedReciprocalRank = reciprocalRank(for: expandedBestRank)
 
             expandedSearchObservations.append(
                 RecallQueryResult(
@@ -2596,12 +2650,27 @@ private func runQueryExpansionSuite(
             if expandedHit == true {
                 expandedHitCount += 1
             }
+            baselineReciprocalRankTotal += baselineReciprocalRank ?? 0
+            expandedReciprocalRankTotal += expandedReciprocalRank ?? 0
+        }
+
+        for tag in entry.failureTaxonomy ?? [] {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                failureTaxonomyCounts[normalized, default: 0] += 1
+            }
         }
 
         results.append(
             QueryExpansionCaseResult(
                 id: entry.id,
                 query: queryText,
+                sourceDataset: entry.sourceDataset,
+                sourceQueryId: entry.sourceQueryId,
+                sourceProfile: entry.sourceProfile,
+                sourceRankAtK: entry.sourceRankAtK,
+                failureTaxonomy: entry.failureTaxonomy,
+                rescueReason: entry.rescueReason,
                 lexicalQueries: expansion.lexicalQueries,
                 semanticQueries: expansion.semanticQueries,
                 hypotheticalDocuments: expansion.hypotheticalDocuments,
@@ -2619,7 +2688,19 @@ private func runQueryExpansionSuite(
                 baselineRetrievedDocumentIds: baselineDocumentIDs.map { Array($0.prefix(maxK)) },
                 expandedRetrievedDocumentIds: expandedDocumentIDs.map { Array($0.prefix(maxK)) },
                 baselineHitAtK: baselineHit,
-                expandedHitAtK: expandedHit
+                expandedHitAtK: expandedHit,
+                baselineBestRankAtK: baselineBestRank,
+                expandedBestRankAtK: expandedBestRank,
+                baselineReciprocalRankAtK: baselineReciprocalRank,
+                expandedReciprocalRankAtK: expandedReciprocalRank,
+                reciprocalRankDeltaAtK: reciprocalRankDelta(
+                    baseline: baselineReciprocalRank,
+                    expanded: expandedReciprocalRank
+                ),
+                rankImprovementAtK: rankImprovement(
+                    baselineRank: baselineBestRank,
+                    expandedRank: expandedBestRank
+                )
             )
         )
 
@@ -2654,6 +2735,13 @@ private func runQueryExpansionSuite(
         guard let baseline = retrievalBaselineHitRate, let expanded = retrievalExpandedHitRate else { return nil }
         return expanded - baseline
     }()
+    let retrievalBaselineMRR = retrievalCaseCount == 0 ? nil : baselineReciprocalRankTotal / Double(retrievalCaseCount)
+    let retrievalExpandedMRR = retrievalCaseCount == 0 ? nil : expandedReciprocalRankTotal / Double(retrievalCaseCount)
+    let retrievalMRRDelta: Double? = {
+        guard let baseline = retrievalBaselineMRR, let expanded = retrievalExpandedMRR else { return nil }
+        return expanded - baseline
+    }()
+    let sortedResults = results.sorted { $0.id < $1.id }
 
     return QueryExpansionSuiteReport(
         totalQueries: cases.count,
@@ -2669,11 +2757,59 @@ private func runQueryExpansionSuite(
         retrievalBaselineHitRate: retrievalBaselineHitRate,
         retrievalExpandedHitRate: retrievalExpandedHitRate,
         retrievalLift: retrievalLift,
+        retrievalBaselineMRR: retrievalBaselineMRR,
+        retrievalExpandedMRR: retrievalExpandedMRR,
+        retrievalMRRDelta: retrievalMRRDelta,
+        failureTaxonomyCounts: failureTaxonomyCounts.isEmpty ? nil : failureTaxonomyCounts,
+        taxonomyMetrics: queryExpansionTaxonomyMetrics(from: sortedResults),
         latencyStats: computeLatencyStats(queryResults: expandedSearchObservations),
         stageLatencyStats: computeRecallStageLatencyStats(queryResults: expandedSearchObservations),
         candidateCountStats: computeRecallCandidateCountStats(queryResults: expandedSearchObservations),
-        caseResults: results.sorted { $0.id < $1.id }
+        caseResults: sortedResults
     )
+}
+
+private func queryExpansionTaxonomyMetrics(from results: [QueryExpansionCaseResult]) -> [QueryExpansionTaxonomyMetric]? {
+    var grouped: [String: [QueryExpansionCaseResult]] = [:]
+    for result in results {
+        for tag in result.failureTaxonomy ?? [] {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
+            grouped[normalized, default: []].append(result)
+        }
+    }
+    guard !grouped.isEmpty else { return nil }
+
+    return grouped.map { tag, cases in
+        let total = Double(cases.count)
+        let baselineHits = cases.filter { $0.baselineHitAtK == true }.count
+        let expandedHits = cases.filter { $0.expandedHitAtK == true }.count
+        let baselineMRR = cases.reduce(0.0) { $0 + ($1.baselineReciprocalRankAtK ?? 0) } / total
+        let expandedMRR = cases.reduce(0.0) { $0 + ($1.expandedReciprocalRankAtK ?? 0) } / total
+        let deltas = cases.map { $0.reciprocalRankDeltaAtK ?? 0 }
+        return QueryExpansionTaxonomyMetric(
+            tag: tag,
+            caseCount: cases.count,
+            baselineHitRate: Double(baselineHits) / total,
+            expandedHitRate: Double(expandedHits) / total,
+            baselineMRR: baselineMRR,
+            expandedMRR: expandedMRR,
+            mrrDelta: expandedMRR - baselineMRR,
+            improvedCount: deltas.filter { $0 > 0.000_000_1 }.count,
+            worsenedCount: deltas.filter { $0 < -0.000_000_1 }.count,
+            flatCount: deltas.filter { abs($0) <= 0.000_000_1 }.count,
+            missCount: cases.filter { $0.expandedHitAtK != true }.count
+        )
+    }
+    .sorted { lhs, rhs in
+        if lhs.mrrDelta == rhs.mrrDelta {
+            if lhs.caseCount == rhs.caseCount {
+                return lhs.tag < rhs.tag
+            }
+            return lhs.caseCount > rhs.caseCount
+        }
+        return lhs.mrrDelta < rhs.mrrDelta
+    }
 }
 
 private func coverageRecall(expected: [String], texts: [String]) -> Double {
@@ -4334,6 +4470,15 @@ private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
         if let retrievalLift = queryExpansion.retrievalLift {
             metrics["query_expansion.retrieval_lift"] = retrievalLift
         }
+        if let retrievalBaselineMRR = queryExpansion.retrievalBaselineMRR {
+            metrics["query_expansion.retrieval_baseline_mrr"] = retrievalBaselineMRR
+        }
+        if let retrievalExpandedMRR = queryExpansion.retrievalExpandedMRR {
+            metrics["query_expansion.retrieval_expanded_mrr"] = retrievalExpandedMRR
+        }
+        if let retrievalMRRDelta = queryExpansion.retrievalMRRDelta {
+            metrics["query_expansion.retrieval_mrr_delta"] = retrievalMRRDelta
+        }
     }
 
     if let agentMemory = report.agentMemory {
@@ -4365,10 +4510,10 @@ private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
         "# Memory Eval Comparison",
         "",
         includesExpansion
-            ? "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K | Expansion Lex Recall | Expansion Hit@K |"
+            ? "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K | Expansion Lex Recall | Expansion Hit@K | Expansion MRR@K | Expansion MRR Delta |"
             : "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K |",
         includesExpansion
-            ? "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
+            ? "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
             : "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
 
@@ -4381,12 +4526,15 @@ private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
         let mrr = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.mrr) } ?? "n/a"
         let ndcg = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.ndcg) } ?? "n/a"
         let kLabel = report.recall.totalQueries == 0 ? "" : (maxMetric.map { "@\($0.k)" } ?? "")
+        let expansionKLabel = report.queryExpansion == nil ? "" : (report.recall.kValues.max().map { "@\($0)" } ?? "")
         let expansionLex = report.queryExpansion.map { percent($0.lexicalCoverageRecall) } ?? "n/a"
         let expansionHit = report.queryExpansion?.retrievalExpandedHitRate.map(percent) ?? "n/a"
+        let expansionMRR = report.queryExpansion?.retrievalExpandedMRR.map(format) ?? "n/a"
+        let expansionMRRDelta = report.queryExpansion?.retrievalMRRDelta.map(format) ?? "n/a"
 
         if includesExpansion {
             lines.append(
-                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) | \(expansionLex) | \(expansionHit)\(kLabel) |"
+                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) | \(expansionLex) | \(expansionHit)\(expansionKLabel) | \(expansionMRR)\(expansionKLabel) | \(expansionMRRDelta) |"
             )
         } else {
             lines.append(
@@ -4470,6 +4618,33 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
             lines.append("- Retrieval expanded Hit@K: \(percent(expandedHit))")
             if let lift = queryExpansion.retrievalLift {
                 lines.append("- Retrieval lift: \(percent(lift))")
+            }
+        }
+        if let baselineMRR = queryExpansion.retrievalBaselineMRR,
+           let expandedMRR = queryExpansion.retrievalExpandedMRR {
+            lines.append("- Retrieval baseline MRR@K: \(format(baselineMRR))")
+            lines.append("- Retrieval expanded MRR@K: \(format(expandedMRR))")
+            if let mrrDelta = queryExpansion.retrievalMRRDelta {
+                lines.append("- Retrieval MRR delta: \(format(mrrDelta))")
+            }
+        }
+        if let counts = queryExpansion.failureTaxonomyCounts, !counts.isEmpty {
+            let summary = counts
+                .sorted { lhs, rhs in lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            lines.append("- Failure taxonomy: \(summary)")
+        }
+        if let taxonomyMetrics = queryExpansion.taxonomyMetrics, !taxonomyMetrics.isEmpty {
+            lines.append("")
+            lines.append("### Query Expansion By Taxonomy")
+            lines.append("")
+            lines.append("| Taxonomy | Cases | Expanded Hit@K | Expanded MRR@K | MRR Delta | Improved | Worsened | Flat | Misses |")
+            lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+            for metric in taxonomyMetrics {
+                lines.append(
+                    "| `\(metric.tag)` | \(metric.caseCount) | \(percent(metric.expandedHitRate)) | \(format(metric.expandedMRR)) | \(format(metric.mrrDelta)) | \(metric.improvedCount) | \(metric.worsenedCount) | \(metric.flatCount) | \(metric.missCount) |"
+                )
             }
         }
     }
@@ -4711,6 +4886,26 @@ private func computeNDCG(ranked: [String], relevant: Set<String>, k: Int) -> Dou
 
     guard idcg > 0 else { return 0 }
     return dcg / idcg
+}
+
+private func firstRelevantRank(in ranked: [String], relevant: Set<String>, maxK: Int) -> Int? {
+    guard maxK > 0 else { return nil }
+    return ranked.prefix(maxK).firstIndex { relevant.contains($0) }.map { $0 + 1 }
+}
+
+private func reciprocalRank(for rank: Int?) -> Double {
+    guard let rank, rank > 0 else { return 0 }
+    return 1.0 / Double(rank)
+}
+
+private func reciprocalRankDelta(baseline: Double?, expanded: Double?) -> Double? {
+    guard let baseline, let expanded else { return nil }
+    return expanded - baseline
+}
+
+private func rankImprovement(baselineRank: Int?, expandedRank: Int?) -> Int? {
+    guard let baselineRank, let expandedRank else { return nil }
+    return baselineRank - expandedRank
 }
 
 private func materializeRecallDocument(_ document: RecallDocumentCase) throws -> String {

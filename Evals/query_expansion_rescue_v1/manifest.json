@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-24T04:34:46.116721Z",
+  "dataset": "query_expansion_rescue_v1",
+  "case_count": 32,
+  "document_count": 888,
+  "max_cases": 32,
+  "max_cases_per_source": 16,
+  "max_candidates": 48,
+  "min_rank": 4,
+  "sources": [
+    {
+      "dataset_root": "Evals/general_v2",
+      "run_path": "Evals/general_v2/runs/2026-03-27T15-42-53Z-coreml_default.json",
+      "profile": "coreml_default",
+      "source_query_count": 284,
+      "candidate_case_count": 98,
+      "selected_case_count": 16,
+      "selected_document_count": 421,
+      "max_k": 10
+    },
+    {
+      "dataset_root": "Evals/longmemeval_v2",
+      "run_path": "Evals/longmemeval_v2/runs/2026-03-16T01-23-59Z-coreml_leaf_ir.json",
+      "profile": "coreml_leaf_ir",
+      "source_query_count": 181,
+      "candidate_case_count": 129,
+      "selected_case_count": 16,
+      "selected_document_count": 467,
+      "max_k": 10
+    }
+  ],
+  "failure_taxonomy_counts": {
+    "contextual_ellipsis": 2,
+    "count_aggregation": 8,
+    "empty_retrieval": 16,
+    "lexical_mismatch": 5,
+    "multi_evidence": 14,
+    "retrieval_miss": 32,
+    "temporal_reasoning": 14
+  }
+}

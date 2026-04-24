@@ -3814,6 +3814,9 @@ public actor MemoryIndex {
 private let temporalCueWords: [String] = [
     "when", "timeline", "chronology", "chronological", "date", "dates",
     "schedule", "scheduled", "milestone", "kickoff", "kick-off",
+    "before", "after", "between", "first", "earliest", "latest",
+    "order of", "most recent", "recently", "past month", "past two months",
+    "valentine", "valentine's",
     "jan", "january", "feb", "february", "mar", "march", "apr", "april",
     "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept", "september",
     "oct", "october", "nov", "november", "dec", "december",
