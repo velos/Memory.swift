@@ -52,6 +52,12 @@ public actor MemoryIndex {
     private let strongLexicalMinGap = 0.05
     private let strongLexicalMaxExpansionSkipTokenCount = 12
     private let lexicalExpansionPromotionRankLimit = 1
+    private let primarySemanticPreservationRankLimit = 10
+    private let primaryLexicalPreservationRankLimit = 10
+    private let documentLexicalMaxBranches = 2
+    private let documentLexicalSparseHitThreshold = 12
+    private let documentLexicalPrimaryWeight = 0.45
+    private let documentLexicalExpansionWeight = 0.60
 
     private struct WeightedQuery {
         var text: String
@@ -303,9 +309,13 @@ public actor MemoryIndex {
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
         var lexicalExpansionPromotionRRF: [Int64: Double] = [:]
+        var primarySemanticPreservationRRF: [Int64: Double] = [:]
+        var primaryLexicalPreservationRRF: [Int64: Double] = [:]
         var semanticCandidateCount = 0
         var lexicalCandidateCount = 0
         var semanticSearchDurationMs = 0.0
+        let hasExpandedBranches = searchPlan.expandedQueries.count > 1
+        var documentLexicalBranchCount = 0
 
         for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
             let skipSemantic = expandedQuery.expansionType == .lexical
@@ -323,6 +333,15 @@ public actor MemoryIndex {
                 semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
                 semanticCandidateCount += semanticHits.count
                 accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
+                if index == 0, hasExpandedBranches {
+                    accumulatePrimaryBranchPreservation(
+                        for: semanticHits,
+                        rankLimit: primarySemanticPreservationRankLimit,
+                        baseContribution: 0.08,
+                        weight: expandedQuery.weight,
+                        into: &primarySemanticPreservationRRF
+                    )
+                }
             }
 
             if !skipLexical, query.lexicalCandidateLimit > 0 {
@@ -341,6 +360,15 @@ public actor MemoryIndex {
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
+                if index == 0, hasExpandedBranches {
+                    accumulatePrimaryBranchPreservation(
+                        for: lexicalHits,
+                        rankLimit: primaryLexicalPreservationRankLimit,
+                        baseContribution: 0.05,
+                        weight: expandedQuery.weight,
+                        into: &primaryLexicalPreservationRRF
+                    )
+                }
                 if index > 0, expandedQuery.expansionType == .lexical {
                     accumulateLexicalExpansionPromotion(
                         for: lexicalHits,
@@ -348,6 +376,31 @@ public actor MemoryIndex {
                         primaryQueryText: normalizedText,
                         weight: expandedQuery.weight,
                         into: &lexicalExpansionPromotionRRF
+                    )
+                }
+                if shouldRunDocumentLexicalSearch(
+                    query: query,
+                    queryText: expandedQuery.text,
+                    branchIndex: index,
+                    expansionType: expandedQuery.expansionType,
+                    lexicalHitCount: lexicalHits.count,
+                    lexicalProbeStrongSignal: lexicalProbe.strongSignal,
+                    usedBranches: documentLexicalBranchCount
+                ) {
+                    documentLexicalBranchCount += 1
+                    let documentLexicalSearchStart = DispatchTime.now().uptimeNanoseconds
+                    let documentHits = try await storage.lexicalDocumentSearch(
+                        query: ftsPreprocess(expandedQuery.text),
+                        limit: documentLexicalCandidateLimit(for: query, branchIndex: index),
+                        allowedChunkIDs: allowedChunkIDs,
+                        allowedMemoryTypes: allowedMemoryTypes
+                    )
+                    lexicalSearchDurationMs += elapsedMilliseconds(since: documentLexicalSearchStart)
+                    lexicalCandidateCount += documentHits.count
+                    accumulateScoredRRF(
+                        for: documentHits,
+                        weight: expandedQuery.weight * documentLexicalWeight(branchIndex: index),
+                        into: &lexicalRRF
                     )
                 }
             }
@@ -418,6 +471,8 @@ public actor MemoryIndex {
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
             lexicalExpansionPromotionRRF: lexicalExpansionPromotionRRF,
+            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
+            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF,
             query: query,
             primaryQueryText: normalizedText,
             queryTags: queryTags,
@@ -2751,7 +2806,10 @@ public actor MemoryIndex {
         let analysis = configuration.queryAnalyzer?.analyze(query: query) ?? heuristicQueryAnalysis(for: query)
 
         let statuses: Set<MemoryStatus>?
-        if containsAnyRecallStatusCue(lower, cues: ["historical", "previous", "old", "superseded", "archived"]) {
+        if containsAnyRecallStatusCue(
+            lower,
+            cues: ["historical", "previous", "superseded", "archived", "old memory", "old memories", "old records"]
+        ) {
             statuses = Set(MemoryStatus.allCases)
         } else if containsAnyRecallStatusCue(lower, cues: ["done", "completed", "resolved", "what happened"]) {
             statuses = [.active, .resolved]
@@ -2993,6 +3051,39 @@ public actor MemoryIndex {
         }
     }
 
+    private func accumulateScoredRRF(
+        for hits: [LexicalHit],
+        weight: Double,
+        into scores: inout [Int64: Double]
+    ) {
+        guard weight > 0 else { return }
+        for (index, hit) in hits.enumerated() {
+            let rank = Double(index + 1)
+            let boundedScore = min(1, max(0, hit.score))
+            let scoreScale = 0.75 + (0.5 * boundedScore)
+            var contribution = weight * scoreScale / (configuration.fusionK + rank)
+            if index == 0 {
+                contribution += weight * 0.0015
+            }
+            scores[hit.chunkID, default: 0] += contribution
+        }
+    }
+
+    private func accumulatePrimaryBranchPreservation(
+        for hits: [LexicalHit],
+        rankLimit: Int,
+        baseContribution: Double,
+        weight: Double,
+        into scores: inout [Int64: Double]
+    ) {
+        guard rankLimit > 0, weight > 0, baseContribution > 0 else { return }
+        for (index, hit) in hits.prefix(rankLimit).enumerated() {
+            let rank = Double(index + 1)
+            let contribution = weight * baseContribution / sqrt(rank)
+            scores[hit.chunkID] = max(scores[hit.chunkID] ?? 0, contribution)
+        }
+    }
+
     private func accumulateLexicalExpansionPromotion(
         for hits: [LexicalHit],
         queryText: String,
@@ -3035,10 +3126,61 @@ public actor MemoryIndex {
         return recallIntentPhrases.contains { lower.contains($0) }
     }
 
+    private func shouldRunDocumentLexicalSearch(
+        query: SearchQuery,
+        queryText: String,
+        branchIndex: Int,
+        expansionType: ExpansionType?,
+        lexicalHitCount: Int,
+        lexicalProbeStrongSignal: Bool,
+        usedBranches: Int
+    ) -> Bool {
+        guard !lexicalProbeStrongSignal else { return false }
+        guard query.lexicalCandidateLimit >= 32 else { return false }
+        guard usedBranches < documentLexicalMaxBranches else { return false }
+        guard lexicalHitCount < documentLexicalSparseHitThreshold else { return false }
+
+        if branchIndex == 0 {
+            return isBroadRecallQuery(queryText)
+        }
+        return expansionType == .lexical
+    }
+
+    private func documentLexicalCandidateLimit(for query: SearchQuery, branchIndex: Int) -> Int {
+        let scaled = branchIndex == 0 ? query.limit * 4 : query.limit * 3
+        return min(query.lexicalCandidateLimit, min(96, max(24, scaled)))
+    }
+
+    private func documentLexicalWeight(branchIndex: Int) -> Double {
+        branchIndex == 0 ? documentLexicalPrimaryWeight : documentLexicalExpansionWeight
+    }
+
+    private func isBroadRecallQuery(_ queryText: String) -> Bool {
+        let normalized = normalizedComparisonKey(for: queryText)
+        let tokens = normalized.split(separator: " ")
+        guard tokens.count >= 5 else {
+            let lower = queryText.lowercased()
+            let shortQuestionPrefixes = ["what ", "when ", "where ", "which ", "who ", "how "]
+            return shortQuestionPrefixes.contains { lower.hasPrefix($0) }
+        }
+
+        let lower = queryText.lowercased()
+        if lower.contains("?") {
+            return true
+        }
+        let recallCues = [
+            "find", "look up", "recall", "remember", "search", "show me", "tell me",
+            "what", "when", "where", "which", "who", "how"
+        ]
+        return recallCues.contains { lower.contains($0) } || tokens.count >= 8
+    }
+
     private func fuseCandidates(
         semanticRRF: [Int64: Double],
         lexicalRRF: [Int64: Double],
         lexicalExpansionPromotionRRF: [Int64: Double],
+        primarySemanticPreservationRRF: [Int64: Double],
+        primaryLexicalPreservationRRF: [Int64: Double],
         query: SearchQuery,
         primaryQueryText: String,
         queryTags: [ContentTag],
@@ -3058,8 +3200,10 @@ public actor MemoryIndex {
         for chunkID in candidateIDs {
             guard let metadata = metadataMap[chunkID] else { continue }
 
-            let semantic = semanticRRF[chunkID] ?? 0
-            let lexical = (lexicalRRF[chunkID] ?? 0) + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
+            let semantic = (semanticRRF[chunkID] ?? 0) + (primarySemanticPreservationRRF[chunkID] ?? 0)
+            let lexical = (lexicalRRF[chunkID] ?? 0)
+                + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
+                + (primaryLexicalPreservationRRF[chunkID] ?? 0)
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)

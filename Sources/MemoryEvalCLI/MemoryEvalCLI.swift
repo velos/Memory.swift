@@ -40,7 +40,7 @@ private let rerankerStopWords: Set<String> = [
     "what", "when", "where", "which", "with", "your"
 ]
 
-private let evalIndexCacheSchemaVersion = 1
+private let evalIndexCacheSchemaVersion = 2
 
 private enum RepoCoreMLModels {
     static let embedding = "embedding-v1"
@@ -2385,14 +2385,7 @@ private func runQueryExpansionSuite(
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
     for document in documents {
-        let ext = extensionForKind(document.kind) ?? "md"
-        let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let path: URL
-        if let relativePath, !relativePath.isEmpty {
-            path = workspace.docsRoot.appendingPathComponent(relativePath)
-        } else {
-            path = workspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-        }
+        let path = materializedRecallDocumentURL(document, docsRoot: workspace.docsRoot)
         pathByDocumentID[document.id] = path.path
         documentIDByPath[path.path] = document.id
     }
@@ -2592,14 +2585,7 @@ private func runQueryExpansionSuite(
                 var localPathByDocumentID: [String: String] = [:]
                 var localDocumentIDByPath: [String: String] = [:]
                 for document in candidateDocuments {
-                    let ext = extensionForKind(document.kind) ?? "md"
-                    let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let path: URL
-                    if let relativePath, !relativePath.isEmpty {
-                        path = candidateWorkspace.docsRoot.appendingPathComponent(relativePath)
-                    } else {
-                        path = candidateWorkspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-                    }
+                    let path = materializedRecallDocumentURL(document, docsRoot: candidateWorkspace.docsRoot)
                     localPathByDocumentID[document.id] = path.path
                     localDocumentIDByPath[path.path] = document.id
                 }
@@ -3915,14 +3901,7 @@ private func runRecallSuite(
             memoryTypeByDocumentID[document.id] = parsed
         }
 
-        let ext = extensionForKind(document.kind) ?? "md"
-        let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let path: URL
-        if let relativePath, !relativePath.isEmpty {
-            path = docsRoot.appendingPathComponent(relativePath)
-        } else {
-            path = docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-        }
+        let path = materializedRecallDocumentURL(document, docsRoot: docsRoot)
 
         let content = try materializeRecallDocument(document)
         contentByDocumentID[document.id] = content
@@ -4911,6 +4890,18 @@ private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
         if let retrievalMRRDelta = queryExpansion.retrievalMRRDelta {
             metrics["query_expansion.retrieval_mrr_delta"] = retrievalMRRDelta
         }
+        for result in queryExpansion.caseResults {
+            let prefix = "query_expansion.case.\(result.id)"
+            if let expandedHitAtK = result.expandedHitAtK {
+                metrics["\(prefix).expanded_hit_at_k"] = expandedHitAtK ? 1 : 0
+            }
+            if let expandedReciprocalRankAtK = result.expandedReciprocalRankAtK {
+                metrics["\(prefix).expanded_reciprocal_rank_at_k"] = expandedReciprocalRankAtK
+            }
+            if let reciprocalRankDeltaAtK = result.reciprocalRankDeltaAtK {
+                metrics["\(prefix).reciprocal_rank_delta_at_k"] = reciprocalRankDeltaAtK
+            }
+        }
     }
 
     if let agentMemory = report.agentMemory {
@@ -5458,6 +5449,33 @@ private func materializeRecallDocument(_ document: RecallDocumentCase) throws ->
         _ = try parseLegacyDocumentTypeLabel(memoryTypeRaw, context: "recall document \(document.id)")
     }
     return document.text
+}
+
+private func materializedRecallDocumentURL(_ document: RecallDocumentCase, docsRoot: URL) -> URL {
+    materializedRecallDocumentURL(
+        id: document.id,
+        kind: document.kind,
+        relativePath: document.relativePath,
+        docsRoot: docsRoot
+    )
+}
+
+func materializedRecallDocumentURL(id: String, kind: String?, relativePath: String?, docsRoot: URL) -> URL {
+    let materializedExtension = extensionForKind(kind) ?? "md"
+    let relativePath = relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let relativePath, !relativePath.isEmpty else {
+        return docsRoot.appendingPathComponent("\(safeFilename(id)).\(materializedExtension)")
+    }
+
+    let rawURL = docsRoot.appendingPathComponent(relativePath)
+    let rawExtension = rawURL.pathExtension.lowercased()
+    if !rawExtension.isEmpty, MemoryConfiguration.defaultSupportedExtensions.contains(rawExtension) {
+        return rawURL
+    }
+    if rawExtension.isEmpty {
+        return rawURL.appendingPathExtension(materializedExtension)
+    }
+    return rawURL.deletingPathExtension().appendingPathExtension(materializedExtension)
 }
 
 private func parseDocumentKind(_ raw: String?) -> DocumentKind? {

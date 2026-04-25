@@ -657,6 +657,35 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func memorySearchDoesNotTreatOrdinaryOldObjectQueriesAsHistoricalMemoryOnly() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("keyboard.md"),
+            "Maya kept the old keyboard beside the studio monitor and used it for every demo."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "Who kept the old keyboard?",
+            limit: 5,
+            features: [.lexical],
+            includeLineRanges: false
+        )
+
+        #expect(refs.contains(where: { $0.documentPath.hasSuffix("keyboard.md") }))
+    }
+
+    @Test
     func ingestReportsWriteActionsForDedupeReplacementAndStatusMerge() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

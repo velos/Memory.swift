@@ -224,6 +224,58 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func distributedAnchorMatchesCanSurfaceThroughLexicalSearch() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("greenwood-reforestation.md"),
+            """
+            Greenwood neighborhood planning notes.
+            The urban shade corridor proposal was approved.
+            Reforestation volunteer schedules were drafted.
+            Tree nursery purchases are ready.
+            Canopy baseline mapping starts next week.
+            """
+        )
+
+        let repeatedAnchors = ["Greenwood", "urban", "reforestation", "tree", "canopy"]
+        for i in 0..<40 {
+            let anchor = repeatedAnchors[i % repeatedAnchors.count]
+            let repeated = Array(repeating: anchor, count: 28).joined(separator: " ")
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(i).md"),
+                "\(repeated) unrelated parking agenda \(i)"
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 6, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "What details explain the Greenwood urban reforestation tree canopy work?",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 40,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.contains { $0.documentPath.contains("greenwood-reforestation.md") })
+    }
+
+    @Test
     func strongLexicalSignalSkipsQueryExpansion() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

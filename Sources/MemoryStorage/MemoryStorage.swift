@@ -1153,6 +1153,145 @@ public actor MemoryStorage {
             .map { $0 }
     }
 
+    public func lexicalDocumentSearch(
+        query: String,
+        limit: Int,
+        allowedChunkIDs: Set<Int64>? = nil,
+        allowedMemoryTypes: Set<String>? = nil
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+        if let allowedChunkIDs, allowedChunkIDs.isEmpty { return [] }
+        if let allowedMemoryTypes, allowedMemoryTypes.isEmpty { return [] }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let strictPattern = Self.makeStrictFTSQuery(from: trimmed)
+        let relaxedPattern = Self.makeRelaxedFTSQuery(from: trimmed)
+        guard strictPattern != nil || relaxedPattern != nil else { return [] }
+
+        let probeLimit = min(max(limit * 12, limit + 128), 2_048)
+        var mergedByChunkID: [Int64: Double] = [:]
+        var seenChunkIDs: Set<Int64> = []
+
+        if let strictPattern {
+            let strictHits = try Self.runLexicalSearchQuery(
+                in: database,
+                pattern: strictPattern,
+                limit: probeLimit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes,
+                excludedChunkIDs: nil
+            )
+            for hit in strictHits {
+                seenChunkIDs.insert(hit.chunkID)
+                mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.15
+            }
+        }
+
+        if let relaxedPattern {
+            let relaxedHits = try Self.runLexicalSearchQuery(
+                in: database,
+                pattern: relaxedPattern,
+                limit: probeLimit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes,
+                excludedChunkIDs: nil
+            )
+            for hit in relaxedHits {
+                seenChunkIDs.insert(hit.chunkID)
+                mergedByChunkID[hit.chunkID, default: 0] += hit.score
+            }
+        }
+
+        guard !seenChunkIDs.isEmpty else { return [] }
+
+        let metadataRows = try fetchChunkMetadata(chunkIDs: Array(seenChunkIDs))
+        let anchorTokens = Self.lexicalAnchorTokens(from: trimmed, maxCount: 16)
+        let anchorSet = Set(anchorTokens)
+
+        struct DocumentAggregate {
+            var representativeChunkID: Int64
+            var representativeChunkScore: Double
+            var representativeAnchorCount: Int
+            var bestChunkScore: Double
+            var scoreMass: Double
+            var matchedChunks: Int
+            var matchedAnchors: Set<String>
+
+            mutating func add(
+                chunkID: Int64,
+                chunkScore: Double,
+                matchedAnchorCount: Int,
+                matchedAnchors: Set<String>
+            ) {
+                scoreMass += chunkScore
+                matchedChunks += 1
+                self.matchedAnchors.formUnion(matchedAnchors)
+                bestChunkScore = max(bestChunkScore, chunkScore)
+
+                if matchedAnchorCount > representativeAnchorCount
+                    || (matchedAnchorCount == representativeAnchorCount && chunkScore > representativeChunkScore)
+                    || (matchedAnchorCount == representativeAnchorCount
+                        && chunkScore == representativeChunkScore
+                        && chunkID < representativeChunkID) {
+                    representativeChunkID = chunkID
+                    representativeChunkScore = chunkScore
+                    representativeAnchorCount = matchedAnchorCount
+                }
+            }
+        }
+
+        var aggregates: [String: DocumentAggregate] = [:]
+        for metadata in metadataRows {
+            guard let chunkScore = mergedByChunkID[metadata.chunkID] else { continue }
+            let matchedAnchors = Self.lexicalAnchorMatches(
+                anchorTokens: anchorSet,
+                in: ((metadata.title ?? "") + " " + metadata.content)
+            )
+            let matchedAnchorCount = matchedAnchors.count
+
+            if var aggregate = aggregates[metadata.documentPath] {
+                aggregate.add(
+                    chunkID: metadata.chunkID,
+                    chunkScore: chunkScore,
+                    matchedAnchorCount: matchedAnchorCount,
+                    matchedAnchors: matchedAnchors
+                )
+                aggregates[metadata.documentPath] = aggregate
+            } else {
+                aggregates[metadata.documentPath] = DocumentAggregate(
+                    representativeChunkID: metadata.chunkID,
+                    representativeChunkScore: chunkScore,
+                    representativeAnchorCount: matchedAnchorCount,
+                    bestChunkScore: chunkScore,
+                    scoreMass: chunkScore,
+                    matchedChunks: 1,
+                    matchedAnchors: matchedAnchors
+                )
+            }
+        }
+
+        return aggregates.values
+            .map { aggregate in
+                let coverage = anchorSet.isEmpty
+                    ? 0
+                    : Double(aggregate.matchedAnchors.count) / Double(anchorSet.count)
+                let chunkAgreement = min(0.20, 0.035 * sqrt(Double(aggregate.matchedChunks)))
+                let massBonus = min(0.12, aggregate.scoreMass * 0.035)
+                let score = aggregate.bestChunkScore + (0.24 * coverage) + chunkAgreement + massBonus
+                return LexicalHit(chunkID: aggregate.representativeChunkID, score: score)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score == rhs.score {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.score > rhs.score
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     public func contentTagSearch(
         tagNames: [String],
         limit: Int,
@@ -1909,17 +2048,40 @@ public actor MemoryStorage {
         let tokens = lexicalTokens(from: query)
         guard !tokens.isEmpty else { return nil }
 
-        let preferred = tokens.filter { token in
-            if token.contains(where: \.isNumber) { return true }
-            if isImportantShortToken(token) { return true }
-            if token.count >= 3 && !lexicalStopWords.contains(token) { return true }
-            return false
-        }
-
+        let preferred = lexicalAnchorTokens(from: query, maxCount: Int.max)
         let source = preferred.isEmpty ? tokens : preferred
         let limited = Array(source.prefix(12))
         guard !limited.isEmpty else { return nil }
         return limited.map { "\($0)*" }.joined(separator: " OR ")
+    }
+
+    private static func lexicalAnchorTokens(from query: String, maxCount: Int) -> [String] {
+        guard maxCount > 0 else { return [] }
+        return Array(
+            lexicalTokens(from: query)
+                .filter { token in
+                    if token.contains(where: \.isNumber) { return true }
+                    if isImportantShortToken(token) { return true }
+                    if token.count >= 3 && !lexicalStopWords.contains(token) { return true }
+                    return false
+                }
+                .prefix(maxCount)
+        )
+    }
+
+    private static func lexicalAnchorMatches(anchorTokens: Set<String>, in text: String) -> Set<String> {
+        guard !anchorTokens.isEmpty else { return [] }
+
+        let textTokens = lexicalTokens(from: text)
+        guard !textTokens.isEmpty else { return [] }
+
+        var matches: Set<String> = []
+        for textToken in textTokens {
+            for anchor in anchorTokens where textToken.hasPrefix(anchor) || anchor.hasPrefix(textToken) {
+                matches.insert(anchor)
+            }
+        }
+        return matches
     }
 
     private static func lexicalTokens(from query: String) -> [String] {
