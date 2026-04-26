@@ -952,6 +952,13 @@ public actor MemoryIndex {
             allowedChunkIDsOverride: allowedChunkIDs,
             recallPlan: plan
         )
+        let orderedSearchResults = orderMultiEvidenceSupportResults(
+            searchResults,
+            queryText: queryText,
+            effectiveLimit: effectiveLimit,
+            dedupeDocuments: dedupeDocuments,
+            activeOnlyByDefault: statuses == nil && plan.statuses == nil
+        )
 
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
@@ -959,7 +966,7 @@ public actor MemoryIndex {
         var seenDocumentKeys: Set<String> = []
         var documentTextCache: [String: String] = [:]
 
-        for result in searchResults {
+        for result in orderedSearchResults {
             if statuses == nil,
                plan.statuses == nil,
                let memoryStatus = result.memoryStatus,
@@ -1184,6 +1191,205 @@ public actor MemoryIndex {
             memoryStatus: resolveMemoryStatus(raw: metadata.memoryStatus, hasMemoryID: metadata.memoryID != nil),
             score: score
         )
+    }
+
+    private struct MultiEvidenceSupportCandidate {
+        var result: SearchResult
+        var originalIndex: Int
+        var documentRank: Int
+        var supportScore: Double
+        var supportGroupKey: String?
+    }
+
+    private func orderMultiEvidenceSupportResults(
+        _ results: [SearchResult],
+        queryText: String,
+        effectiveLimit: Int,
+        dedupeDocuments: Bool,
+        activeOnlyByDefault: Bool
+    ) -> [SearchResult] {
+        guard dedupeDocuments,
+              effectiveLimit > 1,
+              isMultiEvidenceSupportQuery(queryText),
+              results.count > 10 else {
+            return results
+        }
+
+        var seenDocumentKeys: Set<String> = []
+        var candidates: [MultiEvidenceSupportCandidate] = []
+        candidates.reserveCapacity(min(results.count, 80))
+
+        for (index, result) in results.enumerated() {
+            if activeOnlyByDefault,
+               let memoryStatus = result.memoryStatus,
+               memoryStatus != .active {
+                continue
+            }
+
+            let documentKey = normalizedComparisonKey(for: result.documentPath)
+            guard seenDocumentKeys.insert(documentKey).inserted else { continue }
+            let documentRank = candidates.count + 1
+            candidates.append(
+                MultiEvidenceSupportCandidate(
+                    result: result,
+                    originalIndex: index,
+                    documentRank: documentRank,
+                    supportScore: multiEvidenceSupportScore(for: result, documentRank: documentRank),
+                    supportGroupKey: multiEvidenceSupportGroupKey(for: result.documentPath)
+                )
+            )
+        }
+
+        let topWindow = min(10, effectiveLimit, candidates.count)
+        guard topWindow >= 4 else { return results }
+
+        let poolLimit = min(candidates.count, max(50, topWindow * 5))
+        let pool = Array(candidates.prefix(poolLimit))
+        let anchorCount = min(2, topWindow)
+        let anchors = Array(pool.prefix(anchorCount))
+        var selected = anchors
+        var selectedKeys = Set(anchors.map { normalizedComparisonKey(for: $0.result.documentPath) })
+
+        let originalWindow = Array(pool.prefix(topWindow))
+        let medianSupport = medianSupportScore(originalWindow)
+        let floor = medianSupport * 0.55
+        let rankWindow = min(30, poolLimit)
+        let continuationRankWindow = min(30, poolLimit)
+        let continuationFloor = max(0.06, medianSupport * 0.12)
+        let originalSupportGroups = Set(originalWindow.compactMap(\.supportGroupKey))
+        let continuationLimit = min(3, max(1, topWindow - anchorCount))
+
+        let continuationCandidates = pool
+            .dropFirst(topWindow)
+            .filter { candidate in
+                guard candidate.documentRank <= continuationRankWindow,
+                      let supportGroupKey = candidate.supportGroupKey,
+                      originalSupportGroups.contains(supportGroupKey) else {
+                    return false
+                }
+                return candidate.supportScore >= continuationFloor
+            }
+            .sorted(by: compareMultiEvidenceContinuationCandidates(_:_:))
+
+        var promotedContinuationGroups: Set<String> = []
+        for candidate in continuationCandidates where selected.count < topWindow {
+            guard promotedContinuationGroups.count < continuationLimit,
+                  let supportGroupKey = candidate.supportGroupKey,
+                  promotedContinuationGroups.insert(supportGroupKey).inserted else {
+                continue
+            }
+            let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+            guard selectedKeys.insert(documentKey).inserted else { continue }
+            selected.append(candidate)
+        }
+
+        let supportCandidates = pool
+            .dropFirst(anchorCount)
+            .filter { candidate in
+                candidate.documentRank <= rankWindow || candidate.supportScore >= floor
+            }
+            .sorted(by: compareMultiEvidenceSupportCandidates(_:_:))
+
+        for candidate in supportCandidates where selected.count < topWindow {
+            let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+            guard selectedKeys.insert(documentKey).inserted else { continue }
+            selected.append(candidate)
+        }
+
+        if selected.count < topWindow {
+            for candidate in pool where selected.count < topWindow {
+                let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+                guard selectedKeys.insert(documentKey).inserted else { continue }
+                selected.append(candidate)
+            }
+        }
+
+        let selectedChunkIDs = Set(selected.map { $0.result.chunkID })
+        var ordered = selected.map(\.result)
+        ordered.reserveCapacity(results.count)
+        for result in results where !selectedChunkIDs.contains(result.chunkID) {
+            ordered.append(result)
+        }
+        return ordered
+    }
+
+    private func compareMultiEvidenceSupportCandidates(
+        _ lhs: MultiEvidenceSupportCandidate,
+        _ rhs: MultiEvidenceSupportCandidate
+    ) -> Bool {
+        if lhs.supportScore == rhs.supportScore {
+            if lhs.documentRank == rhs.documentRank {
+                return lhs.originalIndex < rhs.originalIndex
+            }
+            return lhs.documentRank < rhs.documentRank
+        }
+        return lhs.supportScore > rhs.supportScore
+    }
+
+    private func compareMultiEvidenceContinuationCandidates(
+        _ lhs: MultiEvidenceSupportCandidate,
+        _ rhs: MultiEvidenceSupportCandidate
+    ) -> Bool {
+        let lhsPriority = multiEvidenceContinuationPriority(lhs)
+        let rhsPriority = multiEvidenceContinuationPriority(rhs)
+        if lhsPriority == rhsPriority {
+            if lhs.documentRank == rhs.documentRank {
+                return lhs.originalIndex < rhs.originalIndex
+            }
+            return lhs.documentRank < rhs.documentRank
+        }
+        return lhsPriority > rhsPriority
+    }
+
+    private func multiEvidenceContinuationPriority(_ candidate: MultiEvidenceSupportCandidate) -> Double {
+        candidate.supportScore + (0.08 / sqrt(Double(max(1, candidate.documentRank))))
+    }
+
+    private func medianSupportScore(_ candidates: [MultiEvidenceSupportCandidate]) -> Double {
+        guard !candidates.isEmpty else { return 0 }
+        let sorted = candidates.map(\.supportScore).sorted()
+        return sorted[sorted.count / 2]
+    }
+
+    private func multiEvidenceSupportScore(for result: SearchResult, documentRank: Int) -> Double {
+        let score = result.score
+        let strongestBranch = max(score.lexical, score.semantic)
+        let branchAgreement = min(score.lexical, score.semantic)
+        let metadataSupport = score.temporal + score.schema + score.tag + score.status
+        let rankPrior = 0.02 / sqrt(Double(max(1, documentRank)))
+        return strongestBranch + (0.45 * branchAgreement) + metadataSupport + rankPrior
+    }
+
+    private func multiEvidenceSupportGroupKey(for documentPath: String) -> String? {
+        let normalizedPath = documentPath
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .replacingOccurrences(of: "\\", with: "/")
+        guard !normalizedPath.hasPrefix("memory://"),
+              let fileName = normalizedPath.split(separator: "/").last else {
+            return nil
+        }
+
+        let stem = String(fileName).replacingOccurrences(
+            of: #"\.[a-z0-9]+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        let groupedStem = stem.replacingOccurrences(
+            of: #"(?:_abs)?_\d+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        guard groupedStem != stem,
+              groupedStem.contains("_") else {
+            return nil
+        }
+
+        let directory = normalizedPath
+            .split(separator: "/")
+            .dropLast()
+            .joined(separator: "/")
+        return directory.isEmpty ? groupedStem : "\(directory)/\(groupedStem)"
     }
 
     private func heuristicExtract(messages: [ConversationMessage], limit: Int) -> MemoryExtractionResult {
@@ -3141,6 +3347,36 @@ public actor MemoryIndex {
             "what month", "when did", "which date"
         ]
         return recallIntentPhrases.contains { lower.contains($0) }
+    }
+
+    private func isMultiEvidenceSupportQuery(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        let aggregatePhrases = [
+            "average", "combined", "different", "from earliest to latest",
+            "from first to last", "how many", "how much", "in total",
+            "including", "order of", "total", "typical week"
+        ]
+        if aggregatePhrases.contains(where: lower.contains) {
+            return true
+        }
+
+        let temporalSupportPhrases = [
+            "after the", "before the", "day before", "days before",
+            "earliest to latest", "first to last", "last week",
+            "past month", "past few months", "past two months"
+        ]
+        if temporalSupportPhrases.contains(where: lower.contains) {
+            return true
+        }
+
+        if lower.range(of: #"\b(which|what)\s+(two|three|four|five|six)\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if lower.range(of: #"\b(the|my)\s+(two|three|four|five|six)\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
     }
 
     private func shouldRunDocumentLexicalSearch(

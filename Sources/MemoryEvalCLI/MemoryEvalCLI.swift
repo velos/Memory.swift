@@ -359,8 +359,16 @@ private struct RecallBranchDiagnosticBranch: Codable {
     var relevantHitCount: Int
     var relevantHitCountAtK: Int
     var retrievedDocumentIds: [String]
+    var topCandidates: [RecallBranchDiagnosticRankedCandidate]
+    var relevantCandidates: [RecallBranchDiagnosticRankedCandidate]
     var stageTimings: RecallQueryStageTimings?
     var candidateCounts: RecallQueryCandidateCounts?
+}
+
+private struct RecallBranchDiagnosticRankedCandidate: Codable {
+    var rank: Int
+    var documentId: String
+    var score: SearchScoreBreakdown
 }
 
 private struct RecallPerTypeMetric: Codable {
@@ -2146,9 +2154,19 @@ private func runRecallBranchDiagnostic(
         }
     )
     let latencyMs = Date().timeIntervalSince(start) * 1000.0
-    let retrievedDocumentIds = references.compactMap { reference in
-        documentIDByPath[reference.documentPath]
+    var rankedCandidates: [RecallBranchDiagnosticRankedCandidate] = []
+    rankedCandidates.reserveCapacity(references.count)
+    for reference in references {
+        guard let documentID = documentIDByPath[reference.documentPath] else { continue }
+        rankedCandidates.append(
+            RecallBranchDiagnosticRankedCandidate(
+                rank: rankedCandidates.count + 1,
+                documentId: documentID,
+                score: reference.score
+            )
+        )
     }
+    let retrievedDocumentIds = rankedCandidates.map(\.documentId)
     let bestRank = retrievedDocumentIds.firstIndex(where: { relevantDocumentIds.contains($0) }).map { $0 + 1 }
     let relevantHitCount = retrievedDocumentIds.reduce(into: 0) { count, documentID in
         if relevantDocumentIds.contains(documentID) {
@@ -2170,6 +2188,8 @@ private func runRecallBranchDiagnostic(
         relevantHitCount: relevantHitCount,
         relevantHitCountAtK: relevantHitCountAtK,
         retrievedDocumentIds: Array(retrievedDocumentIds.prefix(limit)),
+        topCandidates: Array(rankedCandidates.prefix(evaluationK)),
+        relevantCandidates: rankedCandidates.filter { relevantDocumentIds.contains($0.documentId) },
         stageTimings: collector.queryTimings(),
         candidateCounts: collector.queryCounts()
     )
@@ -2338,7 +2358,16 @@ private func makeRecallBranchDiagnosticMarkdown(_ report: RecallBranchDiagnostic
             : "miss"
         let branchRanks = result.branchResults.map { branch -> String in
             if let rank = branch.bestRelevantRank {
-                return "\(branch.name): \(rank)/\(branch.limit)"
+                let relevantSummary = branch.relevantCandidates
+                    .prefix(4)
+                    .map { candidate in
+                        "\(candidate.rank)[\(queryExpansionScoreSummary(candidate.score))]"
+                    }
+                    .joined(separator: ",")
+                if relevantSummary.isEmpty {
+                    return "\(branch.name): \(rank)/\(branch.limit)"
+                }
+                return "\(branch.name): \(rank)/\(branch.limit) {\(relevantSummary)}"
             }
             return "\(branch.name): -"
         }.joined(separator: "; ")
