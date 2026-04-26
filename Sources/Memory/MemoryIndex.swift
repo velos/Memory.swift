@@ -58,6 +58,7 @@ public actor MemoryIndex {
     private let documentLexicalSparseHitThreshold = 12
     private let documentLexicalPrimaryWeight = 0.45
     private let documentLexicalExpansionWeight = 0.60
+    private let maxCandidateHydrationLimit = 1_000
 
     private struct WeightedQuery {
         var text: String
@@ -926,9 +927,13 @@ public actor MemoryIndex {
             ? min(80, max(plan.rerankLimit ?? 40, effectiveLimit * 2))
             : 0
         let expansionLimit = features.contains(.expansion) ? 5 : 0
-        let searchLimit = dedupeDocuments
-            ? min(400, max(effectiveLimit * 6, effectiveLimit))
-            : effectiveLimit
+        let searchLimit: Int
+        if dedupeDocuments {
+            let broadLimit = min(400, max(effectiveLimit * 6, effectiveLimit))
+            searchLimit = effectiveLimit >= 50 ? min(320, broadLimit) : broadLimit
+        } else {
+            searchLimit = effectiveLimit
+        }
 
         let searchResults = try await search(
             SearchQuery(
@@ -3186,15 +3191,30 @@ public actor MemoryIndex {
         queryTags: [ContentTag],
         querySignals: QueryMatchSignals
     ) async throws -> [SearchResult] {
-        let candidateIDs = Set(semanticRRF.keys).union(lexicalRRF.keys)
+        struct FusedCandidate {
+            var metadata: StoredChunkMetadata
+            var score: SearchScoreBreakdown
+        }
+
+        let candidatePoolLimit = candidatePoolLimit(for: query)
+        let candidateIDs = preselectCandidateIDs(
+            semanticRRF: semanticRRF,
+            lexicalRRF: lexicalRRF,
+            lexicalExpansionPromotionRRF: lexicalExpansionPromotionRRF,
+            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
+            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF,
+            query: query,
+            primaryQueryText: primaryQueryText,
+            candidatePoolLimit: candidatePoolLimit
+        )
         guard !candidateIDs.isEmpty else { return [] }
 
-        let metadataRows = try await storage.fetchChunkMetadata(chunkIDs: Array(candidateIDs))
+        let metadataRows = try await storage.fetchChunkMetadata(chunkIDs: candidateIDs)
         let metadataMap = Dictionary(uniqueKeysWithValues: metadataRows.map { ($0.chunkID, $0) })
 
         let now = Date()
         let weights = fusionWeights(for: primaryQueryText)
-        var results: [SearchResult] = []
+        var results: [FusedCandidate] = []
         results.reserveCapacity(candidateIDs.count)
 
         for chunkID in candidateIDs {
@@ -3221,9 +3241,8 @@ public actor MemoryIndex {
                 + statusBonus
 
             results.append(
-                makeSearchResult(
-                    from: metadata,
-                    queryText: primaryQueryText,
+                FusedCandidate(
+                    metadata: metadata,
                     score: SearchScoreBreakdown(
                         semantic: semantic,
                         lexical: lexical,
@@ -3241,12 +3260,91 @@ public actor MemoryIndex {
         return results
             .sorted { lhs, rhs in
                 if lhs.score.fused == rhs.score.fused {
-                    return lhs.chunkID < rhs.chunkID
+                    return lhs.metadata.chunkID < rhs.metadata.chunkID
                 }
                 return lhs.score.fused > rhs.score.fused
             }
-            .prefix(candidatePoolLimit(for: query))
-            .map { $0 }
+            .prefix(candidatePoolLimit)
+            .map { makeSearchResult(from: $0.metadata, queryText: primaryQueryText, score: $0.score) }
+    }
+
+    private func preselectCandidateIDs(
+        semanticRRF: [Int64: Double],
+        lexicalRRF: [Int64: Double],
+        lexicalExpansionPromotionRRF: [Int64: Double],
+        primarySemanticPreservationRRF: [Int64: Double],
+        primaryLexicalPreservationRRF: [Int64: Double],
+        query: SearchQuery,
+        primaryQueryText: String,
+        candidatePoolLimit: Int
+    ) -> [Int64] {
+        let allCandidateIDs = Set(semanticRRF.keys).union(lexicalRRF.keys)
+        guard !allCandidateIDs.isEmpty else { return [] }
+
+        let hydrationLimit = candidateHydrationLimit(for: query, candidatePoolLimit: candidatePoolLimit)
+        guard allCandidateIDs.count > hydrationLimit else {
+            return Array(allCandidateIDs)
+        }
+
+        let weights = fusionWeights(for: primaryQueryText)
+        var preliminaryScores: [Int64: Double] = [:]
+        preliminaryScores.reserveCapacity(allCandidateIDs.count)
+        for chunkID in allCandidateIDs {
+            let semantic = (semanticRRF[chunkID] ?? 0) + (primarySemanticPreservationRRF[chunkID] ?? 0)
+            let lexical = (lexicalRRF[chunkID] ?? 0)
+                + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
+                + (primaryLexicalPreservationRRF[chunkID] ?? 0)
+            preliminaryScores[chunkID] = (weights.semantic * semantic) + (weights.lexical * lexical)
+        }
+
+        var selected: Set<Int64> = []
+        selected.reserveCapacity(hydrationLimit)
+        let protectedPerSignal = candidateProtectionLimit(for: query, hydrationLimit: hydrationLimit)
+        protectTopCandidates(from: semanticRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
+        protectTopCandidates(from: lexicalRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
+        protectTopCandidates(from: lexicalExpansionPromotionRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
+        protectTopCandidates(from: primarySemanticPreservationRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
+        protectTopCandidates(from: primaryLexicalPreservationRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
+
+        for entry in preliminaryScores.sorted(by: sortCandidateScore(_:_:)) where selected.count < hydrationLimit {
+            selected.insert(entry.key)
+        }
+        return Array(selected)
+    }
+
+    private func candidateHydrationLimit(for query: SearchQuery, candidatePoolLimit: Int) -> Int {
+        if query.rerankLimit == 0 {
+            return candidatePoolLimit
+        }
+        let requested = max(query.limit, query.rerankLimit)
+        let scaled = max(candidatePoolLimit, Int((Double(requested) * 1.5).rounded(.up)), 200)
+        return min(maxCandidateHydrationLimit, scaled)
+    }
+
+    private func candidateProtectionLimit(for query: SearchQuery, hydrationLimit: Int) -> Int {
+        min(max(40, query.limit / 2), max(1, hydrationLimit / 3))
+    }
+
+    private func protectTopCandidates(
+        from scores: [Int64: Double],
+        limit: Int,
+        selected: inout Set<Int64>,
+        hydrationLimit: Int
+    ) {
+        guard limit > 0, selected.count < hydrationLimit else { return }
+        for entry in scores.sorted(by: sortCandidateScore(_:_:)).prefix(limit) {
+            selected.insert(entry.key)
+            if selected.count >= hydrationLimit {
+                return
+            }
+        }
+    }
+
+    private func sortCandidateScore(_ lhs: Dictionary<Int64, Double>.Element, _ rhs: Dictionary<Int64, Double>.Element) -> Bool {
+        if lhs.value == rhs.value {
+            return lhs.key < rhs.key
+        }
+        return lhs.value > rhs.value
     }
 
     private func prepareStructuredSearchPlan(
@@ -3569,6 +3667,9 @@ public actor MemoryIndex {
 
     private func candidatePoolLimit(for query: SearchQuery) -> Int {
         let requested = max(query.limit, query.rerankLimit)
+        if query.rerankLimit == 0 {
+            return min(maxCandidateHydrationLimit, max(100, query.limit))
+        }
         let expanded = max(query.limit * 8, query.rerankLimit * 4, 200)
         return min(1_000, max(100, max(requested, expanded)))
     }
