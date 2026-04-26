@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-26T01:32:22Z",
+  "created_at": "2026-04-26T21:32:31Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -11,7 +11,9 @@
     "longmemeval_v2 now tracks the shipped coreml_default path directly instead of the historical LEAF-IR predecessor profile.",
     "query_expansion_gold_v1 currently tracks retrieval MRR lift explicitly; the present dataset still has 0 hit-rate lift because baseline and expanded retrieval both hit all cases.",
     "longmemeval_v2 was refreshed after contextual-status filtering and temporal/count primary-branch preservation improvements.",
-    "query_expansion_gold_v1 was refreshed after the same fusion changes improved expanded retrieval MRR."
+    "query_expansion_gold_v1 was refreshed after the same fusion changes improved expanded retrieval MRR.",
+    "general_v2, longmemeval_v2, query_expansion_gold_v1, and agent_memory_gold_v1 were refreshed after multi-evidence sibling continuation preservation.",
+    "longmemeval_v2 now locks the multi-evidence recall gain at Recall@10 78.75% and nDCG@10 0.5912; the slight MRR tradeoff is tracked as the new regression baseline."
   ],
   "required_runs": [
     {
@@ -39,7 +41,7 @@
       "dataset": "agent_memory_gold_v1",
       "dataset_root": "Evals/agent_memory_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 5856.327056884766,
+      "latency_p95_ms": 6094.958066940308,
       "metrics": {
         "agent_memory.false_write_rate": 0,
         "agent_memory.expected_write_recall": 1,
@@ -63,12 +65,12 @@
       "dataset": "general_v2",
       "dataset_root": "Evals/general_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 511.7769241333008,
+      "latency_p95_ms": 534.7000360488892,
       "metrics": {
-        "recall.hit_at_10": 0.9507042253521126,
-        "recall.recall_at_10": 0.9471830985915493,
-        "recall.mrr_at_10": 0.732647272524033,
-        "recall.ndcg_at_10": 0.7846880234755824
+        "recall.hit_at_10": 0.9471830985915493,
+        "recall.recall_at_10": 0.9436619718309859,
+        "recall.mrr_at_10": 0.7346565504135927,
+        "recall.ndcg_at_10": 0.7854312744351233
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.93,
@@ -81,12 +83,12 @@
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 681.1180114746094,
+      "latency_p95_ms": 699.0020275115967,
       "metrics": {
-        "recall.hit_at_10": 0.856353591160221,
-        "recall.recall_at_10": 0.7516574585635359,
-        "recall.mrr_at_10": 0.5769315092519514,
-        "recall.ndcg_at_10": 0.5789958518744147
+        "recall.hit_at_10": 0.8729281767955801,
+        "recall.recall_at_10": 0.7874769797421731,
+        "recall.mrr_at_10": 0.5745132859773743,
+        "recall.ndcg_at_10": 0.591210947869161
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.83,
@@ -99,7 +101,7 @@
       "dataset": "query_expansion_gold_v1",
       "dataset_root": "Evals/query_expansion_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 184.6330165863037,
+      "latency_p95_ms": 194.72801685333252,
       "metrics": {
         "query_expansion.lexical_coverage_recall": 0.4895833333333333,
         "query_expansion.semantic_coverage_recall": 0,
@@ -109,9 +111,9 @@
         "query_expansion.retrieval_baseline_hit_rate": 1,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_baseline_mrr": 0.46736111111111106,
-        "query_expansion.retrieval_expanded_mrr": 0.5868055555555554,
-        "query_expansion.retrieval_mrr_delta": 0.1194444444444443
+        "query_expansion.retrieval_baseline_mrr": 0.5355902777777777,
+        "query_expansion.retrieval_expanded_mrr": 0.6402777777777777,
+        "query_expansion.retrieval_mrr_delta": 0.10468750000000004
       },
       "minimum_metrics": {
         "query_expansion.lexical_coverage_recall": 0.45,
