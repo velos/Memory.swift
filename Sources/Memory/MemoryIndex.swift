@@ -316,6 +316,9 @@ public actor MemoryIndex {
         var lexicalCandidateCount = 0
         var semanticSearchDurationMs = 0.0
         let hasExpandedBranches = searchPlan.expandedQueries.count > 1
+        let isTemporalOrAggregateQuery = isTemporalOrAggregateRecallQuery(normalizedText)
+        let shouldPreservePrimaryBranch = hasExpandedBranches || isTemporalOrAggregateQuery
+        let primaryPreservationBase = primaryBranchPreservationBase(for: normalizedText)
         var documentLexicalBranchCount = 0
 
         for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
@@ -334,11 +337,11 @@ public actor MemoryIndex {
                 semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
                 semanticCandidateCount += semanticHits.count
                 accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
-                if index == 0, hasExpandedBranches {
+                if index == 0, shouldPreservePrimaryBranch {
                     accumulatePrimaryBranchPreservation(
                         for: semanticHits,
                         rankLimit: primarySemanticPreservationRankLimit,
-                        baseContribution: 0.08,
+                        baseContribution: primaryPreservationBase.semantic,
                         weight: expandedQuery.weight,
                         into: &primarySemanticPreservationRRF
                     )
@@ -361,11 +364,11 @@ public actor MemoryIndex {
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
-                if index == 0, hasExpandedBranches {
+                if index == 0, shouldPreservePrimaryBranch {
                     accumulatePrimaryBranchPreservation(
                         for: lexicalHits,
                         rankLimit: primaryLexicalPreservationRankLimit,
-                        baseContribution: 0.05,
+                        baseContribution: primaryPreservationBase.lexical,
                         weight: expandedQuery.weight,
                         into: &primaryLexicalPreservationRRF
                     )
@@ -2813,7 +2816,7 @@ public actor MemoryIndex {
         let statuses: Set<MemoryStatus>?
         if containsAnyRecallStatusCue(
             lower,
-            cues: ["historical", "previous", "superseded", "archived", "old memory", "old memories", "old records"]
+            cues: ["historical", "superseded", "archived", "old memory", "old memories", "old records"]
         ) {
             statuses = Set(MemoryStatus.allCases)
         } else if containsAnyRecallStatusCue(lower, cues: ["done", "completed", "resolved", "what happened"]) {
@@ -3089,6 +3092,13 @@ public actor MemoryIndex {
         }
     }
 
+    private func primaryBranchPreservationBase(for queryText: String) -> (semantic: Double, lexical: Double) {
+        if isTemporalOrAggregateRecallQuery(queryText) {
+            return (semantic: 0.24, lexical: 0.36)
+        }
+        return (semantic: 0.08, lexical: 0.05)
+    }
+
     private func accumulateLexicalExpansionPromotion(
         for hits: [LexicalHit],
         queryText: String,
@@ -3103,9 +3113,11 @@ public actor MemoryIndex {
         let isTemporalOrAggregate = isTemporalOrAggregateRecallQuery(primaryQueryText)
         guard isConciseLowOverlap || isTemporalOrAggregate else { return }
 
-        let basePromotion = isConciseLowOverlap ? 0.75 : 0.18
-        for hit in hits.prefix(lexicalExpansionPromotionRankLimit) {
-            let contribution = weight * basePromotion
+        let basePromotion = isConciseLowOverlap ? 0.75 : 0.24
+        let rankLimit = isTemporalOrAggregate ? max(2, lexicalExpansionPromotionRankLimit) : lexicalExpansionPromotionRankLimit
+        for (index, hit) in hits.prefix(rankLimit).enumerated() {
+            let rank = Double(index + 1)
+            let contribution = weight * basePromotion / sqrt(rank)
             scores[hit.chunkID] = max(scores[hit.chunkID] ?? 0, contribution)
         }
     }

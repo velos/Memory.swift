@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-26T00:50:47Z",
+  "created_at": "2026-04-26T01:32:22Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -9,7 +9,9 @@
     "Minimum metrics are accuracy gates for storage, update, agent-memory behavior, and recall-rescue signals.",
     "general_v2 and longmemeval_v2 were refreshed after candidate preselection and broad memorySearch pool capping.",
     "longmemeval_v2 now tracks the shipped coreml_default path directly instead of the historical LEAF-IR predecessor profile.",
-    "query_expansion_gold_v1 currently tracks retrieval MRR lift explicitly; the present dataset still has 0 hit-rate lift because baseline and expanded retrieval both hit all cases."
+    "query_expansion_gold_v1 currently tracks retrieval MRR lift explicitly; the present dataset still has 0 hit-rate lift because baseline and expanded retrieval both hit all cases.",
+    "longmemeval_v2 was refreshed after contextual-status filtering and temporal/count primary-branch preservation improvements.",
+    "query_expansion_gold_v1 was refreshed after the same fusion changes improved expanded retrieval MRR."
   ],
   "required_runs": [
     {
@@ -37,7 +39,7 @@
       "dataset": "agent_memory_gold_v1",
       "dataset_root": "Evals/agent_memory_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 6446.240067481995,
+      "latency_p95_ms": 5856.327056884766,
       "metrics": {
         "agent_memory.false_write_rate": 0,
         "agent_memory.expected_write_recall": 1,
@@ -79,18 +81,18 @@
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 687.391996383667,
+      "latency_p95_ms": 681.1180114746094,
       "metrics": {
-        "recall.hit_at_10": 0.7900552486187845,
-        "recall.recall_at_10": 0.6848987108655616,
-        "recall.mrr_at_10": 0.4998750328860825,
-        "recall.ndcg_at_10": 0.5058844586054887
+        "recall.hit_at_10": 0.856353591160221,
+        "recall.recall_at_10": 0.7516574585635359,
+        "recall.mrr_at_10": 0.5769315092519514,
+        "recall.ndcg_at_10": 0.5789958518744147
       },
       "minimum_metrics": {
-        "recall.hit_at_10": 0.77,
-        "recall.recall_at_10": 0.66,
-        "recall.mrr_at_10": 0.47,
-        "recall.ndcg_at_10": 0.48
+        "recall.hit_at_10": 0.83,
+        "recall.recall_at_10": 0.73,
+        "recall.mrr_at_10": 0.55,
+        "recall.ndcg_at_10": 0.55
       }
     },
     {
@@ -107,16 +109,16 @@
         "query_expansion.retrieval_baseline_hit_rate": 1,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_baseline_mrr": 0.45910218253968255,
-        "query_expansion.retrieval_expanded_mrr": 0.5562499999999999,
-        "query_expansion.retrieval_mrr_delta": 0.09714781746031736
+        "query_expansion.retrieval_baseline_mrr": 0.46736111111111106,
+        "query_expansion.retrieval_expanded_mrr": 0.5868055555555554,
+        "query_expansion.retrieval_mrr_delta": 0.1194444444444443
       },
       "minimum_metrics": {
         "query_expansion.lexical_coverage_recall": 0.45,
         "query_expansion.entity_recall": 0.18,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_mrr_delta": 0.07
+        "query_expansion.retrieval_mrr_delta": 0.10
       }
     }
   ]

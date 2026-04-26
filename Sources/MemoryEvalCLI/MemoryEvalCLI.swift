@@ -320,6 +320,49 @@ private struct RecallQueryResult: Codable {
     var difficulty: String?
 }
 
+private struct RecallBranchDiagnosticReport: Codable {
+    var schemaVersion: Int
+    var createdAt: Date
+    var profile: EvalProfile
+    var datasetRoot: String
+    var sourceRun: String
+    var scope: String
+    var maxK: Int
+    var wideLimit: Int
+    var totalCases: Int
+    var classificationCounts: [String: Int]
+    var taxonomyCounts: [String: Int]
+    var branchHitCounts: [String: Int]
+    var caseResults: [RecallBranchDiagnosticCase]
+}
+
+private struct RecallBranchDiagnosticCase: Codable {
+    var id: String
+    var query: String
+    var difficulty: String?
+    var memoryTypes: [String]
+    var relevantDocumentIds: [String]
+    var originalRetrievedDocumentIds: [String]
+    var originalHitAtK: Bool
+    var originalRecallAtK: Double
+    var classification: String
+    var taxonomy: [String]
+    var branchResults: [RecallBranchDiagnosticBranch]
+}
+
+private struct RecallBranchDiagnosticBranch: Codable {
+    var name: String
+    var features: [String]
+    var limit: Int
+    var latencyMs: Double
+    var bestRelevantRank: Int?
+    var relevantHitCount: Int
+    var relevantHitCountAtK: Int
+    var retrievedDocumentIds: [String]
+    var stageTimings: RecallQueryStageTimings?
+    var candidateCounts: RecallQueryCandidateCounts?
+}
+
 private struct RecallPerTypeMetric: Codable {
     var memoryType: String
     var queryCount: Int
@@ -1315,7 +1358,7 @@ struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "memory_eval",
         abstract: "Evaluation harness for Memory.swift storage and recall quality.",
-        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self, GateCommand.self],
+        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self, GateCommand.self, DiagnoseLongMemEvalCommand.self],
         defaultSubcommand: RunCommand.self
     )
 }
@@ -1841,6 +1884,470 @@ struct GateCommand: AsyncParsableCommand {
             throw ExitCode(1)
         }
     }
+}
+
+struct DiagnoseLongMemEvalCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "diagnose-longmemeval",
+        abstract: "Rerun LongMemEval recall misses across retrieval branches and write diagnostic artifacts."
+    )
+
+    @Option(name: .long, help: "Profile to run.")
+    var profile: EvalProfile = .coreMLDefault
+
+    @Option(name: .long, help: "Dataset root folder.")
+    var datasetRoot: String = "Evals/longmemeval_v2"
+
+    @Option(name: .long, help: "Source eval run JSON used to select miss/partial cases.")
+    var sourceRun: String
+
+    @Option(name: .long, help: "Output JSON path. Defaults beside --source-run.")
+    var output: String?
+
+    @Option(name: .long, help: "Case scope: misses, misses-and-partials, or all.")
+    var scope: String = "misses-and-partials"
+
+    @Option(name: .long, help: "Wide diagnostic retrieval limit.")
+    var wideLimit: Int = 100
+
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Reuse cached recall index across diagnostic runs."
+    )
+    var indexCache = true
+
+    mutating func run() async throws {
+        let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
+        let sourceRunURL = URL(fileURLWithPath: NSString(string: sourceRun).expandingTildeInPath).standardizedFileURL
+
+        let dataset = try loadDataset(root: datasetRootURL)
+        guard !dataset.recallDocuments.isEmpty, !dataset.recallQueries.isEmpty else {
+            throw ValidationError("diagnose-longmemeval requires recall_documents.jsonl and recall_queries.jsonl.")
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let sourceReport = try decoder.decode(EvalRunReport.self, from: Data(contentsOf: sourceRunURL))
+        let maxK = sourceReport.recall.metricsByK.max(by: { $0.k < $1.k })?.k ?? 10
+        let normalizedScope = scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let selectedIDs = try selectRecallDiagnosticIDs(
+            from: sourceReport.recall.queryResults,
+            maxK: maxK,
+            scope: normalizedScope
+        )
+        let selectedIDSet = Set(selectedIDs)
+        let selectedQueries = dataset.recallQueries.filter { selectedIDSet.contains($0.id) }
+        guard !selectedQueries.isEmpty else {
+            throw ValidationError("No LongMemEval cases matched scope '\(scope)'.")
+        }
+
+        let runRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("memory-evals", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+
+        let indexSeed = recallIndexCacheSeed(profile: profile, documents: dataset.recallDocuments)
+        let workspace = try prepareIndexWorkspace(
+            suite: .recall,
+            profile: profile,
+            datasetRoot: datasetRootURL,
+            runRoot: runRoot,
+            cacheEnabled: indexCache,
+            seed: indexSeed
+        )
+
+        var pathByDocumentID: [String: String] = [:]
+        var documentIDByPath: [String: String] = [:]
+        for document in dataset.recallDocuments {
+            let path = materializedRecallDocumentURL(document, docsRoot: workspace.docsRoot)
+            pathByDocumentID[document.id] = path.path
+            documentIDByPath[path.path] = document.id
+        }
+
+        let expectedPaths = pathByDocumentID.values.map(URL.init(fileURLWithPath:))
+        let canReuseIndex = indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: expectedPaths)
+        if canReuseIndex {
+            print("[diagnose-longmemeval][index-cache] hit: \(workspace.root.path)")
+        } else {
+            if workspace.cacheEnabled {
+                print("[diagnose-longmemeval][index-cache] miss: \(workspace.root.path)")
+            }
+            try resetWorkspaceForRebuild(workspace)
+            for document in dataset.recallDocuments {
+                guard let pathRaw = pathByDocumentID[document.id] else { continue }
+                let path = URL(fileURLWithPath: pathRaw)
+                try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try materializeRecallDocument(document).write(to: path, atomically: true, encoding: .utf8)
+            }
+        }
+
+        var config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: workspace.databaseURL)
+        let recallDiagnostics = installRecallDiagnosticsIfNeeded(profile: profile, configuration: &config)
+        let index = try MemoryIndex(configuration: config)
+        if canReuseIndex {
+            print("[diagnose-longmemeval] Using cached index for \(dataset.recallDocuments.count) documents.")
+        } else {
+            print("[diagnose-longmemeval] Building index for \(dataset.recallDocuments.count) documents...")
+            let start = Date()
+            try await index.rebuildIndex(from: [workspace.docsRoot])
+            print("[diagnose-longmemeval] Index built in \(formatDuration(Date().timeIntervalSince(start))).")
+            try markIndexCacheReady(workspace)
+        }
+
+        let sourceResultsByID = Dictionary(uniqueKeysWithValues: sourceReport.recall.queryResults.map { ($0.id, $0) })
+        let allFeatures = recallFeatures(for: config)
+        var noExpansionFeatures = allFeatures
+        noExpansionFeatures.remove(.expansion)
+
+        let diagnosticLimit = max(wideLimit, maxK)
+        let branchSpecs: [(name: String, features: RecallFeatures, limit: Int)] = [
+            ("current_top_k", allFeatures, maxK),
+            ("current_wide", allFeatures, diagnosticLimit),
+            ("no_expansion_wide", noExpansionFeatures, diagnosticLimit),
+            ("lexical_wide", [.lexical], diagnosticLimit),
+            ("semantic_wide", [.semantic], diagnosticLimit),
+        ]
+
+        var caseResults: [RecallBranchDiagnosticCase] = []
+        var progress = DeterminateProgress(label: "diagnose-longmemeval", total: selectedQueries.count)
+        for queryCase in selectedQueries {
+            guard let sourceResult = sourceResultsByID[queryCase.id] else { continue }
+            let relevant = Set(queryCase.relevantDocumentIds)
+            var branches: [RecallBranchDiagnosticBranch] = []
+            for spec in branchSpecs {
+                let branch = try await runRecallBranchDiagnostic(
+                    index: index,
+                    query: queryCase.query,
+                    relevantDocumentIds: relevant,
+                    documentIDByPath: documentIDByPath,
+                    name: spec.name,
+                    features: spec.features,
+                    limit: spec.limit,
+                    evaluationK: maxK
+                )
+                branches.append(branch)
+            }
+
+            let originalHit = sourceResult.hitByK[maxK] ?? false
+            let originalRecall = sourceResult.recallByK[maxK] ?? 0
+            let taxonomy = recallDiagnosticTaxonomy(
+                query: queryCase.query,
+                relevantCount: queryCase.relevantDocumentIds.count,
+                memoryTypes: queryCase.memoryTypes ?? []
+            )
+            caseResults.append(
+                RecallBranchDiagnosticCase(
+                    id: queryCase.id,
+                    query: queryCase.query,
+                    difficulty: queryCase.difficulty,
+                    memoryTypes: queryCase.memoryTypes ?? [],
+                    relevantDocumentIds: queryCase.relevantDocumentIds,
+                    originalRetrievedDocumentIds: sourceResult.retrievedDocumentIds,
+                    originalHitAtK: originalHit,
+                    originalRecallAtK: originalRecall,
+                    classification: classifyRecallDiagnosticCase(
+                        originalHitAtK: originalHit,
+                        originalRecallAtK: originalRecall,
+                        maxK: maxK,
+                        relevantCount: queryCase.relevantDocumentIds.count,
+                        branches: branches
+                    ),
+                    taxonomy: taxonomy,
+                    branchResults: branches
+                )
+            )
+            progress.advance(detail: queryCase.id)
+        }
+
+        if let recallDiagnostics {
+            for line in await recallDiagnostics.summaryLines(suite: .recall) {
+                print(line)
+            }
+            for line in await recallDiagnostics.detailLines(suite: .recall) {
+                print(line)
+            }
+        }
+
+        let report = RecallBranchDiagnosticReport(
+            schemaVersion: 1,
+            createdAt: Date(),
+            profile: profile,
+            datasetRoot: datasetRootURL.path,
+            sourceRun: sourceRunURL.path,
+            scope: normalizedScope,
+            maxK: maxK,
+            wideLimit: diagnosticLimit,
+            totalCases: caseResults.count,
+            classificationCounts: countBy(caseResults.map(\.classification)),
+            taxonomyCounts: countBy(caseResults.flatMap(\.taxonomy)),
+            branchHitCounts: recallDiagnosticBranchHitCounts(caseResults),
+            caseResults: caseResults.sorted { $0.id < $1.id }
+        )
+
+        let outputURL = try resolveLongMemEvalDiagnosticOutput(sourceRunURL: sourceRunURL, output: output)
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(report).write(to: outputURL, options: .atomic)
+
+        let markdown = makeRecallBranchDiagnosticMarkdown(report)
+        let markdownURL = outputURL.deletingPathExtension().appendingPathExtension("md")
+        try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        print("Diagnostic JSON: \(outputURL.path)")
+        print("Diagnostic Markdown: \(markdownURL.path)")
+    }
+}
+
+private func selectRecallDiagnosticIDs(
+    from results: [RecallQueryResult],
+    maxK: Int,
+    scope: String
+) throws -> [String] {
+    switch scope {
+    case "misses":
+        return results.filter { ($0.hitByK[maxK] ?? false) == false }.map(\.id)
+    case "misses-and-partials":
+        return results.filter { result in
+            let hit = result.hitByK[maxK] ?? false
+            let recall = result.recallByK[maxK] ?? 0
+            return !hit || recall < 1
+        }.map(\.id)
+    case "all":
+        return results.map(\.id)
+    default:
+        throw ValidationError("Unsupported scope '\(scope)'. Use misses, misses-and-partials, or all.")
+    }
+}
+
+private func runRecallBranchDiagnostic(
+    index: MemoryIndex,
+    query: String,
+    relevantDocumentIds: Set<String>,
+    documentIDByPath: [String: String],
+    name: String,
+    features: RecallFeatures,
+    limit: Int,
+    evaluationK: Int
+) async throws -> RecallBranchDiagnosticBranch {
+    let collector = SearchStageTimingCollector()
+    let start = Date()
+    let references = try await index.memorySearch(
+        query: query,
+        limit: limit,
+        features: features,
+        dedupeDocuments: true,
+        includeLineRanges: false,
+        events: { event in
+            collector.record(event)
+        }
+    )
+    let latencyMs = Date().timeIntervalSince(start) * 1000.0
+    let retrievedDocumentIds = references.compactMap { reference in
+        documentIDByPath[reference.documentPath]
+    }
+    let bestRank = retrievedDocumentIds.firstIndex(where: { relevantDocumentIds.contains($0) }).map { $0 + 1 }
+    let relevantHitCount = retrievedDocumentIds.reduce(into: 0) { count, documentID in
+        if relevantDocumentIds.contains(documentID) {
+            count += 1
+        }
+    }
+    let relevantHitCountAtK = retrievedDocumentIds.prefix(evaluationK).reduce(into: 0) { count, documentID in
+        if relevantDocumentIds.contains(documentID) {
+            count += 1
+        }
+    }
+
+    return RecallBranchDiagnosticBranch(
+        name: name,
+        features: queryExpansionFeatureLabels(features),
+        limit: limit,
+        latencyMs: latencyMs,
+        bestRelevantRank: bestRank,
+        relevantHitCount: relevantHitCount,
+        relevantHitCountAtK: relevantHitCountAtK,
+        retrievedDocumentIds: Array(retrievedDocumentIds.prefix(limit)),
+        stageTimings: collector.queryTimings(),
+        candidateCounts: collector.queryCounts()
+    )
+}
+
+private func classifyRecallDiagnosticCase(
+    originalHitAtK: Bool,
+    originalRecallAtK: Double,
+    maxK: Int,
+    relevantCount: Int,
+    branches: [RecallBranchDiagnosticBranch]
+) -> String {
+    let byName = Dictionary(uniqueKeysWithValues: branches.map { ($0.name, $0) })
+    let currentWide = byName["current_wide"]
+    let noExpansion = byName["no_expansion_wide"]
+    let lexical = byName["lexical_wide"]
+    let semantic = byName["semantic_wide"]
+
+    let currentWideTopHit = (currentWide?.bestRelevantRank).map { $0 <= maxK } ?? false
+    let currentWideHasCandidate = currentWide?.bestRelevantRank != nil
+    let branchHit = branches.contains { $0.bestRelevantRank != nil }
+    let noExpansionTopHit = (noExpansion?.bestRelevantRank).map { $0 <= maxK } ?? false
+    let lexicalHit = lexical?.bestRelevantRank != nil
+    let semanticHit = semantic?.bestRelevantRank != nil
+
+    if !originalHitAtK, currentWideTopHit {
+        return "fixed_by_current_code"
+    }
+
+    if originalHitAtK, originalRecallAtK < 1, relevantCount > 1 {
+        let topRelevant = currentWide?.relevantHitCountAtK ?? 0
+        let wideRelevant = currentWide?.relevantHitCount ?? 0
+        if wideRelevant > topRelevant {
+            return "multi_evidence_preservation"
+        }
+        return "partial_multi_evidence"
+    }
+
+    if noExpansionTopHit, !currentWideTopHit {
+        return "expansion_regression"
+    }
+
+    if currentWideHasCandidate, !currentWideTopHit {
+        return "ranking_or_pool_depth"
+    }
+
+    if (lexicalHit || semanticHit), !currentWideHasCandidate {
+        return "fusion_filtering"
+    }
+
+    if !branchHit {
+        return "candidate_generation"
+    }
+
+    return currentWideTopHit ? "covered" : "candidate_generation"
+}
+
+private func recallDiagnosticTaxonomy(
+    query: String,
+    relevantCount: Int,
+    memoryTypes: [String]
+) -> [String] {
+    let lower = query.lowercased()
+    var labels: [String] = []
+    let normalizedTypes = Set(memoryTypes.map { $0.lowercased() })
+
+    let temporalNeedles = [
+        "how many", "what time", "when", "which day", "date", "day", "week",
+        "month", "year", "before", "after", "since", "during", "past", "last",
+        "currently", "now", "typical week"
+    ]
+    if normalizedTypes.contains("temporal") || temporalNeedles.contains(where: lower.contains) {
+        labels.append("temporal/count")
+    }
+
+    let multiNeedles = ["across", "all the", "between", "total", "combined", "from ", " and "]
+    if relevantCount > 1 || multiNeedles.contains(where: lower.contains) {
+        labels.append("multi-evidence")
+    }
+
+    let contextualNeedles = ["previous conversation", "previous chat", "remind me", "that ", "this ", " it ", "those "]
+    if contextualNeedles.contains(where: lower.contains) {
+        labels.append("contextual-ellipsis")
+    }
+
+    let hasQuotedPhrase = query.contains("'") || query.contains("\"")
+    let hasProperEntity = query.range(of: #"\b[A-Z][A-Za-z0-9_-]{2,}\b"#, options: .regularExpression) != nil
+    if hasQuotedPhrase || hasProperEntity || normalizedTypes.contains("entity") {
+        labels.append("entity/alias")
+    }
+
+    if normalizedTypes.contains("episodic"), !labels.contains("temporal/count") {
+        labels.append("episodic/contextual")
+    }
+
+    return labels.isEmpty ? ["lexical/semantic-mismatch"] : labels
+}
+
+private func recallDiagnosticBranchHitCounts(_ cases: [RecallBranchDiagnosticCase]) -> [String: Int] {
+    var counts: [String: Int] = [:]
+    for diagnosticCase in cases {
+        for branch in diagnosticCase.branchResults where branch.bestRelevantRank != nil {
+            counts[branch.name, default: 0] += 1
+        }
+    }
+    return counts
+}
+
+private func countBy(_ values: [String]) -> [String: Int] {
+    values.reduce(into: [:]) { counts, value in
+        counts[value, default: 0] += 1
+    }
+}
+
+private func resolveLongMemEvalDiagnosticOutput(sourceRunURL: URL, output: String?) throws -> URL {
+    if let output {
+        return URL(fileURLWithPath: NSString(string: output).expandingTildeInPath).standardizedFileURL
+    }
+    return sourceRunURL
+        .deletingPathExtension()
+        .appendingPathExtension("branch-diagnostics.json")
+}
+
+private func makeRecallBranchDiagnosticMarkdown(_ report: RecallBranchDiagnosticReport) -> String {
+    var lines: [String] = []
+    lines.append("# LongMemEval Branch Diagnostics")
+    lines.append("")
+    lines.append("- Profile: `\(report.profile.rawValue)`")
+    lines.append("- Source run: `\(report.sourceRun)`")
+    lines.append("- Scope: `\(report.scope)`")
+    lines.append("- Cases: \(report.totalCases)")
+    lines.append("- Max K: \(report.maxK)")
+    lines.append("- Wide limit: \(report.wideLimit)")
+    lines.append("")
+
+    lines.append("## Classification Counts")
+    lines.append("| Classification | Count |")
+    lines.append("|---|---:|")
+    for entry in report.classificationCounts.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Taxonomy Counts")
+    lines.append("| Taxonomy | Count |")
+    lines.append("|---|---:|")
+    for entry in report.taxonomyCounts.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Branch Coverage")
+    lines.append("| Branch | Cases with relevant doc |")
+    lines.append("|---|---:|")
+    for entry in report.branchHitCounts.sorted(by: { $0.key < $1.key }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Cases")
+    lines.append("| ID | Classification | Taxonomy | Original | Branch ranks |")
+    lines.append("|---|---|---|---|---|")
+    for result in report.caseResults {
+        let original = result.originalHitAtK
+            ? "hit, recall \(format(result.originalRecallAtK))"
+            : "miss"
+        let branchRanks = result.branchResults.map { branch -> String in
+            if let rank = branch.bestRelevantRank {
+                return "\(branch.name): \(rank)/\(branch.limit)"
+            }
+            return "\(branch.name): -"
+        }.joined(separator: "; ")
+        lines.append(
+            "| `\(markdownTableCell(result.id))` | `\(markdownTableCell(result.classification))` | \(markdownTableCell(result.taxonomy.joined(separator: ", "))) | \(markdownTableCell(original)) | \(markdownTableCell(branchRanks)) |"
+        )
+    }
+    lines.append("")
+    return lines.joined(separator: "\n")
 }
 
 private struct DatasetBundle {
