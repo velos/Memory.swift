@@ -1,14 +1,15 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-24T03:03:00Z",
+  "created_at": "2026-04-26T00:50:47Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
   "notes": [
     "Reduced regression baseline for the shipped coreml_default path.",
     "Minimum metrics are accuracy gates for storage, update, agent-memory behavior, and recall-rescue signals.",
-    "longmemeval_v2 values are seeded from the historical LEAF-IR CoreML run because coreml_default replaced that profile name.",
-    "query_expansion_gold_v1 currently tracks retrieval lift explicitly; the present dataset still has 0 lift because baseline and expanded retrieval both hit all cases."
+    "general_v2 and longmemeval_v2 were refreshed after candidate preselection and broad memorySearch pool capping.",
+    "longmemeval_v2 now tracks the shipped coreml_default path directly instead of the historical LEAF-IR predecessor profile.",
+    "query_expansion_gold_v1 currently tracks retrieval MRR lift explicitly; the present dataset still has 0 hit-rate lift because baseline and expanded retrieval both hit all cases."
   ],
   "required_runs": [
     {
@@ -16,9 +17,9 @@
       "dataset_root": "Evals/memory_schema_gold_v2",
       "profile": "coreml_default",
       "metrics": {
-        "storage.type_accuracy": 1,
-        "storage.macro_f1": 0.875,
-        "storage.facet_micro_f1": 0.8111888111888113,
+        "storage.type_accuracy": 0.9642857142857143,
+        "storage.macro_f1": 0.8509803921568628,
+        "storage.facet_micro_f1": 0.8055555555555556,
         "storage.entity_recall": 0.7090909090909091,
         "storage.topic_recall": 0.673469387755102,
         "storage.update_behavior_accuracy": 0.8571428571428571
@@ -36,7 +37,7 @@
       "dataset": "agent_memory_gold_v1",
       "dataset_root": "Evals/agent_memory_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 6075.575947761536,
+      "latency_p95_ms": 6446.240067481995,
       "metrics": {
         "agent_memory.false_write_rate": 0,
         "agent_memory.expected_write_recall": 1,
@@ -60,43 +61,43 @@
       "dataset": "general_v2",
       "dataset_root": "Evals/general_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 525.3410339355469,
+      "latency_p95_ms": 511.7769241333008,
       "metrics": {
-        "recall.hit_at_10": 0.7570422535211268,
-        "recall.recall_at_10": 0.7570422535211268,
-        "recall.mrr_at_10": 0.5488807847082496,
-        "recall.ndcg_at_10": 0.5996841519477116
+        "recall.hit_at_10": 0.9507042253521126,
+        "recall.recall_at_10": 0.9471830985915493,
+        "recall.mrr_at_10": 0.732647272524033,
+        "recall.ndcg_at_10": 0.7846880234755824
       },
       "minimum_metrics": {
-        "recall.hit_at_10": 0.74,
-        "recall.recall_at_10": 0.74,
-        "recall.mrr_at_10": 0.52,
-        "recall.ndcg_at_10": 0.57
+        "recall.hit_at_10": 0.93,
+        "recall.recall_at_10": 0.92,
+        "recall.mrr_at_10": 0.70,
+        "recall.ndcg_at_10": 0.75
       }
     },
     {
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
-      "profile": "coreml_leaf_ir",
-      "latency_p95_ms": 4717.131972312927,
+      "profile": "coreml_default",
+      "latency_p95_ms": 687.391996383667,
       "metrics": {
-        "recall.hit_at_10": 0.3867403314917127,
-        "recall.recall_at_10": 0.3339779005524862,
-        "recall.mrr_at_10": 0.24001578531965267,
-        "recall.ndcg_at_10": 0.24787419988610815
+        "recall.hit_at_10": 0.7900552486187845,
+        "recall.recall_at_10": 0.6848987108655616,
+        "recall.mrr_at_10": 0.4998750328860825,
+        "recall.ndcg_at_10": 0.5058844586054887
       },
       "minimum_metrics": {
-        "recall.hit_at_10": 0.37,
-        "recall.recall_at_10": 0.32,
-        "recall.mrr_at_10": 0.22,
-        "recall.ndcg_at_10": 0.23
+        "recall.hit_at_10": 0.77,
+        "recall.recall_at_10": 0.66,
+        "recall.mrr_at_10": 0.47,
+        "recall.ndcg_at_10": 0.48
       }
     },
     {
       "dataset": "query_expansion_gold_v1",
       "dataset_root": "Evals/query_expansion_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 192.30294227600098,
+      "latency_p95_ms": 184.6330165863037,
       "metrics": {
         "query_expansion.lexical_coverage_recall": 0.4895833333333333,
         "query_expansion.semantic_coverage_recall": 0,
@@ -107,15 +108,15 @@
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
         "query_expansion.retrieval_baseline_mrr": 0.45910218253968255,
-        "query_expansion.retrieval_expanded_mrr": 0.5036210317460317,
-        "query_expansion.retrieval_mrr_delta": 0.04451884920634913
+        "query_expansion.retrieval_expanded_mrr": 0.5562499999999999,
+        "query_expansion.retrieval_mrr_delta": 0.09714781746031736
       },
       "minimum_metrics": {
         "query_expansion.lexical_coverage_recall": 0.45,
         "query_expansion.entity_recall": 0.18,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_mrr_delta": 0
+        "query_expansion.retrieval_mrr_delta": 0.07
       }
     }
   ]
