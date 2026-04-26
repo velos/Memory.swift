@@ -617,6 +617,161 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func heuristicExtractCapturesCanonicalEntitiesAndTopicsForAgentMemoryKinds() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Zac prefers Zed for Memory.swift hybrid retrieval planning."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "We decided to use LEAF-IR embeddings for Memory.swift recall."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Action item: ship entity overlap tests for Memory.swift."
+                ),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first { $0.kind == .profile })
+        let profileEntities = Set(profile.entities.map(\.normalizedValue))
+        #expect(profileEntities.isSuperset(of: ["zac", "zed", "memory.swift"]))
+        #expect(profile.topics.contains("hybrid retrieval"))
+        #expect(profile.topics.contains("memory.swift planning"))
+
+        let decision = try #require(extracted.first { $0.kind == .decision })
+        let decisionEntities = Set(decision.entities.map(\.normalizedValue))
+        #expect(decisionEntities.isSuperset(of: ["leaf-ir", "memory.swift"]))
+        #expect(decision.topics.contains("memory.swift recall"))
+        #expect(decision.topics.contains("embeddings for recall"))
+
+        let commitment = try #require(extracted.first { $0.kind == .commitment })
+        let commitmentEntities = Set(commitment.entities.map(\.normalizedValue))
+        #expect(commitmentEntities.contains("memory.swift"))
+        #expect(commitment.topics.contains("entity overlap tests"))
+    }
+
+    @Test
+    func inferredCanonicalFacetsDriveProfileDecisionAndCommitmentUpdates() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let profileV1 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Zac prefers Vim for Memory.swift release coordination."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let profileV2 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Zac prefers Zed for Memory.swift release coordination."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([profileV1])
+        _ = try await index.ingest([profileV2])
+
+        let profiles = try await index.recall(mode: .kind(.profile), limit: 10)
+        #expect(profiles.records.count == 1)
+        #expect(profiles.records.first?.text.contains("Zed") == true)
+
+        let decisionV1 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "We decided to use LEAF-IR embeddings for Memory.swift recall."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let decisionV2 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "We decided to use CoreML embeddings for Memory.swift recall."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([decisionV1])
+        _ = try await index.ingest([decisionV2])
+
+        let decisions = try await index.recall(mode: .kind(.decision), limit: 10)
+        #expect(decisions.records.count == 1)
+        #expect(decisions.records.first?.text.contains("CoreML") == true)
+
+        let commitmentActive = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Action item: ship entity overlap tests for Memory.swift."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let commitmentResolved = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Done: ship entity overlap tests for Memory.swift."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([commitmentActive])
+        _ = try await index.ingest([commitmentResolved])
+
+        let activeCommitments = try await index.recall(mode: .kind(.commitment), limit: 10)
+        #expect(activeCommitments.records.isEmpty)
+
+        let resolvedCommitments = try await index.recall(
+            mode: .kind(.commitment),
+            limit: 10,
+            statuses: [.resolved]
+        )
+        #expect(resolvedCommitments.records.count == 1)
+        #expect(resolvedCommitments.records.first?.text.contains("entity overlap tests") == true)
+    }
+
+    @Test
     func memorySearchDefaultsToActiveMemoriesWithoutHidingDocuments() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

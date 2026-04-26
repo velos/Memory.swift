@@ -1,0 +1,42 @@
+{
+  "name": "storage_heldout_v1",
+  "created_at": "2026-04-26",
+  "provenance": "Hand-authored synthetic held-out storage robustness suite.",
+  "commercial_safety": "synthetic",
+  "intended_use": "Exploratory benchmark for canonical storage extraction and update behavior on domains not used by memory_schema_gold_v2.",
+  "gate_status": "exploratory_not_release_gate",
+  "suites": [
+    "storage_cases.jsonl",
+    "scenarios.jsonl"
+  ],
+  "coverage": {
+    "storage_cases": {
+      "profile": 6,
+      "fact": 6,
+      "decision": 8,
+      "commitment": 8,
+      "episode": 5,
+      "procedure": 4,
+      "handoff": 4
+    },
+    "agent_memory_scenarios": {
+      "no_write": 3,
+      "profile_update": 1,
+      "decision_supersede": 1,
+      "commitment_resolution": 1
+    }
+  },
+  "heldout_domains": [
+    "AtlasKit",
+    "BeaconCRM",
+    "HarborOps",
+    "FlightDeck",
+    "Nimbus Desk",
+    "TrailMap"
+  ],
+  "notes": [
+    "This dataset intentionally avoids Memory.swift-specific labels and project names.",
+    "Required topics prefer compact canonical phrases over long sliding n-grams so the suite can expose topic extraction brittleness.",
+    "No-write cases live in scenarios.jsonl because the storage_cases harness does not have an explicit no-write label."
+  ]
+}

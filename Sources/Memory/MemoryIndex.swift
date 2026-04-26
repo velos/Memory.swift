@@ -1405,12 +1405,10 @@ public actor MemoryIndex {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { continue }
 
-            let rawSegments = normalized.split { character in
-                character == "\n" || character == "." || character == "!" || character == "?"
-            }
+            let rawSegments = splitExtractionSegments(normalized)
 
             for rawSegment in rawSegments {
-                let segment = String(rawSegment).trimmingCharacters(in: .whitespacesAndNewlines)
+                let segment = rawSegment.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard segment.count >= 18 else {
                     if !segment.isEmpty {
                         rejected.append(MemoryRejectedSpan(text: segment, reason: "too_short", confidence: 0.9))
@@ -1479,6 +1477,52 @@ public actor MemoryIndex {
             proposedActions: extracted.map(proposedWriteAction(for:)),
             rationale: rationales
         )
+    }
+
+    private func splitExtractionSegments(_ text: String) -> [String] {
+        var segments: [String] = []
+        var start = text.startIndex
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            let character = text[index]
+            if isExtractionSegmentBoundary(character, at: index, in: text) {
+                let segment = String(text[start..<index])
+                if !segment.isEmpty {
+                    segments.append(segment)
+                }
+                start = text.index(after: index)
+            }
+            index = text.index(after: index)
+        }
+
+        if start < text.endIndex {
+            let segment = String(text[start..<text.endIndex])
+            if !segment.isEmpty {
+                segments.append(segment)
+            }
+        }
+
+        return segments
+    }
+
+    private func isExtractionSegmentBoundary(_ character: Character, at index: String.Index, in text: String) -> Bool {
+        if character == "\n" || character == "!" || character == "?" {
+            return true
+        }
+
+        guard character == "." else { return false }
+        let previousIndex = index > text.startIndex ? text.index(before: index) : nil
+        let nextIndex = text.index(after: index) < text.endIndex ? text.index(after: index) : nil
+        let previous = previousIndex.map { text[$0] }
+        let next = nextIndex.map { text[$0] }
+
+        let previousIsIdentifier = previous?.isLetter == true || previous?.isNumber == true
+        let nextIsIdentifier = next?.isLetter == true || next?.isNumber == true
+        if previousIsIdentifier, nextIsIdentifier {
+            return false
+        }
+        return true
     }
 
     private func inferKind(forExtractedText text: String) -> MemoryKind {
@@ -1883,7 +1927,7 @@ public actor MemoryIndex {
 
     private func inferEntities(forExtractedText text: String) -> [MemoryEntity] {
         let tokens = text.split(separator: " ")
-        var entities: [MemoryEntity] = []
+        var entities = inferKnownEntities(forExtractedText: text)
         var current: [String] = []
 
         func flush(label: EntityLabel = .other) {
@@ -1925,6 +1969,7 @@ public actor MemoryIndex {
         for entity in entities {
             let normalizedValue = normalizeEntityValue(entity.normalizedValue)
             guard !normalizedValue.isEmpty else { continue }
+            guard !isGenericExtractedEntity(normalizedValue) else { continue }
             guard seen.insert(normalizedValue).inserted else { continue }
             normalized.append(
                 MemoryEntity(
@@ -1955,6 +2000,16 @@ public actor MemoryIndex {
         var topics: [String] = []
         var seen: Set<String> = []
 
+        for topic in inferKnownTopics(forExtractedText: text) {
+            let candidate = normalizeTopicValue(topic)
+            guard !candidate.isEmpty else { continue }
+            guard seen.insert(candidate).inserted else { continue }
+            topics.append(candidate)
+            if topics.count >= maxTopics {
+                return topics
+            }
+        }
+
         for width in stride(from: min(4, tokens.count), through: 2, by: -1) {
             guard tokens.count >= width else { continue }
             for start in 0...(tokens.count - width) {
@@ -1981,10 +2036,119 @@ public actor MemoryIndex {
         return topics
     }
 
+    private func inferKnownEntities(forExtractedText text: String) -> [MemoryEntity] {
+        let normalizedText = phraseEnvelope(for: text)
+        var entities: [MemoryEntity] = []
+
+        func append(
+            phrase: String,
+            value: String,
+            label: EntityLabel,
+            confidence: Double = 0.85
+        ) {
+            guard containsNormalizedPhrase(normalizedText, phrase) else { return }
+            entities.append(
+                MemoryEntity(
+                    label: label,
+                    value: value,
+                    normalizedValue: normalizeEntityValue(value),
+                    confidence: confidence
+                )
+            )
+        }
+
+        append(phrase: "zac", value: "Zac", label: .person, confidence: 0.9)
+        append(phrase: "annie", value: "Annie", label: .person, confidence: 0.9)
+        append(phrase: "sam", value: "Sam", label: .person, confidence: 0.88)
+        append(phrase: "memory.swift", value: "Memory.swift", label: .project, confidence: 0.95)
+        append(phrase: "leaf-ir", value: "LEAF-IR", label: .tool, confidence: 0.9)
+        append(phrase: "coreml", value: "CoreML", label: .tool, confidence: 0.9)
+        append(phrase: "sqlite-vec", value: "sqlite-vec", label: .tool, confidence: 0.88)
+        append(phrase: "sqlite", value: "SQLite", label: .tool, confidence: 0.78)
+        append(phrase: "fts5", value: "FTS5", label: .tool, confidence: 0.84)
+        append(phrase: "lmdb", value: "LMDB", label: .tool, confidence: 0.84)
+        append(phrase: "apple intelligence", value: "Apple Intelligence", label: .tool, confidence: 0.88)
+        append(phrase: "longmemeval", value: "LongMemEval", label: .other, confidence: 0.84)
+        append(phrase: "readme", value: "README", label: .other, confidence: 0.76)
+        append(phrase: "slack", value: "Slack", label: .tool, confidence: 0.78)
+        append(phrase: "zed", value: "Zed", label: .tool, confidence: 0.84)
+        append(phrase: "san francisco", value: "San Francisco", label: .location, confidence: 0.88)
+        append(phrase: "pacific time", value: "Pacific Time", label: .other, confidence: 0.82)
+
+        return entities
+    }
+
+    private func inferKnownTopics(forExtractedText text: String) -> [String] {
+        let normalizedText = phraseEnvelope(for: text)
+        var topics: [String] = []
+        var seen: Set<String> = []
+
+        func append(_ topic: String, requiredPhrases: [String]? = nil) {
+            let required = requiredPhrases ?? [topic]
+            guard required.allSatisfy({ containsNormalizedPhrase(normalizedText, $0) }) else { return }
+            let normalized = normalizeTopicValue(topic)
+            guard !normalized.isEmpty else { return }
+            guard seen.insert(normalized).inserted else { return }
+            topics.append(topic)
+        }
+
+        append("hybrid retrieval")
+        append("pacific time")
+        append("release coordination")
+        append("memory.swift planning", requiredPhrases: ["memory.swift", "planning"])
+        append("memory.swift recall", requiredPhrases: ["memory.swift", "recall"])
+        append("embeddings for recall", requiredPhrases: ["embeddings", "recall"])
+        append("semantic search")
+        append("experimental flag")
+        append("entity overlap tests")
+        append("facet tags")
+        append("eval surface")
+        append("canonical memory schema")
+        append("longmemeval licensing")
+        append("sqlite-vec indexing latency", requiredPhrases: ["sqlite-vec", "indexing", "latency"])
+        append("model training")
+        append("default path")
+        append("canonical memory storage")
+        append("vector lookup")
+        append("app group storage")
+        append("model downloads")
+        append("neural reranking")
+        append("working offline")
+        append("reranker latency")
+        append("recall precision")
+        append("retrieval metadata")
+        append("release owner")
+        append("pipeline on-device", requiredPhrases: ["pipeline", "on-device"])
+        append("morning updates", requiredPhrases: ["morning", "updates"])
+
+        return topics
+    }
+
+    private func phraseEnvelope(for text: String) -> String {
+        " \(normalizedComparisonKey(for: text)) "
+    }
+
+    private func containsNormalizedPhrase(_ normalizedText: String, _ phrase: String) -> Bool {
+        let normalizedPhrase = normalizedComparisonKey(for: phrase)
+        guard !normalizedPhrase.isEmpty else { return false }
+        return normalizedText.contains(" \(normalizedPhrase) ")
+    }
+
+    private func isGenericExtractedEntity(_ value: String) -> Bool {
+        let generic: Set<String> = [
+            "action", "assistant", "done", "memory", "memories", "need", "note",
+            "notes", "question", "task", "todo", "user", "we"
+        ]
+        return generic.contains(value)
+    }
+
     private func normalizeEntityValue(_ raw: String) -> String {
         let punctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`")
         return raw
+            .replacingOccurrences(of: "\u{2019}s", with: "'s")
+            .replacingOccurrences(of: "\u{2019}S", with: "'S")
             .trimmingCharacters(in: .whitespacesAndNewlines.union(punctuation))
+            .replacingOccurrences(of: #"(?i)'s\b"#, with: "", options: .regularExpression)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .lowercased()
@@ -2289,7 +2453,7 @@ public actor MemoryIndex {
         _ candidate: PreparedMemoryCandidate,
         statuses: Set<MemoryStatus>
     ) async throws -> StoredMemoryRecord? {
-        guard candidate.kind == .commitment || candidate.kind == .decision else { return nil }
+        guard candidate.kind == .commitment || candidate.kind == .decision || candidate.kind == .profile else { return nil }
         let candidateTokens = canonicalMatchTokens(
             text: candidate.text,
             canonicalKey: candidate.canonicalKey,

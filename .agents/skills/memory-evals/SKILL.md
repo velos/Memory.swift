@@ -51,6 +51,7 @@ There are multiple dataset roots:
 - `./Evals/general_v2` — broad retrieval gate for the shipped hybrid path
 - `./Evals/longmemeval_v2` — long-horizon conversational recall benchmark
 - `./Evals/memory_schema_gold_v2` — canonical write-path benchmark
+- `./Evals/storage_heldout_v1` — exploratory held-out storage robustness suite with unfamiliar projects/tools/people plus no-write/lifecycle scenarios
 - `./Evals/agent_memory_gold_v1` — agent memory behavior benchmark: no-write, extraction, update/supersede/resolve, active-state, and recall checks
 - `./Evals/query_expansion_gold_v1` — expansion pressure benchmark
 
@@ -161,6 +162,9 @@ DATASET_ROOT=./Evals/general_v2 ./.agents/skills/memory-evals/scripts/run_eval.s
 
 # Deterministic single profile (schema benchmark)
 DATASET_ROOT=./Evals/memory_schema_gold_v2 ./.agents/skills/memory-evals/scripts/run_eval.sh profile coreml_default
+
+# Deterministic single profile (held-out storage robustness)
+DATASET_ROOT=./Evals/storage_heldout_v1 ./.agents/skills/memory-evals/scripts/run_eval.sh profile coreml_default
 
 # Deterministic all profiles
 DATASET_ROOT=./Evals/general_v2 ./.agents/skills/memory-evals/scripts/run_eval.sh all

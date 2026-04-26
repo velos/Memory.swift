@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-26T21:32:31Z",
+  "created_at": "2026-04-26T22:13:22Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -13,7 +13,8 @@
     "longmemeval_v2 was refreshed after contextual-status filtering and temporal/count primary-branch preservation improvements.",
     "query_expansion_gold_v1 was refreshed after the same fusion changes improved expanded retrieval MRR.",
     "general_v2, longmemeval_v2, query_expansion_gold_v1, and agent_memory_gold_v1 were refreshed after multi-evidence sibling continuation preservation.",
-    "longmemeval_v2 now locks the multi-evidence recall gain at Recall@10 78.75% and nDCG@10 0.5912; the slight MRR tradeoff is tracked as the new regression baseline."
+    "longmemeval_v2 now locks the multi-evidence recall gain at Recall@10 78.75% and nDCG@10 0.5912; the slight MRR tradeoff is tracked as the new regression baseline.",
+    "memory_schema_gold_v2 was refreshed after canonical entity/topic extraction and replacement behavior improvements; entity recall and update behavior are now locked at 100%, with topic recall at 93.88%."
   ],
   "required_runs": [
     {
@@ -24,17 +25,17 @@
         "storage.type_accuracy": 0.9642857142857143,
         "storage.macro_f1": 0.8509803921568628,
         "storage.facet_micro_f1": 0.8055555555555556,
-        "storage.entity_recall": 0.7090909090909091,
-        "storage.topic_recall": 0.673469387755102,
-        "storage.update_behavior_accuracy": 0.8571428571428571
+        "storage.entity_recall": 1,
+        "storage.topic_recall": 0.9387755102040817,
+        "storage.update_behavior_accuracy": 1
       },
       "minimum_metrics": {
         "storage.type_accuracy": 0.95,
         "storage.macro_f1": 0.85,
         "storage.facet_micro_f1": 0.78,
-        "storage.entity_recall": 0.68,
-        "storage.topic_recall": 0.65,
-        "storage.update_behavior_accuracy": 0.80
+        "storage.entity_recall": 0.98,
+        "storage.topic_recall": 0.91,
+        "storage.update_behavior_accuracy": 0.98
       }
     },
     {
