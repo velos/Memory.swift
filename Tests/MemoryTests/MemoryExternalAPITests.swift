@@ -665,6 +665,70 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func heuristicExtractGeneralizesHeldoutEntitiesTopicsAndKindCues() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Theo is the release owner for the HarborOps project."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "The HarborOps staging office blocks large artifact uploads."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "We settled on gRPC for the mobile sync boundary."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Runbook: rotate Redis credentials, restart BeaconCRM, and verify session cache."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "On Monday, Rowan reviewed the TrailMap export failure."
+                ),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first { $0.text.contains("release owner") })
+        #expect(profile.kind == .profile)
+        #expect(Set(profile.entities.map(\.normalizedValue)).isSuperset(of: ["theo", "harborops"]))
+        #expect(profile.topics.contains("release owner"))
+
+        let fact = try #require(extracted.first { $0.text.contains("artifact uploads") })
+        #expect(fact.kind == .fact)
+        #expect(Set(fact.entities.map(\.normalizedValue)).contains("harborops"))
+        #expect(fact.topics.contains("artifact uploads"))
+
+        let decision = try #require(extracted.first { $0.text.contains("gRPC") })
+        #expect(decision.kind == .decision)
+        #expect(Set(decision.entities.map(\.normalizedValue)).contains("grpc"))
+        #expect(decision.topics.contains("mobile sync"))
+
+        let procedure = try #require(extracted.first { $0.text.contains("session cache") })
+        #expect(procedure.kind == .procedure)
+        #expect(Set(procedure.entities.map(\.normalizedValue)).isSuperset(of: ["redis", "beaconcrm"]))
+        #expect(procedure.topics.contains("session cache"))
+
+        let episode = try #require(extracted.first { $0.text.contains("export failure") })
+        #expect(episode.kind == .episode)
+        #expect(Set(episode.entities.map(\.normalizedValue)).isSuperset(of: ["rowan", "trailmap"]))
+        #expect(episode.topics.contains("export failure"))
+    }
+
+    @Test
     func inferredCanonicalFacetsDriveProfileDecisionAndCommitmentUpdates() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

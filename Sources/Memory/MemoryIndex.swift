@@ -1549,7 +1549,8 @@ public actor MemoryIndex {
             needles: [
                 "prefer", "preference", "favorite", "likes", "usually", "works closely",
                 "timezone", "my name", "i am", "i'm", "my role", "role is",
-                " is the maintainer", "standing constraint"
+                " is the maintainer", " is the owner", "release owner", " owner for ",
+                "standing constraint"
             ]
         ) {
             return .profile
@@ -1557,7 +1558,12 @@ public actor MemoryIndex {
         if containsAny(lower, needles: ["handoff", "current status", "blocked on", "next owner", "for the next person", "context"]) {
             return .handoff
         }
-        if containsAny(lower, needles: ["today", "yesterday", "this morning", "last week", "after the demo", "incident", "meeting", "met ", "retrospective", "shipped", "celebrated"]) {
+        if containsAny(lower, needles: [
+            "today", "yesterday", "this morning", "last week", "after the demo",
+            "incident", "meeting", "met ", "retrospective", "shipped", "celebrated",
+            "on monday", "on tuesday", "on wednesday", "on thursday", "on friday",
+            "on saturday", "on sunday"
+        ]) {
             return .episode
         }
         return .fact
@@ -1845,7 +1851,7 @@ public actor MemoryIndex {
         let preferred = supplied.isEmpty ? inferTopics(forExtractedText: text, seedTags: seedTags) : supplied
         var normalized: [String] = []
         var seen: Set<String> = []
-        let maxTopics = 12
+        let maxTopics = 16
         normalized.reserveCapacity(min(preferred.count, maxTopics))
 
         for topic in preferred {
@@ -1932,20 +1938,18 @@ public actor MemoryIndex {
 
         func flush(label: EntityLabel = .other) {
             guard !current.isEmpty else { return }
-            let value = current.joined(separator: " ")
-            let normalizedValue = normalizeEntityValue(value)
-            guard !normalizedValue.isEmpty else {
-                current.removeAll(keepingCapacity: true)
-                return
-            }
-            entities.append(
-                MemoryEntity(
-                    label: label,
-                    value: value,
-                    normalizedValue: normalizedValue,
-                    confidence: 0.6
+            for value in entityValues(from: current) {
+                let normalizedValue = normalizeEntityValue(value)
+                guard !normalizedValue.isEmpty else { continue }
+                entities.append(
+                    MemoryEntity(
+                        label: label,
+                        value: value,
+                        normalizedValue: normalizedValue,
+                        confidence: 0.6
+                    )
                 )
-            )
+            }
             current.removeAll(keepingCapacity: true)
         }
 
@@ -1956,7 +1960,7 @@ public actor MemoryIndex {
                 continue
             }
 
-            if raw.first?.isUppercase == true || raw.contains(".") || raw.contains("/") || raw.contains("+") || raw.contains("-") {
+            if looksLikeEntityToken(raw) {
                 current.append(raw)
             } else {
                 flush()
@@ -1988,7 +1992,7 @@ public actor MemoryIndex {
     }
 
     private func inferTopics(forExtractedText text: String, seedTags: [String]) -> [String] {
-        let maxTopics = 12
+        let maxTopics = 16
         let tokens = text
             .lowercased()
             .split { character in
@@ -2010,11 +2014,12 @@ public actor MemoryIndex {
             }
         }
 
-        for width in stride(from: min(4, tokens.count), through: 2, by: -1) {
+        for width in [2, 4, 3] where tokens.count >= width {
             guard tokens.count >= width else { continue }
             for start in 0...(tokens.count - width) {
                 let candidate = normalizeTopicValue(tokens[start..<(start + width)].joined(separator: " "))
                 guard !candidate.isEmpty else { continue }
+                guard !isGenericTopicValue(candidate) else { continue }
                 guard seen.insert(candidate).inserted else { continue }
                 topics.append(candidate)
                 if topics.count >= maxTopics {
@@ -2034,6 +2039,87 @@ public actor MemoryIndex {
         }
 
         return topics
+    }
+
+    private func entityValues(from rawTokens: [String]) -> [String] {
+        let tokens = rawTokens
+            .map { token in
+                token.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
+            }
+            .filter { !$0.isEmpty }
+        let trimmed = trimEntityNoise(tokens)
+        guard !trimmed.isEmpty else { return [] }
+
+        let allProper = trimmed.allSatisfy { token in
+            looksLikeStandaloneEntityToken(token) && !isGenericExtractedEntity(normalizeEntityValue(token))
+        }
+        if trimmed.count > 1, allProper {
+            return [trimmed.joined(separator: " ")]
+        }
+
+        if let first = trimmed.first,
+           looksLikeStandaloneEntityToken(first),
+           !isGenericExtractedEntity(normalizeEntityValue(first)) {
+            return [first]
+        }
+
+        return trimmed
+            .filter { token in
+                looksLikeStandaloneEntityToken(token)
+                    && !isGenericExtractedEntity(normalizeEntityValue(token))
+            }
+    }
+
+    private func trimEntityNoise(_ tokens: [String]) -> [String] {
+        var remaining = tokens
+        while let first = remaining.first {
+            let normalized = normalizeEntityValue(first)
+            if entityBoundaryNoiseTokens.contains(normalized) {
+                remaining.removeFirst()
+            } else {
+                break
+            }
+        }
+        while let last = remaining.last {
+            let normalized = normalizeEntityValue(last)
+            if entityBoundaryNoiseTokens.contains(normalized) {
+                remaining.removeLast()
+            } else {
+                break
+            }
+        }
+        return remaining
+    }
+
+    private func looksLikeEntityToken(_ raw: String) -> Bool {
+        guard raw.count >= 2 else { return false }
+        if raw.first?.isUppercase == true || raw.contains(".") || raw.contains("/") || raw.contains("+") {
+            return true
+        }
+        if raw.contains("-") {
+            return raw.contains(where: \.isUppercase) || raw.contains(where: \.isNumber)
+        }
+        return hasInternalUppercase(raw)
+    }
+
+    private func looksLikeStandaloneEntityToken(_ raw: String) -> Bool {
+        guard raw.count >= 2 else { return false }
+        let normalized = normalizeEntityValue(raw)
+        guard !normalized.isEmpty, !isGenericExtractedEntity(normalized) else { return false }
+        if raw.first?.isUppercase == true || hasInternalUppercase(raw) {
+            return true
+        }
+        if raw.contains(".") || raw.contains("/") || raw.contains("+") {
+            return true
+        }
+        if raw.contains("-") {
+            return raw.contains(where: \.isUppercase) || raw.contains(where: \.isNumber)
+        }
+        return raw.allSatisfy { $0.isUppercase || !$0.isLetter }
+    }
+
+    private func hasInternalUppercase(_ raw: String) -> Bool {
+        raw.dropFirst().contains(where: \.isUppercase)
     }
 
     private func inferKnownEntities(forExtractedText text: String) -> [MemoryEntity] {
@@ -2136,8 +2222,10 @@ public actor MemoryIndex {
 
     private func isGenericExtractedEntity(_ value: String) -> Bool {
         let generic: Set<String> = [
-            "action", "assistant", "done", "memory", "memories", "need", "note",
-            "notes", "question", "task", "todo", "user", "we"
+            "action", "assistant", "context", "current", "decision", "done",
+            "guide", "handoff", "memory", "memories", "need", "note", "notes",
+            "procedure", "question", "runbook", "status", "task", "todo",
+            "user", "we", "workflow"
         ]
         return generic.contains(value)
     }
@@ -2155,8 +2243,9 @@ public actor MemoryIndex {
     }
 
     private func normalizeTopicValue(_ raw: String) -> String {
+        let punctuation = CharacterSet(charactersIn: ".,:;!?()[]{}\"'`")
         let normalized = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(punctuation))
             .lowercased()
             .split { character in character.isWhitespace }
             .map(String.init)
@@ -2164,6 +2253,10 @@ public actor MemoryIndex {
             .prefix(4)
             .joined(separator: " ")
         return normalized
+    }
+
+    private func isGenericTopicValue(_ value: String) -> Bool {
+        genericTopicValues.contains(value)
     }
 
     private func makeStoredMemoryEntity(from entity: MemoryEntity) -> StoredMemoryEntity {
@@ -4555,6 +4648,18 @@ private let queryStopWords: Set<String> = [
     "how", "if", "in", "into", "is", "it", "its", "of", "on", "or", "our",
     "that", "the", "their", "them", "there", "these", "they", "this", "to",
     "up", "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your"
+]
+
+private let entityBoundaryNoiseTokens: Set<String> = [
+    "action", "completed", "context", "current", "decision", "done", "guide",
+    "friday", "handoff", "monday", "next", "on", "procedure", "runbook",
+    "saturday", "status", "step", "sunday", "the", "thursday", "todo", "tuesday",
+    "wednesday", "workflow"
+]
+
+private let genericTopicValues: Set<String> = [
+    "action item", "current status", "next owner", "next person", "next step",
+    "status update"
 ]
 
 private let canonicalStopWords: Set<String> = [
