@@ -5399,6 +5399,22 @@ private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
         metrics["recall.recall_at_\(maxKMetric.k)"] = maxKMetric.recall
         metrics["recall.mrr_at_\(maxKMetric.k)"] = maxKMetric.mrr
         metrics["recall.ndcg_at_\(maxKMetric.k)"] = maxKMetric.ndcg
+
+        for result in report.recall.queryResults {
+            let prefix = "recall.case.\(result.id)"
+            if let hitAtK = result.hitByK[maxKMetric.k] {
+                metrics["\(prefix).hit_at_k"] = hitAtK ? 1 : 0
+            }
+            if let recallAtK = result.recallByK[maxKMetric.k] {
+                metrics["\(prefix).recall_at_k"] = recallAtK
+            }
+            if let reciprocalRankAtK = result.mrrByK[maxKMetric.k] {
+                metrics["\(prefix).reciprocal_rank_at_k"] = reciprocalRankAtK
+            }
+            if let ndcgAtK = result.ndcgByK[maxKMetric.k] {
+                metrics["\(prefix).ndcg_at_k"] = ndcgAtK
+            }
+        }
     }
 
     if let queryExpansion = report.queryExpansion {

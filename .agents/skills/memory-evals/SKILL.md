@@ -54,6 +54,7 @@ There are multiple dataset roots:
 - `./Evals/storage_heldout_v1` — exploratory held-out storage robustness suite with unfamiliar projects/tools/people plus no-write/lifecycle scenarios
 - `./Evals/agent_memory_gold_v1` — agent memory behavior benchmark: no-write, extraction, update/supersede/resolve, active-state, and recall checks
 - `./Evals/query_expansion_gold_v1` — expansion pressure benchmark
+- `./Evals/longmemeval_rescue_v1` — focused LongMemEval candidate-generation rescue slice mined from branch diagnostics
 
 Use `./Evals/general_v2` by default unless the user asks for a different benchmark.
 
@@ -83,6 +84,13 @@ Use `--backend minimax` only when the `.env` Anthropic-compatible endpoint shoul
 To mine query-expansion rescue candidates from existing recall runs:
 ```bash
 python3 Scripts/build_query_expansion_rescue.py --source ./Evals/longmemeval_v2:./Evals/longmemeval_v2/runs/<run>.json --overwrite
+```
+
+To build the focused LongMemEval rescue slice from branch diagnostics:
+```bash
+python3 Scripts/build_longmemeval_rescue.py --diagnostic ./Evals/longmemeval_v2/runs/<run>.wide200.branch-diagnostics.json --overwrite
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_rescue_v1 --no-cache --no-index-cache
+swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_rescue.json ./Evals/longmemeval_rescue_v1/runs/<run>.json
 ```
 
 ## Workflow

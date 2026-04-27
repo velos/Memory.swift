@@ -186,6 +186,36 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func memorySearchDoesNotTreatCompletedAsStatusFilterForPlainDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("painting.md"),
+            "I completed five painting class projects since starting painting classes."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "How many projects have I completed since starting painting classes?",
+            limit: 5,
+            features: [.lexical],
+            includeLineRanges: false
+        )
+
+        #expect(refs.contains(where: { $0.documentPath.hasSuffix("painting.md") }))
+    }
+
+    @Test
     func memoryGetFallsBackToIndexedContentForIngestedMemory() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

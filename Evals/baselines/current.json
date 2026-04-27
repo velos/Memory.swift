@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-27T02:23:43Z",
+  "created_at": "2026-04-27T03:43:15Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -15,7 +15,9 @@
     "general_v2, longmemeval_v2, query_expansion_gold_v1, and agent_memory_gold_v1 were refreshed after multi-evidence sibling continuation preservation.",
     "longmemeval_v2 now locks the multi-evidence recall gain at Recall@10 78.75% and nDCG@10 0.5912; the slight MRR tradeoff is tracked as the new regression baseline.",
     "memory_schema_gold_v2 was refreshed after canonical entity/topic extraction and replacement behavior improvements; entity recall and update behavior are now locked at 100%, with topic recall at 93.88%.",
-    "memory_schema_gold_v2 was refreshed after phrase-boundary and entity-aware facet extraction; facet micro F1 is now locked at 95.18%, with entity/topic/update behavior at 100%."
+    "memory_schema_gold_v2 was refreshed after phrase-boundary and entity-aware facet extraction; facet micro F1 is now locked at 95.18%, with entity/topic/update behavior at 100%.",
+    "longmemeval_v2 was refreshed after tightening resolved-status recall cues and adding completion/trip expansion aliases; Recall@10 is now locked at 80.22% and nDCG@10 at 0.6061.",
+    "general_v2 was refreshed after the same recall changes; Hit@10 is now locked at 95.07% with MRR@10 at 0.7364."
   ],
   "required_runs": [
     {
@@ -67,12 +69,12 @@
       "dataset": "general_v2",
       "dataset_root": "Evals/general_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 534.7000360488892,
+      "latency_p95_ms": 544.9939966201782,
       "metrics": {
-        "recall.hit_at_10": 0.9471830985915493,
-        "recall.recall_at_10": 0.9436619718309859,
-        "recall.mrr_at_10": 0.7346565504135927,
-        "recall.ndcg_at_10": 0.7854312744351233
+        "recall.hit_at_10": 0.9507042253521126,
+        "recall.recall_at_10": 0.9471830985915493,
+        "recall.mrr_at_10": 0.7364171137938743,
+        "recall.ndcg_at_10": 0.7876528580744594
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.93,
@@ -85,12 +87,12 @@
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 699.0020275115967,
+      "latency_p95_ms": 714.2230272293091,
       "metrics": {
-        "recall.hit_at_10": 0.8729281767955801,
-        "recall.recall_at_10": 0.7874769797421731,
-        "recall.mrr_at_10": 0.5745132859773743,
-        "recall.ndcg_at_10": 0.591210947869161
+        "recall.hit_at_10": 0.8895027624309392,
+        "recall.recall_at_10": 0.8022099447513813,
+        "recall.mrr_at_10": 0.5909563272822941,
+        "recall.ndcg_at_10": 0.6060838773124243
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.83,

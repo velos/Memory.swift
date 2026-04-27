@@ -513,6 +513,42 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func heuristicStructuredExpanderAddsLongHorizonRecallRescueTerms() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let completionAnalysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["projects", "completed", "painting", "classes"],
+            facetHints: [],
+            topics: ["completed painting projects", "painting classes"],
+            isHowToQuery: false
+        )
+
+        let completionExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many projects have I completed since starting painting classes?"),
+            analysis: completionAnalysis,
+            limit: 5
+        )
+        let completionLexical = completionExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(completionLexical.contains("finished project"))
+        #expect(completionLexical.contains("painting project"))
+
+        let tripExpansion = try await expander.expand(
+            query: SearchQuery(text: "What is the order of the three trips I took in the past three months?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["order", "three", "trips", "past", "months"],
+                facetHints: [],
+                topics: ["order trips", "past three months"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(tripLexical.contains("road trip"))
+        #expect(tripLexical.contains("camping trip"))
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

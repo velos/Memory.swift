@@ -3378,7 +3378,7 @@ public actor MemoryIndex {
             cues: ["historical", "superseded", "archived", "old memory", "old memories", "old records"]
         ) {
             statuses = Set(MemoryStatus.allCases)
-        } else if containsAnyRecallStatusCue(lower, cues: ["done", "completed", "resolved", "what happened"]) {
+        } else if hasResolvedStatusRecallCue(lower) {
             statuses = [.active, .resolved]
         } else {
             statuses = nil
@@ -3407,6 +3407,32 @@ public actor MemoryIndex {
             lexicalCandidateLimit: temporalIntent == .count ? configuration.lexicalCandidateLimit + 150 : nil,
             rerankLimit: temporalIntent == .count || temporalIntent == .timeAnchored ? 60 : nil
         )
+    }
+
+    private func hasResolvedStatusRecallCue(_ lowercasedQuery: String) -> Bool {
+        if lowercasedQuery.range(
+            of: #"\bwhat happened\s+(to|with)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
+
+        let explicitStatusObjects = [
+            "action item", "action items", "commitment", "commitments",
+            "memory", "memories", "record", "records", "task", "tasks",
+            "todo", "todos", "to do", "to dos",
+        ]
+        let statusWords = ["done", "completed", "resolved", "closed", "finished"]
+        for statusWord in statusWords {
+            for object in explicitStatusObjects {
+                if lowercasedQuery.contains("\(statusWord) \(object)")
+                    || lowercasedQuery.contains("\(object) \(statusWord)") {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private func heuristicQueryAnalysis(for query: String) -> QueryAnalysis {

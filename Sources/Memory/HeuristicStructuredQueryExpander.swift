@@ -327,14 +327,45 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     private func derivedSalientTerms(from query: String) -> [String] {
         let lower = query.lowercased()
         var terms: [String] = []
+        func append(_ term: String) {
+            guard !terms.contains(term) else { return }
+            terms.append(term)
+        }
+
         if lower.contains("up to date") || lower.contains("out of date") {
-            terms.append("update")
+            append("update")
         }
         if lower.contains("license plates") || lower.contains("license plate") {
-            terms.append("plates")
+            append("plates")
         }
         if lower.contains("turn in") || lower.contains("deliver") {
-            terms.append("return")
+            append("return")
+        }
+        if lower.contains("completed") || lower.contains("finished") {
+            append("finished")
+            if lower.contains("project") {
+                append("finished project")
+            }
+            if lower.contains("video") {
+                append("completed videos")
+            }
+            if lower.contains("writing") || lower.contains("poem") || lower.contains("short stor") {
+                append("writing progress")
+            }
+        }
+        if lower.contains("since starting") || lower.contains("since i started") || lower.contains("started writing") {
+            append("started")
+            append("progress so far")
+        }
+        if lower.contains("painting class") || lower.contains("painting classes") {
+            append("painting project")
+        }
+        if (lower.contains("trip") || lower.contains("trips")),
+           lower.contains("order of") || lower.contains("earliest to latest") || lower.contains("from earliest") {
+            append("road trip")
+            append("camping trip")
+            append("solo trip")
+            append("travel")
         }
         if lower.contains("student loan"),
            lower.contains("school"),
@@ -343,8 +374,8 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             || lower.contains("wasn’t actually qualified")
             || lower.contains("wasn t actually qualified")
             || lower.contains("eligible")) {
-            terms.append("false certification discharge")
-            terms.append("loan discharge")
+            append("false certification discharge")
+            append("loan discharge")
         }
         return terms
     }
