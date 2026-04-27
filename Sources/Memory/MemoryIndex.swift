@@ -1868,50 +1868,70 @@ public actor MemoryIndex {
     }
 
     private func inferFacetTags(forExtractedText text: String, kind: MemoryKind) -> Set<FacetTag> {
-        let lower = text.lowercased()
+        let normalizedText = phraseEnvelope(for: text)
+        let knownEntities = inferKnownEntities(forExtractedText: text)
         var facets: Set<FacetTag> = []
 
-        if containsAny(lower, needles: ["prefer", "preference", "favorite", "likes", "dislikes"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["prefer", "prefers", "preference", "favorite", "likes", "dislikes"])
+            || kind == .profile && containsNormalizedPhrase(normalizedText, "avoid") {
             facets.insert(.preference)
         }
-        if containsAny(lower, needles: ["project", "repo", "repository", "branch", "milestone"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["project", "repository", "branch", "milestone"])
+            || knownEntities.contains(where: { $0.label == .project })
+                && hasProjectFacetContext(kind: kind, normalizedText: normalizedText) {
             facets.insert(.project)
         }
-        if containsAny(lower, needles: ["goal", "objective", "aim"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["goal", "objective", "aim"]) {
             facets.insert(.goal)
         }
-        if containsAny(lower, needles: ["todo", "task", "action item", "follow up", "next step"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["todo", "task", "action item", "follow up", "next step"]) {
             facets.insert(.task)
         }
-        if containsAny(lower, needles: ["tool", "sdk", "framework", "library", "sqlite", "coreml"]) {
+        if containsAnyNormalizedPhrase(
+            normalizedText,
+            phrases: [
+                "tool", "sdk", "framework", "library", "sqlite", "sqlite-vec",
+                "coreml", "leaf-ir", "fts5", "slack", "zed",
+                "apple intelligence"
+            ]
+        )
+            || knownEntities.contains(where: { $0.label == .tool }) {
             facets.insert(.tool)
         }
-        if containsAny(lower, needles: ["where", "location", "office", "remote", "timezone"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["where", "location", "office", "remote", "timezone"])
+            || knownEntities.contains(where: { $0.label == .location }) {
             facets.insert(.location)
         }
-        if containsAny(lower, needles: ["today", "tomorrow", "deadline", "urgent", "asap"]) {
+        if hasTimeSensitiveFacetSignal(text: text, kind: kind, normalizedText: normalizedText) {
             facets.insert(.timeSensitive)
         }
-        if containsAny(lower, needles: ["constraint", "blocked", "cannot", "must not", "limit"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["constraint", "blocked", "cannot", "must not", "limit"])
+            || kind == .decision && containsAnyNormalizedPhrase(normalizedText, phrases: ["skip", "hot path"])
+            || kind == .decision
+                && containsNormalizedPhrase(normalizedText, "apple intelligence")
+                && containsNormalizedPhrase(normalizedText, "experimental flag") {
             facets.insert(.constraint)
         }
-        if containsAny(lower, needles: ["habit", "usually", "often", "routine"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["habit", "usually", "often", "routine"]) {
             facets.insert(.habit)
         }
-        if containsAny(lower, needles: ["lesson", "learned", "takeaway", "retrospective"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["lesson", "learned", "takeaway", "retrospective"]) {
             facets.insert(.lesson)
         }
-        if containsAny(lower, needles: ["feel", "frustrated", "happy", "worried", "stressed"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["feel", "frustrated", "happy", "worried", "stressed", "celebrated", "celebrate", "excited"]) {
             facets.insert(.emotion)
         }
-        if containsAny(lower, needles: ["name", "role", "timezone", "i am", "i'm"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["name", "role", "i am", "i'm"]) {
             facets.insert(.identitySignal)
         }
-        if containsAny(lower, needles: ["maintainer", "owner"]) {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["maintainer", "owner"]) {
             facets.insert(.identitySignal)
         }
-        if containsAny(lower, needles: ["with ", "closely with"]) {
+        if hasRelationshipFacetSignal(text: text, kind: kind, normalizedText: normalizedText) {
             facets.insert(.relationship)
+            facets.insert(.person)
+        }
+        if hasPersonFacetSignal(text: text, kind: kind, knownEntities: knownEntities, normalizedText: normalizedText) {
             facets.insert(.person)
         }
 
@@ -1928,7 +1948,83 @@ public actor MemoryIndex {
             break
         }
 
-        return Set(facets.prefix(6))
+        return facets
+    }
+
+    private func containsAnyNormalizedPhrase(_ normalizedText: String, phrases: [String]) -> Bool {
+        phrases.contains { containsNormalizedPhrase(normalizedText, $0) }
+    }
+
+    private func hasTimeSensitiveFacetSignal(text: String, kind: MemoryKind, normalizedText: String) -> Bool {
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["deadline", "urgent", "asap"]) {
+            return true
+        }
+
+        guard kind == .commitment else { return false }
+
+        let hasActionableDeadlineSource = containsAnyNormalizedPhrase(normalizedText, phrases: ["todo", "need to"])
+        if hasActionableDeadlineSource && containsAnyNormalizedPhrase(
+            normalizedText,
+            phrases: [
+                "today", "tomorrow", "this week", "next week", "before release",
+                "before launch", "by tomorrow", "by friday", "by monday"
+            ]
+        ) {
+            return true
+        }
+
+        return hasActionableDeadlineSource && text.range(
+            of: #"\b(?:by|before)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|release|launch|eod|end of (?:day|week|month))\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func hasProjectFacetContext(kind: MemoryKind, normalizedText: String) -> Bool {
+        if kind == .decision {
+            return true
+        }
+        return containsAnyNormalizedPhrase(
+            normalizedText,
+            phrases: [
+                "work", "planning", "coordination", "recall", "review", "debugged",
+                "maintainer", "owner", "role", "release", "project"
+            ]
+        )
+    }
+
+    private func hasRelationshipFacetSignal(text: String, kind: MemoryKind, normalizedText: String) -> Bool {
+        guard kind == .profile || kind == .episode || kind == .handoff else { return false }
+        if containsNormalizedPhrase(normalizedText, "closely with") {
+            return true
+        }
+        return text.range(
+            of: #"\b(?:works|collaborates|coordinates)\s+(?:closely\s+)?with\s+[A-Z][A-Za-z'-]{2,}\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func hasPersonFacetSignal(
+        text: String,
+        kind: MemoryKind,
+        knownEntities: [MemoryEntity],
+        normalizedText: String
+    ) -> Bool {
+        if kind == .handoff, containsNormalizedPhrase(normalizedText, "next person") {
+            return true
+        }
+
+        guard kind == .episode else { return false }
+
+        if knownEntities.contains(where: { $0.label == .person }) {
+            return true
+        }
+        if text.range(of: #"\bmet\s+[A-Z][A-Za-z'-]{2,}\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        return text.range(
+            of: #"\b[A-Z][A-Za-z'-]{2,}\s+(?:noted|said|asked|joined)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private func inferEntities(forExtractedText text: String) -> [MemoryEntity] {

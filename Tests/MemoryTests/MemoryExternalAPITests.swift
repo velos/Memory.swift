@@ -706,6 +706,7 @@ struct MemoryExternalAPITests {
         #expect(profile.kind == .profile)
         #expect(Set(profile.entities.map(\.normalizedValue)).isSuperset(of: ["theo", "harborops"]))
         #expect(profile.topics.contains("release owner"))
+        #expect(profile.facetTags.isSuperset(of: [.factAboutUser, .identitySignal, .project]))
 
         let fact = try #require(extracted.first { $0.text.contains("artifact uploads") })
         #expect(fact.kind == .fact)
@@ -716,6 +717,7 @@ struct MemoryExternalAPITests {
         #expect(decision.kind == .decision)
         #expect(Set(decision.entities.map(\.normalizedValue)).contains("grpc"))
         #expect(decision.topics.contains("mobile sync"))
+        #expect(decision.facetTags.contains(.decisionTopic))
 
         let procedure = try #require(extracted.first { $0.text.contains("session cache") })
         #expect(procedure.kind == .procedure)
@@ -726,6 +728,79 @@ struct MemoryExternalAPITests {
         #expect(episode.kind == .episode)
         #expect(Set(episode.entities.map(\.normalizedValue)).isSuperset(of: ["rowan", "trailmap"]))
         #expect(episode.topics.contains("export failure"))
+        #expect(!episode.facetTags.contains(.person))
+    }
+
+    @Test
+    func heuristicExtractFacetsUseEntitiesAndAvoidSubstringFalsePositives() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Zac's timezone is Pacific Time in San Francisco for Memory.swift collaboration."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "TODO: add migration coverage for facet tags this week."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Today we landed schema v3 for canonical memories."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Guide: tag projected retrieval metadata as facet, entity, and topic prefixes."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "TODO: verify the mobile sync boundary with gRPC."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "This morning Zac met Sam in San Francisco to review Memory.swift."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "After the demo the team celebrated the CoreML build working offline."
+                ),
+            ],
+            limit: 10
+        )
+
+        let timezone = try #require(extracted.first { $0.text.contains("timezone") })
+        #expect(timezone.facetTags.contains(.location))
+        #expect(!timezone.facetTags.contains(.project))
+        #expect(!timezone.facetTags.contains(.identitySignal))
+
+        let dueThisWeek = try #require(extracted.first { $0.text.contains("this week") })
+        #expect(dueThisWeek.facetTags.isSuperset(of: [.task, .timeSensitive]))
+
+        let landedToday = try #require(extracted.first { $0.text.contains("schema v3") })
+        #expect(!landedToday.facetTags.contains(.timeSensitive))
+
+        let projectedMetadata = try #require(extracted.first { $0.text.contains("projected retrieval") })
+        #expect(!projectedMetadata.facetTags.contains(.project))
+
+        let grpcCommitment = try #require(extracted.first { $0.text.contains("gRPC") })
+        #expect(!grpcCommitment.facetTags.contains(.tool))
+        #expect(!grpcCommitment.facetTags.contains(.person))
+        #expect(!grpcCommitment.facetTags.contains(.relationship))
+
+        let meeting = try #require(extracted.first { $0.text.contains("met Sam") })
+        #expect(meeting.facetTags.isSuperset(of: [.person, .location, .project]))
+
+        let celebration = try #require(extracted.first { $0.text.contains("celebrated") })
+        #expect(celebration.facetTags.isSuperset(of: [.emotion, .tool]))
     }
 
     @Test
