@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a focused LongMemEval recall rescue slice from branch diagnostics."""
+"""Build a focused LongMemEval recall slice from branch diagnostics."""
 
 from __future__ import annotations
 
@@ -164,11 +164,13 @@ def readme_text(manifest: Dict[str, Any]) -> str:
         f"- `{key}`: {value}" for key, value in sorted(manifest["taxonomy_counts"].items())
     ) or "- none"
 
-    return f"""# longmemeval_rescue_v1
+    dataset = manifest["dataset"]
 
-Focused LongMemEval recall rescue slice mined from branch diagnostics.
+    return f"""# {dataset}
 
-This is a small diagnostic benchmark, not a replacement for the full LongMemEval gate. It keeps the selected source queries, their relevant documents, and the top confuser documents seen across diagnostic retrieval branches so candidate-generation changes can be tested quickly.
+Focused LongMemEval recall slice mined from branch diagnostics.
+
+This is a small diagnostic benchmark, not a replacement for the full LongMemEval gate. It keeps the selected source queries, their relevant documents, and the top confuser documents seen across diagnostic retrieval branches so targeted recall changes can be tested quickly.
 
 Source diagnostic: `{manifest["source_diagnostic"]}`
 Source run: `{manifest["source_run"]}`
@@ -185,8 +187,8 @@ Commands:
 
 ```sh
 python3 Scripts/build_longmemeval_rescue.py --diagnostic <branch-diagnostics.json> --overwrite
-swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_rescue_v1 --no-cache --no-index-cache
-swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_rescue.json ./Evals/longmemeval_rescue_v1/runs/<run>.json
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/{dataset} --no-cache --no-index-cache
+swift run memory_eval gate --baseline ./Evals/baselines/<focused-baseline>.json ./Evals/{dataset}/runs/<run>.json
 ```
 """
 

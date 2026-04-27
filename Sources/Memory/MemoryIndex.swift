@@ -959,7 +959,6 @@ public actor MemoryIndex {
             dedupeDocuments: dedupeDocuments,
             activeOnlyByDefault: statuses == nil && plan.statuses == nil
         )
-
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
 
@@ -1215,30 +1214,11 @@ public actor MemoryIndex {
             return results
         }
 
-        var seenDocumentKeys: Set<String> = []
-        var candidates: [MultiEvidenceSupportCandidate] = []
-        candidates.reserveCapacity(min(results.count, 80))
-
-        for (index, result) in results.enumerated() {
-            if activeOnlyByDefault,
-               let memoryStatus = result.memoryStatus,
-               memoryStatus != .active {
-                continue
-            }
-
-            let documentKey = normalizedComparisonKey(for: result.documentPath)
-            guard seenDocumentKeys.insert(documentKey).inserted else { continue }
-            let documentRank = candidates.count + 1
-            candidates.append(
-                MultiEvidenceSupportCandidate(
-                    result: result,
-                    originalIndex: index,
-                    documentRank: documentRank,
-                    supportScore: multiEvidenceSupportScore(for: result, documentRank: documentRank),
-                    supportGroupKey: multiEvidenceSupportGroupKey(for: result.documentPath)
-                )
-            )
-        }
+        let candidates = multiEvidenceSupportCandidates(
+            from: results,
+            activeOnlyByDefault: activeOnlyByDefault,
+            reserveLimit: 80
+        )
 
         let topWindow = min(10, effectiveLimit, candidates.count)
         guard topWindow >= 4 else { return results }
@@ -1267,7 +1247,7 @@ public actor MemoryIndex {
                       originalSupportGroups.contains(supportGroupKey) else {
                     return false
                 }
-                return candidate.supportScore >= continuationFloor
+                return candidate.supportScore >= continuationFloor || candidate.documentRank <= rankWindow
             }
             .sorted(by: compareMultiEvidenceContinuationCandidates(_:_:))
 
@@ -1304,6 +1284,13 @@ public actor MemoryIndex {
             }
         }
 
+        selected = promoteMultiEvidenceSiblingContinuations(
+            selected,
+            from: pool,
+            topWindow: topWindow,
+            medianSupport: medianSupport
+        )
+
         let selectedChunkIDs = Set(selected.map { $0.result.chunkID })
         var ordered = selected.map(\.result)
         ordered.reserveCapacity(results.count)
@@ -1311,6 +1298,132 @@ public actor MemoryIndex {
             ordered.append(result)
         }
         return ordered
+    }
+
+    private func multiEvidenceSupportCandidates(
+        from results: [SearchResult],
+        activeOnlyByDefault: Bool,
+        reserveLimit: Int
+    ) -> [MultiEvidenceSupportCandidate] {
+        var seenDocumentKeys: Set<String> = []
+        var candidates: [MultiEvidenceSupportCandidate] = []
+        candidates.reserveCapacity(min(results.count, reserveLimit))
+
+        for (index, result) in results.enumerated() {
+            if activeOnlyByDefault,
+               let memoryStatus = result.memoryStatus,
+               memoryStatus != .active {
+                continue
+            }
+
+            let documentKey = normalizedComparisonKey(for: result.documentPath)
+            guard seenDocumentKeys.insert(documentKey).inserted else { continue }
+            let documentRank = candidates.count + 1
+            candidates.append(
+                MultiEvidenceSupportCandidate(
+                    result: result,
+                    originalIndex: index,
+                    documentRank: documentRank,
+                    supportScore: multiEvidenceSupportScore(for: result, documentRank: documentRank),
+                    supportGroupKey: multiEvidenceSupportGroupKey(for: result.documentPath)
+                )
+            )
+        }
+
+        return candidates
+    }
+
+    private func promoteMultiEvidenceSiblingContinuations(
+        _ selected: [MultiEvidenceSupportCandidate],
+        from pool: [MultiEvidenceSupportCandidate],
+        topWindow: Int,
+        medianSupport: Double
+    ) -> [MultiEvidenceSupportCandidate] {
+        guard selected.count >= topWindow,
+              pool.count > topWindow else {
+            return selected
+        }
+
+        var promoted = selected
+        var selectedKeys = Set(promoted.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        var groupCounts = multiEvidenceSupportGroupCounts(promoted)
+        let selectedGroups = Set(groupCounts.keys)
+        guard !selectedGroups.isEmpty else { return selected }
+
+        let continuationRankWindow = min(60, pool.count)
+        let continuationFloor = max(0.04, medianSupport * 0.08)
+        let continuationCandidates = pool
+            .dropFirst(topWindow)
+            .filter { candidate in
+                guard candidate.documentRank <= continuationRankWindow,
+                      let supportGroupKey = candidate.supportGroupKey,
+                      selectedGroups.contains(supportGroupKey),
+                      !selectedKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                    return false
+                }
+                return candidate.supportScore >= continuationFloor
+            }
+            .sorted(by: compareMultiEvidenceContinuationCandidates(_:_:))
+
+        var promotionCount = 0
+        let promotionLimit = 3
+        let perGroupLimit = 3
+
+        for candidate in continuationCandidates where promotionCount < promotionLimit {
+            guard let supportGroupKey = candidate.supportGroupKey,
+                  (groupCounts[supportGroupKey] ?? 0) < perGroupLimit,
+                  let replacementIndex = multiEvidenceReplacementIndex(
+                    in: promoted,
+                    groupCounts: groupCounts,
+                    protectedGroupKey: supportGroupKey
+                  ) else {
+                continue
+            }
+
+            let removed = promoted[replacementIndex]
+            let removedKey = normalizedComparisonKey(for: removed.result.documentPath)
+            selectedKeys.remove(removedKey)
+            if let removedGroupKey = removed.supportGroupKey {
+                groupCounts[removedGroupKey] = max(0, (groupCounts[removedGroupKey] ?? 0) - 1)
+            }
+
+            promoted[replacementIndex] = candidate
+            selectedKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+            groupCounts[supportGroupKey] = (groupCounts[supportGroupKey] ?? 0) + 1
+            promotionCount += 1
+        }
+
+        return promoted
+    }
+
+    private func multiEvidenceSupportGroupCounts(
+        _ candidates: [MultiEvidenceSupportCandidate]
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for candidate in candidates {
+            guard let supportGroupKey = candidate.supportGroupKey else { continue }
+            counts[supportGroupKey, default: 0] += 1
+        }
+        return counts
+    }
+
+    private func multiEvidenceReplacementIndex(
+        in selected: [MultiEvidenceSupportCandidate],
+        groupCounts: [String: Int],
+        protectedGroupKey: String
+    ) -> Int? {
+        let candidates = selected.enumerated().filter { index, candidate in
+            guard index >= 2 else { return false }
+            guard let supportGroupKey = candidate.supportGroupKey else { return true }
+            return supportGroupKey != protectedGroupKey && (groupCounts[supportGroupKey] ?? 0) > 1
+        }
+
+        return candidates.min { lhs, rhs in
+            if lhs.element.supportScore == rhs.element.supportScore {
+                return lhs.offset > rhs.offset
+            }
+            return lhs.element.supportScore < rhs.element.supportScore
+        }?.offset
     }
 
     private func compareMultiEvidenceSupportCandidates(

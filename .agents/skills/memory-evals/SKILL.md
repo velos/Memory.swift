@@ -55,6 +55,8 @@ There are multiple dataset roots:
 - `./Evals/agent_memory_gold_v1` — agent memory behavior benchmark: no-write, extraction, update/supersede/resolve, active-state, and recall checks
 - `./Evals/query_expansion_gold_v1` — expansion pressure benchmark
 - `./Evals/longmemeval_rescue_v1` — focused LongMemEval candidate-generation rescue slice mined from branch diagnostics
+- `./Evals/longmemeval_ranking_v1` — focused LongMemEval ranking/pool-depth slice mined from branch diagnostics
+- `./Evals/longmemeval_multievidence_v1` — focused LongMemEval multi-evidence preservation slice mined from branch diagnostics
 
 Use `./Evals/general_v2` by default unless the user asks for a different benchmark.
 
@@ -93,6 +95,33 @@ swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longme
 swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_rescue.json ./Evals/longmemeval_rescue_v1/runs/<run>.json
 ```
 
+To build focused LongMemEval slices for ranking/pool-depth and multi-evidence preservation:
+```bash
+python3 Scripts/build_longmemeval_rescue.py \
+  --diagnostic ./Evals/longmemeval_v2/runs/<run>.wide200.branch-diagnostics.json \
+  --output-root ./Evals/longmemeval_ranking_v1 \
+  --classification ranking_or_pool_depth \
+  --max-cases 64 \
+  --max-candidates-per-case 140 \
+  --per-branch-limit 80 \
+  --overwrite
+
+python3 Scripts/build_longmemeval_rescue.py \
+  --diagnostic ./Evals/longmemeval_v2/runs/<run>.wide200.branch-diagnostics.json \
+  --output-root ./Evals/longmemeval_multievidence_v1 \
+  --classification multi_evidence_preservation \
+  --max-cases 64 \
+  --max-candidates-per-case 140 \
+  --per-branch-limit 80 \
+  --overwrite
+
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_ranking_v1 --no-cache --no-index-cache
+swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_ranking.json ./Evals/longmemeval_ranking_v1/runs/<run>.json
+
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_multievidence_v1 --no-cache --no-index-cache
+swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_multievidence.json ./Evals/longmemeval_multievidence_v1/runs/<run>.json
+```
+
 ## Workflow
 
 1. Validate dataset files exist in the chosen dataset root.
@@ -112,6 +141,11 @@ swift run memory_eval diagnose-longmemeval --profile coreml_default --dataset-ro
 ```
 
 The diagnostic command writes JSON and Markdown beside the source run by default. It labels cases as `fixed_by_current_code`, `ranking_or_pool_depth`, `candidate_generation`, `expansion_regression`, `fusion_filtering`, `multi_evidence_preservation`, or `partial_multi_evidence`, and includes branch ranks for `current_wide`, `no_expansion_wide`, `lexical_wide`, and `semantic_wide`.
+
+Focused slice gates are useful before full LongMemEval reruns:
+- `longmemeval_ranking.json` locks the current safe ranking/pool-depth wins, including q-2ce6a0f2 and q-gpt4_ab202e7f.
+- `longmemeval_multievidence.json` locks multi-evidence Hit@10 at 100% and support-document Recall@10 at or above 55%.
+- Treat dense unrepresented-group promotion as experimental until it improves focused ranking without regressing full LongMemEval Recall@10.
 
 5. Report these metrics at max `k` (normally `k=10`):
 - `Storage type accuracy`

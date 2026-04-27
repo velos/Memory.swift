@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-27T04:45:33Z",
+  "freshness_hours": 48,
+  "regression_threshold": 0.02,
+  "latency_regression_threshold": 0.15,
+  "notes": [
+    "Focused LongMemEval ranking/pool-depth slice mined from wide branch diagnostics.",
+    "This gate is intentionally separate from the five-suite release gate and tracks hard cases where at least one branch finds the relevant document outside the final top-10 list.",
+    "The current baseline locks the safe multi-evidence sibling continuation wins without enabling broader sibling or dense-group promotion, which regressed full LongMemEval recall."
+  ],
+  "required_runs": [
+    {
+      "dataset": "longmemeval_ranking_v1",
+      "dataset_root": "Evals/longmemeval_ranking_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 715.4710292816162,
+      "metrics": {
+        "recall.hit_at_10": 0.10526315789473684,
+        "recall.recall_at_10": 0.04736842105263158,
+        "recall.mrr_at_10": 0.028070175438596492,
+        "recall.ndcg_at_10": 0.02678290581731663,
+        "recall.case.q-2ce6a0f2.hit_at_k": 1,
+        "recall.case.q-gpt4_ab202e7f.hit_at_k": 1
+      },
+      "minimum_metrics": {
+        "recall.hit_at_10": 0.10,
+        "recall.recall_at_10": 0.045,
+        "recall.mrr_at_10": 0.025,
+        "recall.ndcg_at_10": 0.025,
+        "recall.case.q-2ce6a0f2.hit_at_k": 1,
+        "recall.case.q-gpt4_ab202e7f.hit_at_k": 1
+      }
+    }
+  ]
+}

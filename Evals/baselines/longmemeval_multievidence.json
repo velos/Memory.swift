@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-27T04:24:28Z",
+  "freshness_hours": 48,
+  "regression_threshold": 0.02,
+  "latency_regression_threshold": 0.15,
+  "notes": [
+    "Focused LongMemEval multi-evidence preservation slice mined from wide branch diagnostics.",
+    "This gate tracks count/order/temporal cases where at least one relevant document already reaches top-10 but additional same-session support documents are lost.",
+    "The current baseline locks Hit@10 at 100% while allowing recall-focused iteration above the current 56.09% support-document recall."
+  ],
+  "required_runs": [
+    {
+      "dataset": "longmemeval_multievidence_v1",
+      "dataset_root": "Evals/longmemeval_multievidence_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 650.9500741958618,
+      "metrics": {
+        "recall.hit_at_10": 1,
+        "recall.recall_at_10": 0.5609375,
+        "recall.mrr_at_10": 0.44174107142857133,
+        "recall.ndcg_at_10": 0.38790047563914454,
+        "recall.case.q-0ea62687.recall_at_k": 1,
+        "recall.case.q-46a3abf7.recall_at_k": 1,
+        "recall.case.q-5a7937c8.recall_at_k": 1,
+        "recall.case.q-gpt4_7fce9456.recall_at_k": 0.75
+      },
+      "minimum_metrics": {
+        "recall.hit_at_10": 1,
+        "recall.recall_at_10": 0.55,
+        "recall.mrr_at_10": 0.43,
+        "recall.ndcg_at_10": 0.38,
+        "recall.case.q-0ea62687.recall_at_k": 1,
+        "recall.case.q-46a3abf7.recall_at_k": 1,
+        "recall.case.q-5a7937c8.recall_at_k": 1,
+        "recall.case.q-gpt4_7fce9456.recall_at_k": 0.75
+      }
+    }
+  ]
+}
