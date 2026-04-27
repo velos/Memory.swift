@@ -23,8 +23,16 @@ struct CLIPaths {
     let indexFileURL: URL
 
     static func `default`() throws -> CLIPaths {
-        let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".memory", isDirectory: true)
+        let environment = ProcessInfo.processInfo.environment
+        let root: URL
+        if let rawRoot = environment["MEMORY_CLI_ROOT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawRoot.isEmpty {
+            let expanded = NSString(string: rawRoot).expandingTildeInPath
+            root = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+        } else {
+            root = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".memory", isDirectory: true)
+        }
         return CLIPaths(
             rootDirectory: root,
             stateFileURL: root.appendingPathComponent("state.json"),
@@ -165,6 +173,8 @@ struct MemoryCLI: AsyncParsableCommand {
             CollectionCommand.self,
             ContextCommand.self,
             EmbedCommand.self,
+            SyncCommand.self,
+            ServeCommand.self,
             SearchCommand.self,
             VSearchCommand.self,
             QueryCommand.self,
@@ -363,6 +373,33 @@ struct EmbedCommand: AsyncParsableCommand {
                 }
             }
         )
+    }
+}
+
+struct SyncCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "sync",
+        abstract: "Incrementally index one or more documents or directories."
+    )
+
+    @Argument(help: "File or directory paths to sync.")
+    var paths: [String] = []
+
+    mutating func run() async throws {
+        guard !paths.isEmpty else {
+            throw ValidationError("Provide at least one file or directory to sync.")
+        }
+
+        let context = try CLIContext.load()
+        let urls = paths.map { raw in
+            URL(
+                fileURLWithPath: NSString(string: raw).expandingTildeInPath,
+                isDirectory: false
+            ).standardizedFileURL
+        }
+        let index = try context.makeIndex()
+        try await index.syncDocuments(urls)
+        print("Synced \(urls.count) path\(urls.count == 1 ? "" : "s").")
     }
 }
 
