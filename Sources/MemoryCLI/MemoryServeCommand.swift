@@ -161,7 +161,9 @@ private final class MemoryBridgeServer {
             semanticCandidateLimit: mode.semanticLimit,
             lexicalCandidateLimit: mode.lexicalLimit,
             rerankLimit: mode == .hybrid ? 50 : 0,
-            expansionLimit: mode == .hybrid ? 2 : 0
+            expansionLimit: mode == .hybrid ? 2 : 0,
+            referenceDate: bridgeParseReferenceDate(params?.queryTimestamp),
+            documentPathPrefix: scopedCollection?.path
         )
 
         var results = try await index.search(searchQuery)
@@ -230,6 +232,30 @@ private func bridgeNormalizeCollectionArgument(_ value: String) -> String {
     return value
 }
 
+private func bridgeParseReferenceDate(_ value: String?) -> Date? {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+        return nil
+    }
+
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = iso.date(from: value) {
+        return date
+    }
+
+    iso.formatOptions = [.withInternetDateTime]
+    if let date = iso.date(from: value) {
+        return date
+    }
+
+    let dateOnly = DateFormatter()
+    dateOnly.calendar = Calendar(identifier: .gregorian)
+    dateOnly.locale = Locale(identifier: "en_US_POSIX")
+    dateOnly.timeZone = TimeZone(secondsFromGMT: 0)
+    dateOnly.dateFormat = "yyyy-MM-dd"
+    return dateOnly.date(from: value)
+}
+
 private struct BridgeError: Error, CustomStringConvertible {
     var description: String
 
@@ -254,6 +280,7 @@ private struct BridgeRequestParams: Decodable {
     var limit: Int?
     var all: Bool?
     var minScore: Double?
+    var queryTimestamp: String?
 }
 
 private struct BridgeSuccessResponse<T: Encodable>: Encodable {

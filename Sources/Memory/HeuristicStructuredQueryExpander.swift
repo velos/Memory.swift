@@ -53,6 +53,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            referenceDate: query.referenceDate,
             limit: min(maxLexicalQueries, limit)
         )
         let semanticQueries = buildSemanticQueries(
@@ -85,6 +86,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        referenceDate: Date?,
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -107,10 +109,11 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         )
         let derivedPhrases = derivedSalientTerms(from: original)
             .filter { $0.split(separator: " ").count >= 2 }
+        let temporalAnchors = temporalAnchorTerms(from: original, referenceDate: referenceDate)
 
         if let derivedPhrase = derivedPhrases.first {
             appendCandidate(
-                compactJoined(prioritizedEntities + [derivedPhrase]),
+                compactJoined(prioritizedEntities + [derivedPhrase] + Array(temporalAnchors.prefix(6))),
                 to: &queries,
                 seen: &seen,
                 limit: limit
@@ -118,12 +121,12 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         }
 
         let keywordRewrite = compactJoined(
-            prioritizedEntities + Array(salientTerms.prefix(6)) + prioritizedTerms
+            prioritizedEntities + Array(salientTerms.prefix(6)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
-            prioritizedEntities + Array(compactTopics.prefix(2))
+            prioritizedEntities + Array(compactTopics.prefix(2)) + Array(temporalAnchors.prefix(6))
         )
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
@@ -246,6 +249,139 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             }
         }
         return terms
+    }
+
+    private func temporalAnchorTerms(from query: String, referenceDate: Date?) -> [String] {
+        let lower = query.lowercased()
+        var terms: [String] = []
+        func append(_ term: String) {
+            let normalized = normalizeTopic(term)
+            guard !normalized.isEmpty, !terms.contains(normalized) else { return }
+            terms.append(normalized)
+        }
+
+        if let referenceDate {
+            for date in relativeAnchorDates(from: lower, referenceDate: referenceDate) {
+                for term in dateAnchorTerms(for: date) {
+                    append(term)
+                }
+            }
+        }
+
+        for term in monthAnchorTerms(from: lower, referenceDate: referenceDate) {
+            append(term)
+        }
+
+        if isExplicitTemporalOrAggregateRecall(query) {
+            for term in ["date", "when", "before", "after", "earlier", "later", "timeline"] {
+                append(term)
+            }
+        }
+
+        return terms
+    }
+
+    private func relativeAnchorDates(from lower: String, referenceDate: Date) -> [Date] {
+        var dates: [Date] = []
+        func addOffset(_ days: Int) {
+            guard days > 0, let date = calendar.date(byAdding: .day, value: -days, to: referenceDate) else { return }
+            dates.append(date)
+        }
+
+        if lower.contains("yesterday") {
+            addOffset(1)
+        }
+        if lower.contains("day before yesterday") || lower.contains("couple of days ago") {
+            addOffset(2)
+        }
+        if lower.contains("few days ago") {
+            addOffset(3)
+        }
+        if lower.contains("last week") {
+            for days in 7...13 {
+                addOffset(days)
+            }
+        }
+        if lower.contains("last month") {
+            for days in [28, 30, 31] {
+                addOffset(days)
+            }
+        }
+
+        for match in matches(
+            in: lower,
+            pattern: #"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(day|days|week|weeks|month|months)\s+ago\b"#
+        ) {
+            guard match.count >= 3, let amount = numberValue(match[1]) else { continue }
+            let unit = match[2]
+            if unit.hasPrefix("day") {
+                addOffset(amount)
+            } else if unit.hasPrefix("week") {
+                addOffset(amount * 7)
+            } else if unit.hasPrefix("month") {
+                addOffset(amount * 30)
+            }
+        }
+
+        if let weekday = matches(
+            in: lower,
+            pattern: #"\blast\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"#
+        ).first?.dropFirst().first,
+           let target = weekdayIndex[String(weekday)] {
+            let current = calendar.component(.weekday, from: referenceDate) - 1
+            let delta = ((current - target) + 7) % 7
+            addOffset(delta == 0 ? 7 : delta)
+        }
+
+        return Array(OrderedSet(dates))
+    }
+
+    private func dateAnchorTerms(for date: Date) -> [String] {
+        [
+            dateFormatter("yyyy-MM-dd").string(from: date),
+            dateFormatter("MMMM d yyyy").string(from: date),
+            dateFormatter("MMMM d").string(from: date),
+            dateFormatter("EEE d").string(from: date),
+        ]
+    }
+
+    private func monthAnchorTerms(from lower: String, referenceDate: Date?) -> [String] {
+        var terms: [String] = []
+        for (month, value) in monthIndex where containsWord(month, in: lower) {
+            if let referenceDate {
+                var year = calendar.component(.year, from: referenceDate)
+                let referenceMonth = calendar.component(.month, from: referenceDate)
+                if value > referenceMonth {
+                    year -= 1
+                }
+                terms.append("\(month) \(year)")
+                terms.append(String(format: "%04d-%02d", year, value))
+            }
+            terms.append(month)
+        }
+        return terms
+    }
+
+    private func matches(in text: String, pattern: String) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: nsRange).map { match in
+            (0..<match.numberOfRanges).compactMap { index in
+                guard let range = Range(match.range(at: index), in: text) else { return nil }
+                return String(text[range])
+            }
+        }
+    }
+
+    private func containsWord(_ word: String, in text: String) -> Bool {
+        text.range(of: #"\b\#(NSRegularExpression.escapedPattern(for: word))\b"#, options: .regularExpression) != nil
+    }
+
+    private func numberValue(_ value: String) -> Int? {
+        if let numeric = Int(value) {
+            return numeric
+        }
+        return numberWords[value]
     }
 
     private func selectSalientTopics(from topics: [String], salientTerms: [String]) -> [String] {
@@ -564,6 +700,59 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
                 .filter { !$0.isEmpty && !stopWords.contains($0) && !expansionNoiseTerms.contains($0) }
         )
     }
+
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }
+
+    private func dateFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    private let numberWords: [String: Int] = [
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    ]
+
+    private let weekdayIndex: [String: Int] = [
+        "sunday": 0,
+        "monday": 1,
+        "tuesday": 2,
+        "wednesday": 3,
+        "thursday": 4,
+        "friday": 5,
+        "saturday": 6,
+    ]
+
+    private let monthIndex: [String: Int] = [
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    ]
 
     private let stopWords: Set<String> = [
         "the", "and", "for", "are", "but", "not", "you", "all", "can",

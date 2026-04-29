@@ -676,6 +676,25 @@ public actor MemoryStorage {
         )
     }
 
+    public func fetchChunkIDs(documentPathPrefix rawPrefix: String) throws -> [Int64] {
+        let prefix = rawPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prefix.isEmpty else { return [] }
+
+        let directoryPrefix = prefix.hasSuffix("/") ? prefix : "\(prefix)/"
+        let likePattern = "\(Self.escapeLikePattern(directoryPrefix))%"
+        return try database.fetchAll(
+            sql: """
+            SELECT c.id
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE d.path = ? OR d.path LIKE ? ESCAPE '\\'
+            ORDER BY c.id ASC
+            """,
+            arguments: [prefix, likePattern],
+            as: Int64.self
+        )
+    }
+
     public func fetchChunkMetadataForDocument(path: String) throws -> [StoredChunkMetadata] {
         try database.fetchAll(
             sql: """
@@ -2220,6 +2239,20 @@ public actor MemoryStorage {
             sql: "DELETE FROM \(Self.vectorTableName) WHERE chunk_id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))",
             arguments: chunkIDs
         )
+    }
+
+    private static func escapeLikePattern(_ value: String) -> String {
+        var escaped = ""
+        for character in value {
+            switch character {
+            case "%", "_", "\\":
+                escaped.append("\\")
+                escaped.append(character)
+            default:
+                escaped.append(character)
+            }
+        }
+        return escaped
     }
 
     private static func makeChunkEmbedding(from row: SQLiteRow) -> StoredChunkEmbedding? {

@@ -254,17 +254,27 @@ public actor MemoryIndex {
         let queryStart = DispatchTime.now().uptimeNanoseconds
         events?(.started(query: normalizedText))
 
+        var effectiveAllowedChunkIDsOverride = allowedChunkIDsOverride
+        if let documentPathPrefix = query.documentPathPrefix {
+            let scopedChunkIDs = Set(try await storage.fetchChunkIDs(documentPathPrefix: documentPathPrefix))
+            effectiveAllowedChunkIDsOverride = combineAllowedChunkIDs(effectiveAllowedChunkIDsOverride, scopedChunkIDs)
+            if scopedChunkIDs.isEmpty || (effectiveAllowedChunkIDsOverride?.isEmpty == true) {
+                events?(.completed(count: 0))
+                return []
+            }
+        }
+
         let allowedChunkIDs: Set<Int64>?
         if let contextID = query.contextID {
             let contextChunkIDs = try await storage.fetchContextChunkIDs(contextID: contextID.rawValue)
             let contextSet = Set(contextChunkIDs)
-            allowedChunkIDs = combineAllowedChunkIDs(contextSet, allowedChunkIDsOverride)
+            allowedChunkIDs = combineAllowedChunkIDs(contextSet, effectiveAllowedChunkIDsOverride)
             if contextSet.isEmpty || (allowedChunkIDs?.isEmpty == true) {
                 events?(.completed(count: 0))
                 return []
             }
         } else {
-            allowedChunkIDs = allowedChunkIDsOverride
+            allowedChunkIDs = effectiveAllowedChunkIDsOverride
         }
 
         if let allowedChunkIDs, allowedChunkIDs.isEmpty {
@@ -522,10 +532,13 @@ public actor MemoryIndex {
             }
         }
 
-        let final = Array(
-            fused
-                .sorted(by: sortByBlendedScore(_:_:))
-                .prefix(query.limit)
+        let final = applyPrimaryBranchFinalProtection(
+            to: fused,
+            query: query,
+            primaryQueryText: normalizedText,
+            hasExpandedBranches: hasExpandedBranches,
+            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
+            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF
         )
         events?(.stageTiming(stage: .total, durationMs: elapsedMilliseconds(since: queryStart)))
         events?(.completed(count: final.count))
@@ -4403,6 +4416,144 @@ public actor MemoryIndex {
         }
 
         return (reranked + untouched).sorted(by: sortByBlendedScore(_:_:))
+    }
+
+    private func applyPrimaryBranchFinalProtection(
+        to results: [SearchResult],
+        query: SearchQuery,
+        primaryQueryText: String,
+        hasExpandedBranches: Bool,
+        primarySemanticPreservationRRF: [Int64: Double],
+        primaryLexicalPreservationRRF: [Int64: Double]
+    ) -> [SearchResult] {
+        let sorted = results.sorted(by: sortByBlendedScore(_:_:))
+        guard hasExpandedBranches else {
+            return Array(sorted.prefix(query.limit))
+        }
+
+        let protectionLimit = primaryBranchFinalProtectionLimit(for: query)
+        guard protectionLimit > 0, query.limit > 0 else {
+            return Array(sorted.prefix(query.limit))
+        }
+
+        let protectedCandidates = primaryBranchProtectionCandidates(
+            from: sorted,
+            limit: protectionLimit,
+            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
+            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF
+        )
+        guard !protectedCandidates.isEmpty else {
+            return Array(sorted.prefix(query.limit))
+        }
+
+        var final = Array(sorted.prefix(query.limit))
+        var finalDocumentPaths = Set(final.map(\.documentPath))
+        var protectedDocumentPaths = Set(protectedCandidates.map(\.documentPath))
+
+        for candidate in protectedCandidates where !finalDocumentPaths.contains(candidate.documentPath) {
+            guard let replacementIndex = replacementIndexForPrimaryBranchProtection(
+                in: final,
+                candidate: candidate,
+                protectedDocumentPaths: protectedDocumentPaths,
+                primaryQueryText: primaryQueryText,
+                explicitProtection: query.primaryBranchProtectionLimit != nil
+            ) else {
+                continue
+            }
+
+            let replaced = final[replacementIndex]
+            final[replacementIndex] = candidate
+            finalDocumentPaths.remove(replaced.documentPath)
+            finalDocumentPaths.insert(candidate.documentPath)
+            protectedDocumentPaths.insert(candidate.documentPath)
+        }
+
+        return final.sorted(by: sortByBlendedScore(_:_:))
+    }
+
+    private func primaryBranchFinalProtectionLimit(for query: SearchQuery) -> Int {
+        if let explicit = query.primaryBranchProtectionLimit {
+            return min(query.limit, explicit)
+        }
+        guard query.expansionLimit > 0, query.limit > 1 else { return 0 }
+        return min(query.limit, min(5, max(1, query.limit / 2)))
+    }
+
+    private func primaryBranchProtectionCandidates(
+        from results: [SearchResult],
+        limit: Int,
+        primarySemanticPreservationRRF: [Int64: Double],
+        primaryLexicalPreservationRRF: [Int64: Double]
+    ) -> [SearchResult] {
+        guard limit > 0 else { return [] }
+
+        struct Candidate {
+            var result: SearchResult
+            var primaryScore: Double
+        }
+
+        var bestByDocument: [String: Candidate] = [:]
+        for result in results {
+            let primaryScore = (primarySemanticPreservationRRF[result.chunkID] ?? 0)
+                + (primaryLexicalPreservationRRF[result.chunkID] ?? 0)
+            guard primaryScore > 0 else { continue }
+
+            if let existing = bestByDocument[result.documentPath] {
+                if primaryScore > existing.primaryScore
+                    || (primaryScore == existing.primaryScore && sortByBlendedScore(result, existing.result)) {
+                    bestByDocument[result.documentPath] = Candidate(result: result, primaryScore: primaryScore)
+                }
+            } else {
+                bestByDocument[result.documentPath] = Candidate(result: result, primaryScore: primaryScore)
+            }
+        }
+
+        return bestByDocument.values
+            .sorted { lhs, rhs in
+                if lhs.primaryScore == rhs.primaryScore {
+                    return sortByBlendedScore(lhs.result, rhs.result)
+                }
+                return lhs.primaryScore > rhs.primaryScore
+            }
+            .prefix(limit)
+            .map(\.result)
+    }
+
+    private func replacementIndexForPrimaryBranchProtection(
+        in results: [SearchResult],
+        candidate: SearchResult,
+        protectedDocumentPaths: Set<String>,
+        primaryQueryText: String,
+        explicitProtection: Bool
+    ) -> Int? {
+        guard !results.isEmpty else { return nil }
+
+        for index in results.indices.reversed() {
+            let replacement = results[index]
+            guard replacement.documentPath != candidate.documentPath else { return nil }
+            guard !protectedDocumentPaths.contains(replacement.documentPath) else { continue }
+            guard explicitProtection || primaryBranchProtectionCandidate(candidate, canReplace: replacement, primaryQueryText: primaryQueryText) else {
+                continue
+            }
+            return index
+        }
+
+        return nil
+    }
+
+    private func primaryBranchProtectionCandidate(
+        _ candidate: SearchResult,
+        canReplace replacement: SearchResult,
+        primaryQueryText: String
+    ) -> Bool {
+        let ratio = isTemporalOrAggregateRecallQuery(primaryQueryText) ? 0.55 : 0.75
+        if replacement.score.blended <= 0 {
+            return true
+        }
+        if candidate.score.blended >= replacement.score.blended * ratio {
+            return true
+        }
+        return candidate.score.fused >= replacement.score.fused * ratio
     }
 
     private func candidatePoolLimit(for query: SearchQuery) -> Int {

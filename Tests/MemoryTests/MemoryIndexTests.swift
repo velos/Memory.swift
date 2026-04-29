@@ -35,6 +35,49 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func searchCanConstrainCandidatesToDocumentPathPrefix() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let userA = docs.appendingPathComponent("user-a")
+        let userB = docs.appendingPathComponent("user-b")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            userA.appendingPathComponent("memory.md"),
+            "shared alpha anchor for user A notes"
+        )
+        try writeFile(
+            userB.appendingPathComponent("memory.md"),
+            "shared alpha anchor for user B notes"
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let scoped = try await index.search(
+            SearchQuery(
+                text: "shared alpha anchor",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        #expect(scoped.isEmpty == false)
+        #expect(scoped.allSatisfy { $0.documentPath.hasPrefix(userA.path + "/") })
+    }
+
+    @Test
     func contextCrudRoundTrip() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -221,6 +264,71 @@ struct MemoryIndexTests {
             includeLineRanges: false
         )
         #expect(references.first?.documentPath.contains("false-certification.md") == true)
+    }
+
+    @Test
+    func primaryBranchProtectionKeepsBaselineDocumentRepresented() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("primary.md"),
+            "alpha baseline source answer with original query anchors"
+        )
+        for index in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("expansion-\(index).md"),
+                "gamma expansion distraction exact lure \(index). gamma expansion distraction exact lure."
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["gamma expansion distraction exact lure"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let queryText = "alpha baseline source answer original branch details for quarterly memory planning review follow up"
+        let unprotected = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 1,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 1,
+                originalQueryWeight: 0.1,
+                expansionQueryWeight: 50,
+                primaryBranchProtectionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+        #expect(unprotected.first?.documentPath.contains("primary.md") != true)
+
+        let protected = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 1,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 1,
+                originalQueryWeight: 0.1,
+                expansionQueryWeight: 50,
+                primaryBranchProtectionLimit: 1,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(protected.first?.documentPath.contains("primary.md") == true)
     }
 
     @Test
@@ -546,6 +654,24 @@ struct MemoryIndexTests {
         let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
         #expect(tripLexical.contains("road trip"))
         #expect(tripLexical.contains("camping trip"))
+
+        let referenceDate = try #require(ISO8601DateFormatter().date(from: "2023-05-30T00:00:00Z"))
+        let lastWeekExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "How many hours of jogging and yoga did I do last week?",
+                referenceDate: referenceDate
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["hours", "jogging", "yoga", "last", "week"],
+                facetHints: [],
+                topics: ["jogging yoga last week", "hours jogging yoga"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let lastWeekLexical = lastWeekExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(lastWeekLexical.contains("2023-05-22") || lastWeekLexical.contains("may 22"))
     }
 
     @Test
