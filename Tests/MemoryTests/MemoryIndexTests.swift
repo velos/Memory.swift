@@ -35,6 +35,64 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func searchCanConstrainCandidatesToDocumentPathPrefix() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let userA = docs.appendingPathComponent("user-a")
+        let userB = docs.appendingPathComponent("user-b")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            userA.appendingPathComponent("memory.md"),
+            "shared alpha anchor for user A notes"
+        )
+        try writeFile(
+            userB.appendingPathComponent("memory.md"),
+            "shared alpha anchor for user B notes"
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let scoped = try await index.search(
+            SearchQuery(
+                text: "shared alpha anchor",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        #expect(scoped.isEmpty == false)
+        #expect(scoped.allSatisfy { $0.documentPath.hasPrefix(userA.path + "/") })
+
+        let semanticScoped = try await index.search(
+            SearchQuery(
+                text: "shared alpha anchor",
+                limit: 10,
+                semanticCandidateLimit: 10,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        #expect(semanticScoped.isEmpty == false)
+        #expect(semanticScoped.allSatisfy { $0.documentPath.hasPrefix(userA.path + "/") })
+    }
+
+    @Test
     func contextCrudRoundTrip() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -145,6 +203,202 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func rankOneLexicalExpansionHitSurvivesFusion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("false-certification.md"),
+            "False Certification Discharge. A student loan can be discharged when a school falsely certified eligibility for a loan."
+        )
+        for i in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(i).md"),
+                "school attended lender eligible student loan qualified debt account repayment option \(i). school attended lender eligible student loan debt."
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["false certification discharge"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let queryText = "The school I attended told the lender that I was eligible for a student loan but I was not qualified, can I get rid of this debt?"
+        let baselineResults = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 0
+            )
+        )
+        #expect(baselineResults.first?.documentPath.contains("false-certification.md") != true)
+
+        let results = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 3
+            )
+        )
+
+        #expect(results.first?.documentPath.contains("false-certification.md") == true)
+
+        let documentListSurfaceResults = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 18,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 200,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        #expect(documentListSurfaceResults.first?.documentPath.contains("false-certification.md") == true)
+
+        let references = try await index.memorySearch(
+            query: queryText,
+            limit: 3,
+            features: [.lexical, .expansion],
+            dedupeDocuments: true,
+            includeLineRanges: false
+        )
+        #expect(references.first?.documentPath.contains("false-certification.md") == true)
+    }
+
+    @Test
+    func primaryBranchProtectionKeepsBaselineDocumentRepresented() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("primary.md"),
+            "alpha baseline source answer with original query anchors"
+        )
+        for index in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("expansion-\(index).md"),
+                "gamma expansion distraction exact lure \(index). gamma expansion distraction exact lure."
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["gamma expansion distraction exact lure"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let queryText = "alpha baseline source answer original branch details for quarterly memory planning review follow up"
+        let unprotected = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 1,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 1,
+                originalQueryWeight: 0.1,
+                expansionQueryWeight: 50,
+                primaryBranchProtectionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+        #expect(unprotected.first?.documentPath.contains("primary.md") != true)
+
+        let protected = try await index.search(
+            SearchQuery(
+                text: queryText,
+                limit: 1,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 50,
+                rerankLimit: 0,
+                expansionLimit: 1,
+                originalQueryWeight: 0.1,
+                expansionQueryWeight: 50,
+                primaryBranchProtectionLimit: 1,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(protected.first?.documentPath.contains("primary.md") == true)
+    }
+
+    @Test
+    func distributedAnchorMatchesCanSurfaceThroughLexicalSearch() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("greenwood-reforestation.md"),
+            """
+            Greenwood neighborhood planning notes.
+            The urban shade corridor proposal was approved.
+            Reforestation volunteer schedules were drafted.
+            Tree nursery purchases are ready.
+            Canopy baseline mapping starts next week.
+            """
+        )
+
+        let repeatedAnchors = ["Greenwood", "urban", "reforestation", "tree", "canopy"]
+        for i in 0..<40 {
+            let anchor = repeatedAnchors[i % repeatedAnchors.count]
+            let repeated = Array(repeating: anchor, count: 28).joined(separator: " ")
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(i).md"),
+                "\(repeated) unrelated parking agenda \(i)"
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 6, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "What details explain the Greenwood urban reforestation tree canopy work?",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 40,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.contains { $0.documentPath.contains("greenwood-reforestation.md") })
+    }
+
+    @Test
     func strongLexicalSignalSkipsQueryExpansion() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -191,7 +445,94 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func verboseLexicalQuestionsStillRunQueryExpansion() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let verboseQuery = "incident response runbook for payments deployment rollback owner escalation timeline and customer notices"
+        try writeFile(
+            docs.appendingPathComponent("runbook.md"),
+            "\(verboseQuery). \(verboseQuery). \(verboseQuery)."
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "general observations and feedback collected during the quarterly planning session"
+        )
+
+        let expander = RecordingStructuredQueryExpander(lexicalQueries: ["deployment rollout checklist"])
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: expander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        _ = try await index.search(
+            SearchQuery(
+                text: verboseQuery,
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let calls = await expander.calls()
+        #expect(calls == 1)
+    }
+
+    @Test
     func semanticQueryEmbeddingsAreBatchedAcrossExpansions() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deploy.md"),
+            "deployment rollout checklist and service cutover notes"
+        )
+        try writeFile(
+            docs.appendingPathComponent("ops.md"),
+            "incident response timeline and postmortem follow-up items"
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                semanticQueries: ["deployment rollout", "service cutover"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "release process",
+                limit: 3,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [3])
+    }
+
+    @Test
+    func lexicalExpansionQueriesDoNotRequestUnusedSemanticEmbeddings() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
         let dbURL = root.appendingPathComponent("index.sqlite")
@@ -233,7 +574,51 @@ struct MemoryIndexTests {
 
         let stats = await embeddingProvider.stats()
         #expect(stats.singleCalls == 0)
-        #expect(stats.batchSizes == [3])
+        #expect(stats.batchSizes == [1])
+    }
+
+    @Test
+    func scopedLexicalCoverageCanSkipSemanticEmbedding() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let userA = docs.appendingPathComponent("user-a")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<10 {
+            try writeFile(
+                userA.appendingPathComponent("memory-\(index).md"),
+                "alpha scoped memory note \(index) with recurring lexical anchors"
+            )
+        }
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha scoped memory",
+                limit: 10,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(results.count == 10)
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes.isEmpty)
     }
 
     @Test
@@ -319,6 +704,79 @@ struct MemoryIndexTests {
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("same address") }))
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("valuable information") }) == false)
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("last question") }) == false)
+    }
+
+    @Test
+    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanRescueTerms() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let query = SearchQuery(
+            text: "The school I attended told the lender that I was eligible for a student loan but I wasn't actually qualified, is there any way to get rid of this debt?"
+        )
+        let analysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["school", "attended", "lender", "eligible", "student", "loan"],
+            facetHints: [],
+            topics: ["school attended told", "attended told lender", "student loan debt"],
+            isHowToQuery: false
+        )
+
+        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
+
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("false certification discharge") }))
+    }
+
+    @Test
+    func heuristicStructuredExpanderAddsLongHorizonRecallRescueTerms() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let completionAnalysis = QueryAnalysis(
+            entities: [],
+            keyTerms: ["projects", "completed", "painting", "classes"],
+            facetHints: [],
+            topics: ["completed painting projects", "painting classes"],
+            isHowToQuery: false
+        )
+
+        let completionExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many projects have I completed since starting painting classes?"),
+            analysis: completionAnalysis,
+            limit: 5
+        )
+        let completionLexical = completionExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(completionLexical.contains("finished project"))
+        #expect(completionLexical.contains("painting project"))
+
+        let tripExpansion = try await expander.expand(
+            query: SearchQuery(text: "What is the order of the three trips I took in the past three months?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["order", "three", "trips", "past", "months"],
+                facetHints: [],
+                topics: ["order trips", "past three months"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(tripLexical.contains("road trip"))
+        #expect(tripLexical.contains("camping trip"))
+
+        let referenceDate = try #require(ISO8601DateFormatter().date(from: "2023-05-30T00:00:00Z"))
+        let lastWeekExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "How many hours of jogging and yoga did I do last week?",
+                referenceDate: referenceDate
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["hours", "jogging", "yoga", "last", "week"],
+                facetHints: [],
+                topics: ["jogging yoga last week", "hours jogging yoga"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let lastWeekLexical = lastWeekExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(lastWeekLexical.contains("2023-05-22") || lastWeekLexical.contains("may 22"))
     }
 
     @Test

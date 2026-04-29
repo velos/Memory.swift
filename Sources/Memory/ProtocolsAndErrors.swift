@@ -129,14 +129,61 @@ public protocol ContentTagger: Sendable {
 
 public protocol MemoryExtractor: Sendable {
     var identifier: String { get }
-    func extract(messages: [ConversationMessage], limit: Int) async throws -> [MemoryCandidate]
+    func extract(messages: [ConversationMessage], limit: Int) async throws -> MemoryExtractionResult
+}
+
+public enum RecallTemporalIntent: String, Sendable, Codable, Hashable {
+    case any
+    case recent
+    case historical
+    case timeAnchored = "time_anchored"
+    case count
+    case mostRecent = "most_recent"
 }
 
 public struct RecallPlan: Sendable {
     public var query: String
+    public var lexicalQueries: [String]
+    public var semanticQueries: [String]
+    public var hypotheticalDocuments: [String]
+    public var kinds: Set<MemoryKind>?
+    public var statuses: Set<MemoryStatus>?
+    public var facets: Set<FacetTag>?
+    public var entityValues: [String]
+    public var topics: [String]
+    public var temporalIntent: RecallTemporalIntent
+    public var semanticCandidateLimit: Int?
+    public var lexicalCandidateLimit: Int?
+    public var rerankLimit: Int?
 
-    public init(query: String) {
+    public init(
+        query: String,
+        lexicalQueries: [String] = [],
+        semanticQueries: [String] = [],
+        hypotheticalDocuments: [String] = [],
+        kinds: Set<MemoryKind>? = nil,
+        statuses: Set<MemoryStatus>? = nil,
+        facets: Set<FacetTag>? = nil,
+        entityValues: [String] = [],
+        topics: [String] = [],
+        temporalIntent: RecallTemporalIntent = .any,
+        semanticCandidateLimit: Int? = nil,
+        lexicalCandidateLimit: Int? = nil,
+        rerankLimit: Int? = nil
+    ) {
         self.query = query
+        self.lexicalQueries = lexicalQueries
+        self.semanticQueries = semanticQueries
+        self.hypotheticalDocuments = hypotheticalDocuments
+        self.kinds = kinds
+        self.statuses = statuses
+        self.facets = facets
+        self.entityValues = entityValues
+        self.topics = topics
+        self.temporalIntent = temporalIntent
+        self.semanticCandidateLimit = semanticCandidateLimit
+        self.lexicalCandidateLimit = lexicalCandidateLimit
+        self.rerankLimit = rerankLimit
     }
 }
 

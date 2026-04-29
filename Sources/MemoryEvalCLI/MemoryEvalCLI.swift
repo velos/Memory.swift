@@ -40,7 +40,7 @@ private let rerankerStopWords: Set<String> = [
     "what", "when", "where", "which", "with", "your"
 ]
 
-private let evalIndexCacheSchemaVersion = 1
+private let evalIndexCacheSchemaVersion = 2
 
 private enum RepoCoreMLModels {
     static let embedding = "embedding-v1"
@@ -193,13 +193,58 @@ private struct QueryExpansionCase: Decodable {
     var expectedTopics: [String]?
     var relevantDocumentIds: [String]?
     var candidateDocumentIds: [String]?
+    var sourceDataset: String?
+    var sourceQueryId: String?
+    var sourceProfile: String?
+    var sourceRankAtK: Int?
+    var failureTaxonomy: [String]?
+    var rescueReason: String?
+}
+
+private struct AgentMemoryScenarioCase: Decodable {
+    var id: String
+    var messages: [AgentMemoryScenarioMessage]
+    var setupMemories: [StorageSeedMemory]?
+    var expectedWriteCount: Int?
+    var expectedMemories: [AgentMemoryExpectedMemory]?
+    var expectedUpdateBehavior: String?
+    var recallQueries: [AgentMemoryRecallExpectation]?
+}
+
+private struct AgentMemoryScenarioMessage: Decodable {
+    var role: String
+    var content: String
+}
+
+private struct AgentMemoryExpectedMemory: Decodable {
+    var kind: String?
+    var status: String?
+    var canonicalKey: String?
+    var textContains: [String]?
+    var facets: [String]?
+    var entities: [String]?
+    var topics: [String]?
+}
+
+private struct AgentMemoryRecallExpectation: Decodable {
+    var query: String
+    var limit: Int?
+    var expectedTextContains: [String]?
+    var expectedKinds: [String]?
+    var expectedStatuses: [String]?
 }
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case nlBaseline = "nl_baseline"
     case coreMLDefault = "coreml_default"
+    case coreMLLeafIR = "coreml_leaf_ir"
+    case coreMLRerank = "coreml_rerank"
     case oracleCeiling = "oracle_ceiling"
     case appleAugmented = "apple_augmented"
+
+    static var allCases: [EvalProfile] {
+        [.nlBaseline, .coreMLDefault, .oracleCeiling, .appleAugmented]
+    }
 }
 
 private struct StorageCaseResult: Codable {
@@ -273,6 +318,57 @@ private struct RecallQueryResult: Codable {
     var stageTimings: RecallQueryStageTimings?
     var candidateCounts: RecallQueryCandidateCounts?
     var difficulty: String?
+}
+
+private struct RecallBranchDiagnosticReport: Codable {
+    var schemaVersion: Int
+    var createdAt: Date
+    var profile: EvalProfile
+    var datasetRoot: String
+    var sourceRun: String
+    var scope: String
+    var maxK: Int
+    var wideLimit: Int
+    var totalCases: Int
+    var classificationCounts: [String: Int]
+    var taxonomyCounts: [String: Int]
+    var branchHitCounts: [String: Int]
+    var caseResults: [RecallBranchDiagnosticCase]
+}
+
+private struct RecallBranchDiagnosticCase: Codable {
+    var id: String
+    var query: String
+    var difficulty: String?
+    var memoryTypes: [String]
+    var relevantDocumentIds: [String]
+    var originalRetrievedDocumentIds: [String]
+    var originalHitAtK: Bool
+    var originalRecallAtK: Double
+    var classification: String
+    var taxonomy: [String]
+    var branchResults: [RecallBranchDiagnosticBranch]
+}
+
+private struct RecallBranchDiagnosticBranch: Codable {
+    var name: String
+    var features: [String]
+    var limit: Int
+    var latencyMs: Double
+    var bestRelevantRank: Int?
+    var relevantHitCount: Int
+    var relevantHitCountAtK: Int
+    var retrievedDocumentIds: [String]
+    var topCandidates: [RecallBranchDiagnosticRankedCandidate]
+    var relevantCandidates: [RecallBranchDiagnosticRankedCandidate]
+    var stageTimings: RecallQueryStageTimings?
+    var candidateCounts: RecallQueryCandidateCounts?
+}
+
+private struct RecallBranchDiagnosticRankedCandidate: Codable {
+    var rank: Int
+    var documentId: String
+    var score: SearchScoreBreakdown
 }
 
 private struct RecallPerTypeMetric: Codable {
@@ -422,6 +518,12 @@ private struct RecallSuiteRunOutput {
 private struct QueryExpansionCaseResult: Codable {
     var id: String
     var query: String
+    var sourceDataset: String?
+    var sourceQueryId: String?
+    var sourceProfile: String?
+    var sourceRankAtK: Int?
+    var failureTaxonomy: [String]?
+    var rescueReason: String?
     var lexicalQueries: [String]
     var semanticQueries: [String]
     var hypotheticalDocuments: [String]
@@ -440,6 +542,55 @@ private struct QueryExpansionCaseResult: Codable {
     var expandedRetrievedDocumentIds: [String]?
     var baselineHitAtK: Bool?
     var expandedHitAtK: Bool?
+    var baselineBestRankAtK: Int?
+    var expandedBestRankAtK: Int?
+    var baselineReciprocalRankAtK: Double?
+    var expandedReciprocalRankAtK: Double?
+    var reciprocalRankDeltaAtK: Double?
+    var rankImprovementAtK: Int?
+    var branchDiagnostics: QueryExpansionBranchDiagnostics?
+    var missDiagnostics: QueryExpansionMissDiagnostics?
+}
+
+private struct QueryExpansionBranchDiagnostics: Codable {
+    var classification: String
+    var baselineSemanticRankAtK: Int?
+    var baselineLexicalRankAtK: Int?
+    var expandedSemanticRankAtK: Int?
+    var expandedLexicalRankAtK: Int?
+    var expansionSourceHits: [QueryExpansionSourceHit]
+}
+
+private struct QueryExpansionSourceHit: Codable {
+    var kind: String
+    var query: String
+    var rankAtK: Int?
+}
+
+private struct QueryExpansionMissDiagnostics: Codable {
+    var diagnosticLimit: Int
+    var finalBestRelevantRank: Int?
+    var finalBestRelevantDocumentId: String?
+    var finalBestRelevantScore: SearchScoreBreakdown?
+    var finalTopCandidates: [QueryExpansionRankedCandidate]
+    var branchRanks: [QueryExpansionBranchRankDiagnostic]
+}
+
+private struct QueryExpansionBranchRankDiagnostic: Codable {
+    var branch: String
+    var query: String
+    var features: [String]
+    var bestRelevantRank: Int?
+    var bestRelevantDocumentId: String?
+    var bestRelevantScore: SearchScoreBreakdown?
+    var topCandidates: [QueryExpansionRankedCandidate]
+}
+
+private struct QueryExpansionRankedCandidate: Codable {
+    var rank: Int
+    var documentId: String
+    var isRelevant: Bool
+    var score: SearchScoreBreakdown
 }
 
 private struct QueryExpansionSuiteReport: Codable {
@@ -456,10 +607,58 @@ private struct QueryExpansionSuiteReport: Codable {
     var retrievalBaselineHitRate: Double?
     var retrievalExpandedHitRate: Double?
     var retrievalLift: Double?
+    var retrievalBaselineMRR: Double?
+    var retrievalExpandedMRR: Double?
+    var retrievalMRRDelta: Double?
+    var failureTaxonomyCounts: [String: Int]?
+    var taxonomyMetrics: [QueryExpansionTaxonomyMetric]?
+    var branchClassificationCounts: [String: Int]?
     var latencyStats: RecallLatencyStats?
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
     var caseResults: [QueryExpansionCaseResult]
+}
+
+private struct QueryExpansionTaxonomyMetric: Codable {
+    var tag: String
+    var caseCount: Int
+    var baselineHitRate: Double
+    var expandedHitRate: Double
+    var baselineMRR: Double
+    var expandedMRR: Double
+    var mrrDelta: Double
+    var improvedCount: Int
+    var worsenedCount: Int
+    var flatCount: Int
+    var missCount: Int
+}
+
+private struct AgentMemoryScenarioResult: Codable {
+    var id: String
+    var expectedWriteCount: Int
+    var extractedCount: Int
+    var storedCount: Int
+    var matchedExpectedWrites: Int
+    var falseWriteCount: Int
+    var activeStateCorrect: Bool?
+    var expectedUpdateBehavior: String?
+    var observedUpdateBehavior: String?
+    var recallHitCount: Int
+    var recallQueryCount: Int
+    var reciprocalRanks: [Double]
+    var latencyMs: Double
+}
+
+private struct AgentMemorySuiteReport: Codable {
+    var totalScenarios: Int
+    var falseWriteRate: Double
+    var expectedWriteRecall: Double
+    var activeStateAccuracy: Double
+    var updateBehaviorAccuracy: Double
+    var recallHitRate: Double
+    var recallMRR: Double
+    var latencyStats: RecallLatencyStats?
+    var caseResults: [AgentMemoryScenarioResult]
 }
 
 private struct ContentTagGenerationStats {
@@ -1077,6 +1276,7 @@ private struct EvalRunReport: Codable {
     var storage: StorageSuiteReport
     var recall: RecallSuiteReport
     var queryExpansion: QueryExpansionSuiteReport?
+    var agentMemory: AgentMemorySuiteReport?
     var notes: [String]
 }
 
@@ -1166,7 +1366,14 @@ struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "memory_eval",
         abstract: "Evaluation harness for Memory.swift storage and recall quality.",
-        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self],
+        subcommands: [
+            InitCommand.self,
+            RunCommand.self,
+            CompareCommand.self,
+            GateCommand.self,
+            ValidateDatasetsCommand.self,
+            DiagnoseLongMemEvalCommand.self,
+        ],
         defaultSubcommand: RunCommand.self
     )
 }
@@ -1360,14 +1567,29 @@ struct RunCommand: AsyncParsableCommand {
             )
         }
 
+        let agentMemoryReport: AgentMemorySuiteReport?
+        if dataset.agentMemoryScenarios.isEmpty {
+            agentMemoryReport = nil
+        } else {
+            agentMemoryReport = try await runAgentMemorySuite(
+                profile: profile,
+                scenarios: dataset.agentMemoryScenarios,
+                datasetRoot: datasetRootURL,
+                root: runRoot,
+                verbose: verbose,
+                responseCache: responseCache
+            )
+        }
+
         let report = EvalRunReport(
-            schemaVersion: 4,
+            schemaVersion: 5,
             createdAt: Date(),
             profile: profile,
             datasetRoot: datasetRootURL.path,
             storage: storageReport,
             recall: recallOutput.report,
             queryExpansion: queryExpansionReport,
+            agentMemory: agentMemoryReport,
             notes: [
                 storageReport.mode == "canonical_memory_schema"
                     ? "Storage eval uses the canonical memory extraction and ingest path and scores kind/status/facet/entity/topic/update behavior."
@@ -1375,7 +1597,9 @@ struct RunCommand: AsyncParsableCommand {
                 "Recall eval uses document-level metrics (deduped by document path).",
                 "Recall documents are indexed without injected memory_type frontmatter to stress automatic classification.",
             ] + notes + recallOutput.notes + (queryExpansionReport != nil ? [
-                "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift with expansion enabled vs disabled."
+                "Query expansion eval scores lexical/semantic/HyDE coverage, facet/entity/topic extraction, and optional retrieval lift/MRR delta with expansion enabled vs disabled."
+            ] : []) + (agentMemoryReport != nil ? [
+                "Agent memory scenario eval scores extraction writes, false writes, active-state/update behavior, recall quality, and latency."
             ] : [])
         )
 
@@ -1436,6 +1660,20 @@ struct RunCommand: AsyncParsableCommand {
                     print("Expansion retrieval lift: \(percent(lift))")
                 }
             }
+            if let expandedMRR = queryExpansion.retrievalExpandedMRR {
+                print("Expansion retrieval MRR@\(kValues.max() ?? 10): \(format(expandedMRR))")
+                if let mrrDelta = queryExpansion.retrievalMRRDelta {
+                    print("Expansion retrieval MRR delta: \(format(mrrDelta))")
+                }
+            }
+        }
+        if let agentMemory = report.agentMemory {
+            print("Agent memory false-write rate: \(percent(agentMemory.falseWriteRate))")
+            print("Agent memory expected-write recall: \(percent(agentMemory.expectedWriteRecall))")
+            print("Agent memory active-state accuracy: \(percent(agentMemory.activeStateAccuracy))")
+            print("Agent memory update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
+            print("Agent memory recall Hit: \(percent(agentMemory.recallHitRate))")
+            print("Agent memory recall MRR: \(format(agentMemory.recallMRR))")
         }
         if let ingestTotal = report.storage.stageLatencyStats?.totalMs {
             print("Indexing total/doc: p50=\(String(format: "%.0f", ingestTotal.p50Ms))ms p95=\(String(format: "%.0f", ingestTotal.p95Ms))ms mean=\(String(format: "%.0f", ingestTotal.meanMs))ms")
@@ -1516,17 +1754,731 @@ struct CompareCommand: AsyncParsableCommand {
     }
 }
 
+private struct EvalBaselineManifest: Codable {
+    var schemaVersion: Int
+    var createdAt: Date?
+    var freshnessHours: Double?
+    var regressionThreshold: Double?
+    var latencyRegressionThreshold: Double?
+    var requiredRuns: [EvalBaselineRequirement]
+}
+
+private struct EvalBaselineRequirement: Codable {
+    var dataset: String
+    var datasetRoot: String?
+    var profile: EvalProfile
+    var maxAgeHours: Double?
+    var metrics: [String: Double]
+    var minimumMetrics: [String: Double]?
+    var maximumMetrics: [String: Double]?
+    var latencyP95Ms: Double?
+}
+
+struct GateCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "gate",
+        abstract: "Validate eval run artifacts against a reduced baseline manifest."
+    )
+
+    @Option(name: .long, help: "Path to eval baseline manifest JSON.")
+    var baseline: String = "Evals/baselines/current.json"
+
+    @Option(name: .long, help: "Override maximum run artifact age in hours.")
+    var maxAgeHours: Double?
+
+    @Argument(help: "Candidate eval run JSON files.")
+    var runs: [String]
+
+    mutating func run() async throws {
+        guard !runs.isEmpty else {
+            throw ValidationError("Provide candidate run JSON paths.")
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let baselineURL = URL(fileURLWithPath: NSString(string: baseline).expandingTildeInPath).standardizedFileURL
+        let manifest = try decoder.decode(EvalBaselineManifest.self, from: Data(contentsOf: baselineURL))
+
+        let reports = try runs.map { path in
+            let url = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL
+            return try decoder.decode(EvalRunReport.self, from: Data(contentsOf: url))
+        }
+
+        var failures: [String] = []
+        let metricThreshold = manifest.regressionThreshold ?? 0.02
+        let latencyThreshold = manifest.latencyRegressionThreshold ?? 0.15
+        let now = Date()
+
+        for requirement in manifest.requiredRuns {
+            guard let report = reports.first(where: { reportMatchesRequirement($0, requirement: requirement) }) else {
+                failures.append("Missing run for \(requirement.dataset) / \(requirement.profile.rawValue).")
+                continue
+            }
+
+            let allowedAge = maxAgeHours ?? requirement.maxAgeHours ?? manifest.freshnessHours
+            if let allowedAge, allowedAge > 0 {
+                let ageHours = now.timeIntervalSince(report.createdAt) / 3600.0
+                if ageHours > allowedAge {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) is stale: \(String(format: "%.1f", ageHours))h old > \(String(format: "%.1f", allowedAge))h."
+                    )
+                }
+            }
+
+            let candidateMetrics = reducedMetrics(from: report)
+            for (name, minimumValue) in (requirement.minimumMetrics ?? [:]).sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing minimum metric \(name).")
+                    continue
+                }
+                if candidateValue < minimumValue {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) below minimum (minimum \(format(minimumValue)) -> candidate \(format(candidateValue)))."
+                    )
+                }
+            }
+
+            for (name, maximumValue) in (requirement.maximumMetrics ?? [:]).sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing maximum metric \(name).")
+                    continue
+                }
+                if candidateValue > maximumValue {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) above maximum (maximum \(format(maximumValue)) -> candidate \(format(candidateValue)))."
+                    )
+                }
+            }
+
+            for (name, baselineValue) in requirement.metrics.sorted(by: { $0.key < $1.key }) {
+                guard let candidateValue = candidateMetrics[name] else {
+                    failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing metric \(name).")
+                    continue
+                }
+
+                if metricIsLowerBetter(name) {
+                    let regression = candidateValue - baselineValue
+                    if regression > metricThreshold {
+                        failures.append(
+                            "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) regressed by \(percent(regression)) (baseline \(format(baselineValue)) -> candidate \(format(candidateValue)))."
+                        )
+                    }
+                } else {
+                    let regression = baselineValue - candidateValue
+                    if regression > metricThreshold {
+                        failures.append(
+                            "\(requirement.dataset) / \(requirement.profile.rawValue) \(name) regressed by \(percent(regression)) (baseline \(format(baselineValue)) -> candidate \(format(candidateValue)))."
+                        )
+                    }
+                }
+            }
+
+            if let baselineLatency = requirement.latencyP95Ms,
+               let candidateLatency = p95Latency(from: report),
+               baselineLatency > 0 {
+                let limit = baselineLatency * (1.0 + latencyThreshold)
+                if candidateLatency > limit {
+                    failures.append(
+                        "\(requirement.dataset) / \(requirement.profile.rawValue) p95 latency regressed: \(String(format: "%.1f", candidateLatency))ms > \(String(format: "%.1f", limit))ms."
+                    )
+                }
+            } else if requirement.latencyP95Ms != nil {
+                failures.append("\(requirement.dataset) / \(requirement.profile.rawValue) missing p95 latency.")
+            }
+        }
+
+        if failures.isEmpty {
+            print("Eval gate passed for \(manifest.requiredRuns.count) required run(s).")
+        } else {
+            print("Eval gate failed:")
+            for failure in failures {
+                print("- \(failure)")
+            }
+            throw ExitCode(1)
+        }
+    }
+}
+
+struct ValidateDatasetsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "validate-datasets",
+        abstract: "Validate eval dataset roots, sidecars, and baseline manifests without running model evals."
+    )
+
+    @Argument(help: "Dataset roots to validate. Defaults to runnable immediate children under Evals/.")
+    var datasetRoots: [String] = []
+
+    @Option(name: .long, help: "Baseline manifest path to validate. May be passed multiple times. Defaults to all Evals/baselines/*.json files when present.")
+    var baseline: [String] = []
+
+    @Flag(name: .long, help: "Treat hygiene warnings as failures.")
+    var strict = false
+
+    mutating func run() async throws {
+        let roots = try resolvedValidationDatasetRoots(from: datasetRoots)
+        let baselines = try resolvedValidationBaselines(from: baseline)
+
+        guard !roots.isEmpty || !baselines.isEmpty else {
+            throw ValidationError("No eval dataset roots or baseline manifests found to validate.")
+        }
+
+        var totalWarnings = 0
+        var totalErrors = 0
+
+        for root in roots {
+            let issues = validateDatasetRoot(root)
+            let warningCount = issues.filter { $0.severity == .warning }.count
+            let errorCount = issues.filter { $0.severity == .error }.count
+            totalWarnings += warningCount
+            totalErrors += errorCount
+
+            if issues.isEmpty {
+                print("[validate-datasets] \(root.path): ok")
+            } else {
+                print("[validate-datasets] \(root.path): \(errorCount) error(s), \(warningCount) warning(s)")
+                for issue in issues {
+                    print("  [\(issue.severity.rawValue)] \(issue.message)")
+                }
+            }
+        }
+
+        for baselineURL in baselines {
+            let issues = validateBaselineManifest(baselineURL)
+            let warningCount = issues.filter { $0.severity == .warning }.count
+            let errorCount = issues.filter { $0.severity == .error }.count
+            totalWarnings += warningCount
+            totalErrors += errorCount
+
+            if issues.isEmpty {
+                print("[validate-datasets] \(baselineURL.path): ok")
+            } else {
+                print("[validate-datasets] \(baselineURL.path): \(errorCount) error(s), \(warningCount) warning(s)")
+                for issue in issues {
+                    print("  [\(issue.severity.rawValue)] \(issue.message)")
+                }
+            }
+        }
+
+        if totalErrors > 0 || (strict && totalWarnings > 0) {
+            throw ValidationError(
+                "Eval validation failed with \(totalErrors) error(s) and \(totalWarnings) warning(s)."
+            )
+        }
+
+        print("[validate-datasets] passed with \(totalWarnings) warning(s).")
+    }
+}
+
+struct DiagnoseLongMemEvalCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "diagnose-longmemeval",
+        abstract: "Rerun LongMemEval recall misses across retrieval branches and write diagnostic artifacts."
+    )
+
+    @Option(name: .long, help: "Profile to run.")
+    var profile: EvalProfile = .coreMLDefault
+
+    @Option(name: .long, help: "Dataset root folder.")
+    var datasetRoot: String = "Evals/longmemeval_v2"
+
+    @Option(name: .long, help: "Source eval run JSON used to select miss/partial cases.")
+    var sourceRun: String
+
+    @Option(name: .long, help: "Output JSON path. Defaults beside --source-run.")
+    var output: String?
+
+    @Option(name: .long, help: "Case scope: misses, misses-and-partials, or all.")
+    var scope: String = "misses-and-partials"
+
+    @Option(name: .long, help: "Wide diagnostic retrieval limit.")
+    var wideLimit: Int = 100
+
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Reuse cached recall index across diagnostic runs."
+    )
+    var indexCache = true
+
+    mutating func run() async throws {
+        let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
+        let sourceRunURL = URL(fileURLWithPath: NSString(string: sourceRun).expandingTildeInPath).standardizedFileURL
+
+        let dataset = try loadDataset(root: datasetRootURL)
+        guard !dataset.recallDocuments.isEmpty, !dataset.recallQueries.isEmpty else {
+            throw ValidationError("diagnose-longmemeval requires recall_documents.jsonl and recall_queries.jsonl.")
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let sourceReport = try decoder.decode(EvalRunReport.self, from: Data(contentsOf: sourceRunURL))
+        let maxK = sourceReport.recall.metricsByK.max(by: { $0.k < $1.k })?.k ?? 10
+        let normalizedScope = scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let selectedIDs = try selectRecallDiagnosticIDs(
+            from: sourceReport.recall.queryResults,
+            maxK: maxK,
+            scope: normalizedScope
+        )
+        let selectedIDSet = Set(selectedIDs)
+        let selectedQueries = dataset.recallQueries.filter { selectedIDSet.contains($0.id) }
+        guard !selectedQueries.isEmpty else {
+            throw ValidationError("No LongMemEval cases matched scope '\(scope)'.")
+        }
+
+        let runRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("memory-evals", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+
+        let indexSeed = recallIndexCacheSeed(profile: profile, documents: dataset.recallDocuments)
+        let workspace = try prepareIndexWorkspace(
+            suite: .recall,
+            profile: profile,
+            datasetRoot: datasetRootURL,
+            runRoot: runRoot,
+            cacheEnabled: indexCache,
+            seed: indexSeed
+        )
+
+        var pathByDocumentID: [String: String] = [:]
+        var documentIDByPath: [String: String] = [:]
+        for document in dataset.recallDocuments {
+            let path = materializedRecallDocumentURL(document, docsRoot: workspace.docsRoot)
+            pathByDocumentID[document.id] = path.path
+            documentIDByPath[path.path] = document.id
+        }
+
+        let expectedPaths = pathByDocumentID.values.map(URL.init(fileURLWithPath:))
+        let canReuseIndex = indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: expectedPaths)
+        if canReuseIndex {
+            print("[diagnose-longmemeval][index-cache] hit: \(workspace.root.path)")
+        } else {
+            if workspace.cacheEnabled {
+                print("[diagnose-longmemeval][index-cache] miss: \(workspace.root.path)")
+            }
+            try resetWorkspaceForRebuild(workspace)
+            for document in dataset.recallDocuments {
+                guard let pathRaw = pathByDocumentID[document.id] else { continue }
+                let path = URL(fileURLWithPath: pathRaw)
+                try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try materializeRecallDocument(document).write(to: path, atomically: true, encoding: .utf8)
+            }
+        }
+
+        var config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: workspace.databaseURL)
+        let recallDiagnostics = installRecallDiagnosticsIfNeeded(profile: profile, configuration: &config)
+        let index = try MemoryIndex(configuration: config)
+        if canReuseIndex {
+            print("[diagnose-longmemeval] Using cached index for \(dataset.recallDocuments.count) documents.")
+        } else {
+            print("[diagnose-longmemeval] Building index for \(dataset.recallDocuments.count) documents...")
+            let start = Date()
+            try await index.rebuildIndex(from: [workspace.docsRoot])
+            print("[diagnose-longmemeval] Index built in \(formatDuration(Date().timeIntervalSince(start))).")
+            try markIndexCacheReady(workspace)
+        }
+
+        let sourceResultsByID = Dictionary(uniqueKeysWithValues: sourceReport.recall.queryResults.map { ($0.id, $0) })
+        let allFeatures = recallFeatures(for: config)
+        var noExpansionFeatures = allFeatures
+        noExpansionFeatures.remove(.expansion)
+
+        let diagnosticLimit = max(wideLimit, maxK)
+        let branchSpecs: [(name: String, features: RecallFeatures, limit: Int)] = [
+            ("current_top_k", allFeatures, maxK),
+            ("current_wide", allFeatures, diagnosticLimit),
+            ("no_expansion_wide", noExpansionFeatures, diagnosticLimit),
+            ("lexical_wide", [.lexical], diagnosticLimit),
+            ("semantic_wide", [.semantic], diagnosticLimit),
+        ]
+
+        var caseResults: [RecallBranchDiagnosticCase] = []
+        var progress = DeterminateProgress(label: "diagnose-longmemeval", total: selectedQueries.count)
+        for queryCase in selectedQueries {
+            guard let sourceResult = sourceResultsByID[queryCase.id] else { continue }
+            let relevant = Set(queryCase.relevantDocumentIds)
+            var branches: [RecallBranchDiagnosticBranch] = []
+            for spec in branchSpecs {
+                let branch = try await runRecallBranchDiagnostic(
+                    index: index,
+                    query: queryCase.query,
+                    relevantDocumentIds: relevant,
+                    documentIDByPath: documentIDByPath,
+                    name: spec.name,
+                    features: spec.features,
+                    limit: spec.limit,
+                    evaluationK: maxK
+                )
+                branches.append(branch)
+            }
+
+            let originalHit = sourceResult.hitByK[maxK] ?? false
+            let originalRecall = sourceResult.recallByK[maxK] ?? 0
+            let taxonomy = recallDiagnosticTaxonomy(
+                query: queryCase.query,
+                relevantCount: queryCase.relevantDocumentIds.count,
+                memoryTypes: queryCase.memoryTypes ?? []
+            )
+            caseResults.append(
+                RecallBranchDiagnosticCase(
+                    id: queryCase.id,
+                    query: queryCase.query,
+                    difficulty: queryCase.difficulty,
+                    memoryTypes: queryCase.memoryTypes ?? [],
+                    relevantDocumentIds: queryCase.relevantDocumentIds,
+                    originalRetrievedDocumentIds: sourceResult.retrievedDocumentIds,
+                    originalHitAtK: originalHit,
+                    originalRecallAtK: originalRecall,
+                    classification: classifyRecallDiagnosticCase(
+                        originalHitAtK: originalHit,
+                        originalRecallAtK: originalRecall,
+                        maxK: maxK,
+                        relevantCount: queryCase.relevantDocumentIds.count,
+                        branches: branches
+                    ),
+                    taxonomy: taxonomy,
+                    branchResults: branches
+                )
+            )
+            progress.advance(detail: queryCase.id)
+        }
+
+        if let recallDiagnostics {
+            for line in await recallDiagnostics.summaryLines(suite: .recall) {
+                print(line)
+            }
+            for line in await recallDiagnostics.detailLines(suite: .recall) {
+                print(line)
+            }
+        }
+
+        let report = RecallBranchDiagnosticReport(
+            schemaVersion: 1,
+            createdAt: Date(),
+            profile: profile,
+            datasetRoot: datasetRootURL.path,
+            sourceRun: sourceRunURL.path,
+            scope: normalizedScope,
+            maxK: maxK,
+            wideLimit: diagnosticLimit,
+            totalCases: caseResults.count,
+            classificationCounts: countBy(caseResults.map(\.classification)),
+            taxonomyCounts: countBy(caseResults.flatMap(\.taxonomy)),
+            branchHitCounts: recallDiagnosticBranchHitCounts(caseResults),
+            caseResults: caseResults.sorted { $0.id < $1.id }
+        )
+
+        let outputURL = try resolveLongMemEvalDiagnosticOutput(sourceRunURL: sourceRunURL, output: output)
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(report).write(to: outputURL, options: .atomic)
+
+        let markdown = makeRecallBranchDiagnosticMarkdown(report)
+        let markdownURL = outputURL.deletingPathExtension().appendingPathExtension("md")
+        try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        print("Diagnostic JSON: \(outputURL.path)")
+        print("Diagnostic Markdown: \(markdownURL.path)")
+    }
+}
+
+private func selectRecallDiagnosticIDs(
+    from results: [RecallQueryResult],
+    maxK: Int,
+    scope: String
+) throws -> [String] {
+    switch scope {
+    case "misses":
+        return results.filter { ($0.hitByK[maxK] ?? false) == false }.map(\.id)
+    case "misses-and-partials":
+        return results.filter { result in
+            let hit = result.hitByK[maxK] ?? false
+            let recall = result.recallByK[maxK] ?? 0
+            return !hit || recall < 1
+        }.map(\.id)
+    case "all":
+        return results.map(\.id)
+    default:
+        throw ValidationError("Unsupported scope '\(scope)'. Use misses, misses-and-partials, or all.")
+    }
+}
+
+private func runRecallBranchDiagnostic(
+    index: MemoryIndex,
+    query: String,
+    relevantDocumentIds: Set<String>,
+    documentIDByPath: [String: String],
+    name: String,
+    features: RecallFeatures,
+    limit: Int,
+    evaluationK: Int
+) async throws -> RecallBranchDiagnosticBranch {
+    let collector = SearchStageTimingCollector()
+    let start = Date()
+    let references = try await index.memorySearch(
+        query: query,
+        limit: limit,
+        features: features,
+        dedupeDocuments: true,
+        includeLineRanges: false,
+        events: { event in
+            collector.record(event)
+        }
+    )
+    let latencyMs = Date().timeIntervalSince(start) * 1000.0
+    var rankedCandidates: [RecallBranchDiagnosticRankedCandidate] = []
+    rankedCandidates.reserveCapacity(references.count)
+    for reference in references {
+        guard let documentID = documentIDByPath[reference.documentPath] else { continue }
+        rankedCandidates.append(
+            RecallBranchDiagnosticRankedCandidate(
+                rank: rankedCandidates.count + 1,
+                documentId: documentID,
+                score: reference.score
+            )
+        )
+    }
+    let retrievedDocumentIds = rankedCandidates.map(\.documentId)
+    let bestRank = retrievedDocumentIds.firstIndex(where: { relevantDocumentIds.contains($0) }).map { $0 + 1 }
+    let relevantHitCount = retrievedDocumentIds.reduce(into: 0) { count, documentID in
+        if relevantDocumentIds.contains(documentID) {
+            count += 1
+        }
+    }
+    let relevantHitCountAtK = retrievedDocumentIds.prefix(evaluationK).reduce(into: 0) { count, documentID in
+        if relevantDocumentIds.contains(documentID) {
+            count += 1
+        }
+    }
+
+    return RecallBranchDiagnosticBranch(
+        name: name,
+        features: queryExpansionFeatureLabels(features),
+        limit: limit,
+        latencyMs: latencyMs,
+        bestRelevantRank: bestRank,
+        relevantHitCount: relevantHitCount,
+        relevantHitCountAtK: relevantHitCountAtK,
+        retrievedDocumentIds: Array(retrievedDocumentIds.prefix(limit)),
+        topCandidates: Array(rankedCandidates.prefix(evaluationK)),
+        relevantCandidates: rankedCandidates.filter { relevantDocumentIds.contains($0.documentId) },
+        stageTimings: collector.queryTimings(),
+        candidateCounts: collector.queryCounts()
+    )
+}
+
+private func classifyRecallDiagnosticCase(
+    originalHitAtK: Bool,
+    originalRecallAtK: Double,
+    maxK: Int,
+    relevantCount: Int,
+    branches: [RecallBranchDiagnosticBranch]
+) -> String {
+    let byName = Dictionary(uniqueKeysWithValues: branches.map { ($0.name, $0) })
+    let currentWide = byName["current_wide"]
+    let noExpansion = byName["no_expansion_wide"]
+    let lexical = byName["lexical_wide"]
+    let semantic = byName["semantic_wide"]
+
+    let currentWideTopHit = (currentWide?.bestRelevantRank).map { $0 <= maxK } ?? false
+    let currentWideHasCandidate = currentWide?.bestRelevantRank != nil
+    let branchHit = branches.contains { $0.bestRelevantRank != nil }
+    let noExpansionTopHit = (noExpansion?.bestRelevantRank).map { $0 <= maxK } ?? false
+    let lexicalHit = lexical?.bestRelevantRank != nil
+    let semanticHit = semantic?.bestRelevantRank != nil
+
+    if !originalHitAtK, currentWideTopHit {
+        return "fixed_by_current_code"
+    }
+
+    if originalHitAtK, originalRecallAtK < 1, relevantCount > 1 {
+        let topRelevant = currentWide?.relevantHitCountAtK ?? 0
+        let wideRelevant = currentWide?.relevantHitCount ?? 0
+        if wideRelevant > topRelevant {
+            return "multi_evidence_preservation"
+        }
+        return "partial_multi_evidence"
+    }
+
+    if noExpansionTopHit, !currentWideTopHit {
+        return "expansion_regression"
+    }
+
+    if currentWideHasCandidate, !currentWideTopHit {
+        return "ranking_or_pool_depth"
+    }
+
+    if (lexicalHit || semanticHit), !currentWideHasCandidate {
+        return "fusion_filtering"
+    }
+
+    if !branchHit {
+        return "candidate_generation"
+    }
+
+    return currentWideTopHit ? "covered" : "candidate_generation"
+}
+
+private func recallDiagnosticTaxonomy(
+    query: String,
+    relevantCount: Int,
+    memoryTypes: [String]
+) -> [String] {
+    let lower = query.lowercased()
+    var labels: [String] = []
+    let normalizedTypes = Set(memoryTypes.map { $0.lowercased() })
+
+    let temporalNeedles = [
+        "how many", "what time", "when", "which day", "date", "day", "week",
+        "month", "year", "before", "after", "since", "during", "past", "last",
+        "currently", "now", "typical week"
+    ]
+    if normalizedTypes.contains("temporal") || temporalNeedles.contains(where: lower.contains) {
+        labels.append("temporal/count")
+    }
+
+    let multiNeedles = ["across", "all the", "between", "total", "combined", "from ", " and "]
+    if relevantCount > 1 || multiNeedles.contains(where: lower.contains) {
+        labels.append("multi-evidence")
+    }
+
+    let contextualNeedles = ["previous conversation", "previous chat", "remind me", "that ", "this ", " it ", "those "]
+    if contextualNeedles.contains(where: lower.contains) {
+        labels.append("contextual-ellipsis")
+    }
+
+    let hasQuotedPhrase = query.contains("'") || query.contains("\"")
+    let hasProperEntity = query.range(of: #"\b[A-Z][A-Za-z0-9_-]{2,}\b"#, options: .regularExpression) != nil
+    if hasQuotedPhrase || hasProperEntity || normalizedTypes.contains("entity") {
+        labels.append("entity/alias")
+    }
+
+    if normalizedTypes.contains("episodic"), !labels.contains("temporal/count") {
+        labels.append("episodic/contextual")
+    }
+
+    return labels.isEmpty ? ["lexical/semantic-mismatch"] : labels
+}
+
+private func recallDiagnosticBranchHitCounts(_ cases: [RecallBranchDiagnosticCase]) -> [String: Int] {
+    var counts: [String: Int] = [:]
+    for diagnosticCase in cases {
+        for branch in diagnosticCase.branchResults where branch.bestRelevantRank != nil {
+            counts[branch.name, default: 0] += 1
+        }
+    }
+    return counts
+}
+
+private func countBy(_ values: [String]) -> [String: Int] {
+    values.reduce(into: [:]) { counts, value in
+        counts[value, default: 0] += 1
+    }
+}
+
+private func resolveLongMemEvalDiagnosticOutput(sourceRunURL: URL, output: String?) throws -> URL {
+    if let output {
+        return URL(fileURLWithPath: NSString(string: output).expandingTildeInPath).standardizedFileURL
+    }
+    return sourceRunURL
+        .deletingPathExtension()
+        .appendingPathExtension("branch-diagnostics.json")
+}
+
+private func makeRecallBranchDiagnosticMarkdown(_ report: RecallBranchDiagnosticReport) -> String {
+    var lines: [String] = []
+    lines.append("# LongMemEval Branch Diagnostics")
+    lines.append("")
+    lines.append("- Profile: `\(report.profile.rawValue)`")
+    lines.append("- Source run: `\(report.sourceRun)`")
+    lines.append("- Scope: `\(report.scope)`")
+    lines.append("- Cases: \(report.totalCases)")
+    lines.append("- Max K: \(report.maxK)")
+    lines.append("- Wide limit: \(report.wideLimit)")
+    lines.append("")
+
+    lines.append("## Classification Counts")
+    lines.append("| Classification | Count |")
+    lines.append("|---|---:|")
+    for entry in report.classificationCounts.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Taxonomy Counts")
+    lines.append("| Taxonomy | Count |")
+    lines.append("|---|---:|")
+    for entry in report.taxonomyCounts.sorted(by: { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Branch Coverage")
+    lines.append("| Branch | Cases with relevant doc |")
+    lines.append("|---|---:|")
+    for entry in report.branchHitCounts.sorted(by: { $0.key < $1.key }) {
+        lines.append("| `\(markdownTableCell(entry.key))` | \(entry.value) |")
+    }
+    lines.append("")
+
+    lines.append("## Cases")
+    lines.append("| ID | Classification | Taxonomy | Original | Branch ranks |")
+    lines.append("|---|---|---|---|---|")
+    for result in report.caseResults {
+        let original = result.originalHitAtK
+            ? "hit, recall \(format(result.originalRecallAtK))"
+            : "miss"
+        let branchRanks = result.branchResults.map { branch -> String in
+            if let rank = branch.bestRelevantRank {
+                let relevantSummary = branch.relevantCandidates
+                    .prefix(4)
+                    .map { candidate in
+                        "\(candidate.rank)[\(queryExpansionScoreSummary(candidate.score))]"
+                    }
+                    .joined(separator: ",")
+                if relevantSummary.isEmpty {
+                    return "\(branch.name): \(rank)/\(branch.limit)"
+                }
+                return "\(branch.name): \(rank)/\(branch.limit) {\(relevantSummary)}"
+            }
+            return "\(branch.name): -"
+        }.joined(separator: "; ")
+        lines.append(
+            "| `\(markdownTableCell(result.id))` | `\(markdownTableCell(result.classification))` | \(markdownTableCell(result.taxonomy.joined(separator: ", "))) | \(markdownTableCell(original)) | \(markdownTableCell(branchRanks)) |"
+        )
+    }
+    lines.append("")
+    return lines.joined(separator: "\n")
+}
+
 private struct DatasetBundle {
     var storageCases: [StorageCase]
     var recallDocuments: [RecallDocumentCase]
     var recallQueries: [RecallQueryCase]
     var queryExpansionCases: [QueryExpansionCase]
+    var agentMemoryScenarios: [AgentMemoryScenarioCase]
+}
+
+private enum DatasetValidationSeverity: String {
+    case warning
+    case error
+}
+
+private struct DatasetValidationIssue {
+    var severity: DatasetValidationSeverity
+    var message: String
 }
 
 private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageURL = root.appendingPathComponent("storage_cases.jsonl")
     let recallDocumentsURL = root.appendingPathComponent("recall_documents.jsonl")
     let recallQueriesURL = root.appendingPathComponent("recall_queries.jsonl")
+    let agentMemoryScenariosURL = root.appendingPathComponent("scenarios.jsonl")
     let queryExpansionURLCandidates = [
         root.appendingPathComponent("query_expansion_cases.jsonl"),
         root.appendingPathComponent("cases.jsonl"),
@@ -1536,17 +2488,19 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageExists = fileManager.fileExists(atPath: storageURL.path)
     let recallDocumentsExists = fileManager.fileExists(atPath: recallDocumentsURL.path)
     let recallQueriesExists = fileManager.fileExists(atPath: recallQueriesURL.path)
+    let agentMemoryScenariosExists = fileManager.fileExists(atPath: agentMemoryScenariosURL.path)
     let queryExpansionURL = queryExpansionURLCandidates.first { fileManager.fileExists(atPath: $0.path) }
 
-    guard storageExists || recallDocumentsExists || recallQueriesExists || queryExpansionURL != nil else {
+    guard storageExists || recallDocumentsExists || recallQueriesExists || queryExpansionURL != nil || agentMemoryScenariosExists else {
         throw ValidationError(
-            "No dataset files found in \(root.path). Expected one or more of storage_cases.jsonl, recall_documents.jsonl, recall_queries.jsonl, query_expansion_cases.jsonl, or cases.jsonl."
+            "No dataset files found in \(root.path). Expected one or more of storage_cases.jsonl, recall_documents.jsonl, recall_queries.jsonl, query_expansion_cases.jsonl, cases.jsonl, or scenarios.jsonl."
         )
     }
 
     let storageCases: [StorageCase] = storageExists ? try loadJSONLines(from: storageURL) : []
     let recallDocuments: [RecallDocumentCase] = recallDocumentsExists ? try loadJSONLines(from: recallDocumentsURL) : []
     let recallQueries: [RecallQueryCase] = recallQueriesExists ? try loadJSONLines(from: recallQueriesURL) : []
+    let agentMemoryScenarios: [AgentMemoryScenarioCase] = agentMemoryScenariosExists ? try loadJSONLines(from: agentMemoryScenariosURL) : []
     let queryExpansionCases: [QueryExpansionCase]
     if let queryExpansionURL {
         queryExpansionCases = try loadJSONLines(from: queryExpansionURL)
@@ -1568,7 +2522,10 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
     if queryExpansionURL != nil && queryExpansionCases.isEmpty {
         throw ValidationError("\(queryExpansionURL!.lastPathComponent) must contain at least one case when present.")
     }
-    if !storageExists && recallDocuments.isEmpty && recallQueries.isEmpty && queryExpansionCases.isEmpty {
+    if agentMemoryScenariosExists && agentMemoryScenarios.isEmpty {
+        throw ValidationError("scenarios.jsonl must contain at least one case when present.")
+    }
+    if !storageExists && recallDocuments.isEmpty && recallQueries.isEmpty && queryExpansionCases.isEmpty && agentMemoryScenarios.isEmpty {
         throw ValidationError("Dataset root \(root.path) does not contain any runnable eval cases.")
     }
 
@@ -1576,8 +2533,221 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
         storageCases: storageCases,
         recallDocuments: recallDocuments,
         recallQueries: recallQueries,
-        queryExpansionCases: queryExpansionCases
+        queryExpansionCases: queryExpansionCases,
+        agentMemoryScenarios: agentMemoryScenarios
     )
+}
+
+private func resolvedValidationDatasetRoots(from rawRoots: [String]) throws -> [URL] {
+    if !rawRoots.isEmpty {
+        return rawRoots.map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL
+        }
+    }
+
+    let evalsRoot = URL(fileURLWithPath: "Evals", isDirectory: true).standardizedFileURL
+    guard FileManager.default.fileExists(atPath: evalsRoot.path) else { return [] }
+
+    let excluded = Set(["_audit", "baselines", "local_nc"])
+    let children = try FileManager.default.contentsOfDirectory(
+        at: evalsRoot,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+    )
+
+    return children.filter { url in
+        guard !excluded.contains(url.lastPathComponent) else { return false }
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return false }
+        return datasetRootHasRunnableFiles(url)
+    }
+    .sorted { $0.path < $1.path }
+}
+
+private func datasetRootHasRunnableFiles(_ root: URL) -> Bool {
+    let fileManager = FileManager.default
+    return [
+        "storage_cases.jsonl",
+        "recall_documents.jsonl",
+        "recall_queries.jsonl",
+        "query_expansion_cases.jsonl",
+        "cases.jsonl",
+        "scenarios.jsonl",
+    ].contains { fileManager.fileExists(atPath: root.appendingPathComponent($0).path) }
+}
+
+private func resolvedValidationBaselines(from rawBaselines: [String]) throws -> [URL] {
+    if !rawBaselines.isEmpty {
+        return rawBaselines.map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL
+        }
+    }
+
+    let baselineRoot = URL(fileURLWithPath: "Evals/baselines", isDirectory: true).standardizedFileURL
+    guard FileManager.default.fileExists(atPath: baselineRoot.path) else { return [] }
+
+    return try FileManager.default.contentsOfDirectory(
+        at: baselineRoot,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    )
+    .filter { $0.pathExtension == "json" }
+    .sorted { $0.path < $1.path }
+}
+
+private func validateDatasetRoot(_ root: URL) -> [DatasetValidationIssue] {
+    var issues: [DatasetValidationIssue] = []
+
+    guard FileManager.default.fileExists(atPath: root.path) else {
+        return [.init(severity: .error, message: "dataset root does not exist")]
+    }
+
+    if !FileManager.default.fileExists(atPath: root.appendingPathComponent("manifest.json").path) {
+        issues.append(.init(severity: .warning, message: "missing manifest.json with provenance and gate intent"))
+    }
+
+    issues.append(contentsOf: validateDatasetSidecars(root))
+
+    let dataset: DatasetBundle
+    do {
+        dataset = try loadDataset(root: root)
+    } catch {
+        issues.append(.init(severity: .error, message: error.localizedDescription))
+        return issues
+    }
+
+    issues.append(contentsOf: duplicateIDIssues(label: "storage_cases", values: dataset.storageCases.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "recall_documents", values: dataset.recallDocuments.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "recall_queries", values: dataset.recallQueries.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "query_expansion_cases", values: dataset.queryExpansionCases.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "agent_memory_scenarios", values: dataset.agentMemoryScenarios.map(\.id)))
+
+    let documentIDs = Set(dataset.recallDocuments.map(\.id))
+    for query in dataset.recallQueries {
+        if query.relevantDocumentIds.isEmpty {
+            issues.append(.init(severity: .error, message: "recall query \(query.id) has empty relevant_document_ids"))
+        }
+        let missing = query.relevantDocumentIds.filter { !documentIDs.contains($0) }
+        if !missing.isEmpty {
+            issues.append(.init(severity: .error, message: "recall query \(query.id) references missing documents: \(missing.sorted().joined(separator: ", "))"))
+        }
+    }
+
+    if !documentIDs.isEmpty {
+        for queryExpansionCase in dataset.queryExpansionCases {
+            let referenced = (queryExpansionCase.relevantDocumentIds ?? []) + (queryExpansionCase.candidateDocumentIds ?? [])
+            let missing = referenced.filter { !documentIDs.contains($0) }
+            if !missing.isEmpty {
+                issues.append(.init(severity: .error, message: "query-expansion case \(queryExpansionCase.id) references missing documents: \(Set(missing).sorted().joined(separator: ", "))"))
+            }
+        }
+    }
+
+    for scenario in dataset.agentMemoryScenarios {
+        if scenario.messages.isEmpty {
+            issues.append(.init(severity: .error, message: "agent-memory scenario \(scenario.id) has no messages"))
+        }
+        if scenario.expectedWriteCount == nil, scenario.expectedMemories == nil {
+            issues.append(.init(severity: .warning, message: "agent-memory scenario \(scenario.id) has no explicit write expectation"))
+        }
+    }
+
+    return issues
+}
+
+private func validateDatasetSidecars(_ root: URL) -> [DatasetValidationIssue] {
+    let fileManager = FileManager.default
+    guard let enumerator = fileManager.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsPackageDescendants]
+    ) else {
+        return []
+    }
+
+    let scratchNames: Set<String> = [
+        "scenarios.model_drafts.jsonl",
+        "scenarios.model_review.md",
+    ]
+
+    var issues: [DatasetValidationIssue] = []
+    for case let url as URL in enumerator {
+        let name = url.lastPathComponent
+        if name == ".DS_Store" {
+            issues.append(.init(severity: .warning, message: "remove local Finder metadata: \(relativePath(url, under: root))"))
+        } else if scratchNames.contains(name) {
+            issues.append(.init(severity: .warning, message: "scratch/provenance sidecar in runnable dataset root: \(relativePath(url, under: root))"))
+        }
+    }
+    return issues
+}
+
+private func duplicateIDIssues(label: String, values: [String]) -> [DatasetValidationIssue] {
+    var counts: [String: Int] = [:]
+    for value in values {
+        counts[value, default: 0] += 1
+    }
+    return counts
+        .filter { $0.value > 1 }
+        .sorted { $0.key < $1.key }
+        .map { .init(severity: .error, message: "\(label) has duplicate id '\($0.key)'") }
+}
+
+private func validateBaselineManifest(_ url: URL) -> [DatasetValidationIssue] {
+    var issues: [DatasetValidationIssue] = []
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        return [.init(severity: .error, message: "baseline manifest does not exist")]
+    }
+
+    let manifest: EvalBaselineManifest
+    do {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        manifest = try decoder.decode(EvalBaselineManifest.self, from: Data(contentsOf: url))
+    } catch {
+        return [.init(severity: .error, message: "failed to decode baseline manifest: \(error.localizedDescription)")]
+    }
+
+    if manifest.requiredRuns.isEmpty {
+        issues.append(.init(severity: .error, message: "baseline manifest has no required_runs"))
+    }
+
+    var seenRequirements: Set<String> = []
+    for requirement in manifest.requiredRuns {
+        let key = "\(requirement.dataset)|\(requirement.profile.rawValue)|\(requirement.datasetRoot ?? "")"
+        if !seenRequirements.insert(key).inserted {
+            issues.append(.init(severity: .error, message: "duplicate baseline requirement for \(key)"))
+        }
+
+        if requirement.metrics.isEmpty {
+            issues.append(.init(severity: .warning, message: "\(requirement.dataset) / \(requirement.profile.rawValue) has no baseline metrics"))
+        }
+
+        if let datasetRoot = requirement.datasetRoot {
+            let root = URL(fileURLWithPath: datasetRoot, isDirectory: true).standardizedFileURL
+            if !FileManager.default.fileExists(atPath: root.path) {
+                issues.append(.init(severity: .error, message: "\(requirement.dataset) dataset_root does not exist: \(datasetRoot)"))
+            }
+        }
+
+        let minimumKeys = Set(requirement.minimumMetrics?.keys.map { $0 } ?? [])
+        let maximumKeys = Set(requirement.maximumMetrics?.keys.map { $0 } ?? [])
+        let overlap = minimumKeys.intersection(maximumKeys)
+        for key in overlap.sorted() {
+            issues.append(.init(severity: .warning, message: "\(requirement.dataset) metric \(key) is listed in both minimum_metrics and maximum_metrics"))
+        }
+    }
+
+    return issues
+}
+
+private func relativePath(_ url: URL, under root: URL) -> String {
+    let rootPath = root.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    if path.hasPrefix(rootPath + "/") {
+        return String(path.dropFirst(rootPath.count + 1))
+    }
+    return path
 }
 
 private func makeResponseCacheIfEnabled(
@@ -2050,14 +3220,7 @@ private func runQueryExpansionSuite(
     var pathByDocumentID: [String: String] = [:]
     var documentIDByPath: [String: String] = [:]
     for document in documents {
-        let ext = extensionForKind(document.kind) ?? "md"
-        let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let path: URL
-        if let relativePath, !relativePath.isEmpty {
-            path = workspace.docsRoot.appendingPathComponent(relativePath)
-        } else {
-            path = workspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-        }
+        let path = materializedRecallDocumentURL(document, docsRoot: workspace.docsRoot)
         pathByDocumentID[document.id] = path.path
         documentIDByPath[path.path] = document.id
     }
@@ -2131,6 +3294,12 @@ private func runQueryExpansionSuite(
     let allFeatures = recallFeatures(for: config)
     var baselineFeatures = allFeatures
     baselineFeatures.remove(.expansion)
+    let collectBranchDiagnostics = cases.contains { entry in
+        if let tags = entry.failureTaxonomy, tags.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return true
+        }
+        return entry.sourceDataset != nil || entry.sourceQueryId != nil
+    }
 
     var results: [QueryExpansionCaseResult] = []
     var expandedSearchObservations: [RecallQueryResult] = []
@@ -2153,6 +3322,9 @@ private func runQueryExpansionSuite(
     var retrievalCaseCount = 0
     var baselineHitCount = 0
     var expandedHitCount = 0
+    var baselineReciprocalRankTotal = 0.0
+    var expandedReciprocalRankTotal = 0.0
+    var failureTaxonomyCounts: [String: Int] = [:]
 
     var progress = DeterminateProgress(label: "query-expansion", total: cases.count)
     for entry in cases {
@@ -2206,6 +3378,12 @@ private func runQueryExpansionSuite(
         var expandedDocumentIDs: [String]? = nil
         var baselineHit: Bool? = nil
         var expandedHit: Bool? = nil
+        var baselineBestRank: Int? = nil
+        var expandedBestRank: Int? = nil
+        var baselineReciprocalRank: Double? = nil
+        var expandedReciprocalRank: Double? = nil
+        var branchDiagnostics: QueryExpansionBranchDiagnostics? = nil
+        var missDiagnostics: QueryExpansionMissDiagnostics? = nil
 
         if !documents.isEmpty, let relevantIDs = entry.relevantDocumentIds, !relevantIDs.isEmpty {
             let relevantSet = Set(relevantIDs)
@@ -2242,14 +3420,7 @@ private func runQueryExpansionSuite(
                 var localPathByDocumentID: [String: String] = [:]
                 var localDocumentIDByPath: [String: String] = [:]
                 for document in candidateDocuments {
-                    let ext = extensionForKind(document.kind) ?? "md"
-                    let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let path: URL
-                    if let relativePath, !relativePath.isEmpty {
-                        path = candidateWorkspace.docsRoot.appendingPathComponent(relativePath)
-                    } else {
-                        path = candidateWorkspace.docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-                    }
+                    let path = materializedRecallDocumentURL(document, docsRoot: candidateWorkspace.docsRoot)
                     localPathByDocumentID[document.id] = path.path
                     localDocumentIDByPath[path.path] = document.id
                 }
@@ -2305,8 +3476,13 @@ private func runQueryExpansionSuite(
                     baselineCollector.record(event)
                 }
             )
-            baselineDocumentIDs = baselineRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            baselineDocumentIDs = queryExpansionDocumentIDs(
+                from: baselineRefs,
+                documentIDByPath: candidateDocumentIDByPath
+            )
             baselineHit = baselineDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+            baselineBestRank = firstRelevantRank(in: baselineDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
+            baselineReciprocalRank = reciprocalRank(for: baselineBestRank)
 
             let expandedCollector = SearchStageTimingCollector()
             let queryStartTime = Date()
@@ -2321,8 +3497,43 @@ private func runQueryExpansionSuite(
                 }
             )
             let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
-            expandedDocumentIDs = expandedRefs.compactMap { candidateDocumentIDByPath[$0.documentPath] }
+            expandedDocumentIDs = queryExpansionDocumentIDs(
+                from: expandedRefs,
+                documentIDByPath: candidateDocumentIDByPath
+            )
             expandedHit = expandedDocumentIDs?.prefix(maxK).contains(where: relevantSet.contains) ?? false
+            expandedBestRank = firstRelevantRank(in: expandedDocumentIDs ?? [], relevant: relevantSet, maxK: maxK)
+            expandedReciprocalRank = reciprocalRank(for: expandedBestRank)
+
+            if collectBranchDiagnostics {
+                branchDiagnostics = try await queryExpansionBranchDiagnostics(
+                    query: queryText,
+                    expansion: expansion,
+                    index: candidateIndex,
+                    documentIDByPath: candidateDocumentIDByPath,
+                    relevantDocumentIds: relevantSet,
+                    baselineRank: baselineBestRank,
+                    expandedRank: expandedBestRank,
+                    reciprocalRankDelta: reciprocalRankDelta(
+                        baseline: baselineReciprocalRank,
+                        expanded: expandedReciprocalRank
+                    ),
+                    profile: profile,
+                    maxK: maxK
+                )
+            }
+            if collectBranchDiagnostics, expandedHit != true {
+                missDiagnostics = try await queryExpansionMissDiagnostics(
+                    query: queryText,
+                    expansion: expansion,
+                    index: candidateIndex,
+                    documentIDByPath: candidateDocumentIDByPath,
+                    relevantDocumentIds: relevantSet,
+                    expandedReferences: expandedRefs,
+                    profile: profile,
+                    maxK: maxK
+                )
+            }
 
             expandedSearchObservations.append(
                 RecallQueryResult(
@@ -2348,12 +3559,27 @@ private func runQueryExpansionSuite(
             if expandedHit == true {
                 expandedHitCount += 1
             }
+            baselineReciprocalRankTotal += baselineReciprocalRank ?? 0
+            expandedReciprocalRankTotal += expandedReciprocalRank ?? 0
+        }
+
+        for tag in entry.failureTaxonomy ?? [] {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                failureTaxonomyCounts[normalized, default: 0] += 1
+            }
         }
 
         results.append(
             QueryExpansionCaseResult(
                 id: entry.id,
                 query: queryText,
+                sourceDataset: entry.sourceDataset,
+                sourceQueryId: entry.sourceQueryId,
+                sourceProfile: entry.sourceProfile,
+                sourceRankAtK: entry.sourceRankAtK,
+                failureTaxonomy: entry.failureTaxonomy,
+                rescueReason: entry.rescueReason,
                 lexicalQueries: expansion.lexicalQueries,
                 semanticQueries: expansion.semanticQueries,
                 hypotheticalDocuments: expansion.hypotheticalDocuments,
@@ -2371,7 +3597,21 @@ private func runQueryExpansionSuite(
                 baselineRetrievedDocumentIds: baselineDocumentIDs.map { Array($0.prefix(maxK)) },
                 expandedRetrievedDocumentIds: expandedDocumentIDs.map { Array($0.prefix(maxK)) },
                 baselineHitAtK: baselineHit,
-                expandedHitAtK: expandedHit
+                expandedHitAtK: expandedHit,
+                baselineBestRankAtK: baselineBestRank,
+                expandedBestRankAtK: expandedBestRank,
+                baselineReciprocalRankAtK: baselineReciprocalRank,
+                expandedReciprocalRankAtK: expandedReciprocalRank,
+                reciprocalRankDeltaAtK: reciprocalRankDelta(
+                    baseline: baselineReciprocalRank,
+                    expanded: expandedReciprocalRank
+                ),
+                rankImprovementAtK: rankImprovement(
+                    baselineRank: baselineBestRank,
+                    expandedRank: expandedBestRank
+                ),
+                branchDiagnostics: branchDiagnostics,
+                missDiagnostics: missDiagnostics
             )
         )
 
@@ -2406,6 +3646,13 @@ private func runQueryExpansionSuite(
         guard let baseline = retrievalBaselineHitRate, let expanded = retrievalExpandedHitRate else { return nil }
         return expanded - baseline
     }()
+    let retrievalBaselineMRR = retrievalCaseCount == 0 ? nil : baselineReciprocalRankTotal / Double(retrievalCaseCount)
+    let retrievalExpandedMRR = retrievalCaseCount == 0 ? nil : expandedReciprocalRankTotal / Double(retrievalCaseCount)
+    let retrievalMRRDelta: Double? = {
+        guard let baseline = retrievalBaselineMRR, let expanded = retrievalExpandedMRR else { return nil }
+        return expanded - baseline
+    }()
+    let sortedResults = results.sorted { $0.id < $1.id }
 
     return QueryExpansionSuiteReport(
         totalQueries: cases.count,
@@ -2421,11 +3668,401 @@ private func runQueryExpansionSuite(
         retrievalBaselineHitRate: retrievalBaselineHitRate,
         retrievalExpandedHitRate: retrievalExpandedHitRate,
         retrievalLift: retrievalLift,
+        retrievalBaselineMRR: retrievalBaselineMRR,
+        retrievalExpandedMRR: retrievalExpandedMRR,
+        retrievalMRRDelta: retrievalMRRDelta,
+        failureTaxonomyCounts: failureTaxonomyCounts.isEmpty ? nil : failureTaxonomyCounts,
+        taxonomyMetrics: queryExpansionTaxonomyMetrics(from: sortedResults),
+        branchClassificationCounts: queryExpansionBranchClassificationCounts(from: sortedResults),
         latencyStats: computeLatencyStats(queryResults: expandedSearchObservations),
         stageLatencyStats: computeRecallStageLatencyStats(queryResults: expandedSearchObservations),
         candidateCountStats: computeRecallCandidateCountStats(queryResults: expandedSearchObservations),
-        caseResults: results.sorted { $0.id < $1.id }
+        caseResults: sortedResults
     )
+}
+
+private func queryExpansionDocumentIDs(
+    from references: [MemorySearchReference],
+    documentIDByPath: [String: String]
+) -> [String] {
+    references.compactMap { documentIDByPath[$0.documentPath] }
+}
+
+private func queryExpansionMissDiagnostics(
+    query: String,
+    expansion: StructuredQueryExpansion,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    expandedReferences: [MemorySearchReference],
+    profile: EvalProfile,
+    maxK: Int
+) async throws -> QueryExpansionMissDiagnostics {
+    let diagnosticLimit = dedupedDocumentLimitForProfile(profile: profile, maxK: maxK)
+    let finalCandidates = queryExpansionRankedCandidates(
+        from: expandedReferences,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds
+    )
+    let finalBestRelevant = finalCandidates.first(where: \.isRelevant)
+
+    var branchRanks: [QueryExpansionBranchRankDiagnostic] = []
+    let coreBranches: [(String, String, RecallFeatures)] = [
+        ("baseline_semantic", query, RecallFeatures.semantic),
+        ("baseline_lexical", query, RecallFeatures.lexical),
+        ("expanded_semantic", query, [.semantic, .expansion]),
+        ("expanded_lexical", query, [.lexical, .expansion]),
+    ]
+    for branch in coreBranches {
+        if let diagnostic = try await queryExpansionBranchRankDiagnostic(
+            branch: branch.0,
+            query: branch.1,
+            features: branch.2,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            limit: diagnosticLimit
+        ) {
+            branchRanks.append(diagnostic)
+        }
+    }
+
+    for (indexOffset, lexicalQuery) in uniqueQueryExpansionSources(expansion.lexicalQueries).enumerated() {
+        if let diagnostic = try await queryExpansionBranchRankDiagnostic(
+            branch: "source_lexical_\(indexOffset + 1)",
+            query: lexicalQuery,
+            features: [.lexical],
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            limit: diagnosticLimit
+        ) {
+            branchRanks.append(diagnostic)
+        }
+    }
+    for (indexOffset, semanticQuery) in uniqueQueryExpansionSources(expansion.semanticQueries).enumerated() {
+        if let diagnostic = try await queryExpansionBranchRankDiagnostic(
+            branch: "source_semantic_\(indexOffset + 1)",
+            query: semanticQuery,
+            features: [.semantic],
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            limit: diagnosticLimit
+        ) {
+            branchRanks.append(diagnostic)
+        }
+    }
+    for (indexOffset, hypotheticalDocument) in uniqueQueryExpansionSources(expansion.hypotheticalDocuments).enumerated() {
+        if let diagnostic = try await queryExpansionBranchRankDiagnostic(
+            branch: "source_hypothetical_document_\(indexOffset + 1)",
+            query: hypotheticalDocument,
+            features: [.semantic],
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            limit: diagnosticLimit
+        ) {
+            branchRanks.append(diagnostic)
+        }
+    }
+
+    return QueryExpansionMissDiagnostics(
+        diagnosticLimit: diagnosticLimit,
+        finalBestRelevantRank: finalBestRelevant?.rank,
+        finalBestRelevantDocumentId: finalBestRelevant?.documentId,
+        finalBestRelevantScore: finalBestRelevant?.score,
+        finalTopCandidates: Array(finalCandidates.prefix(5)),
+        branchRanks: branchRanks
+    )
+}
+
+private func queryExpansionBranchRankDiagnostic(
+    branch: String,
+    query: String,
+    features: RecallFeatures,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    limit: Int
+) async throws -> QueryExpansionBranchRankDiagnostic? {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let references = try await index.memorySearch(
+        query: trimmed,
+        limit: limit,
+        features: features,
+        dedupeDocuments: true,
+        includeLineRanges: false
+    )
+    let candidates = queryExpansionRankedCandidates(
+        from: references,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds
+    )
+    let bestRelevant = candidates.first(where: \.isRelevant)
+
+    return QueryExpansionBranchRankDiagnostic(
+        branch: branch,
+        query: trimmed,
+        features: queryExpansionFeatureLabels(features),
+        bestRelevantRank: bestRelevant?.rank,
+        bestRelevantDocumentId: bestRelevant?.documentId,
+        bestRelevantScore: bestRelevant?.score,
+        topCandidates: Array(candidates.prefix(5))
+    )
+}
+
+private func queryExpansionRankedCandidates(
+    from references: [MemorySearchReference],
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>
+) -> [QueryExpansionRankedCandidate] {
+    references.enumerated().compactMap { index, reference in
+        guard let documentId = documentIDByPath[reference.documentPath] else { return nil }
+        return QueryExpansionRankedCandidate(
+            rank: index + 1,
+            documentId: documentId,
+            isRelevant: relevantDocumentIds.contains(documentId),
+            score: reference.score
+        )
+    }
+}
+
+private func queryExpansionFeatureLabels(_ features: RecallFeatures) -> [String] {
+    var labels: [String] = []
+    if features.contains(.semantic) { labels.append("semantic") }
+    if features.contains(.lexical) { labels.append("lexical") }
+    if features.contains(.tags) { labels.append("tags") }
+    if features.contains(.expansion) { labels.append("expansion") }
+    if features.contains(.rerank) { labels.append("rerank") }
+    if features.contains(.planner) { labels.append("planner") }
+    return labels
+}
+
+private func queryExpansionBranchDiagnostics(
+    query: String,
+    expansion: StructuredQueryExpansion,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    baselineRank: Int?,
+    expandedRank: Int?,
+    reciprocalRankDelta: Double?,
+    profile: EvalProfile,
+    maxK: Int
+) async throws -> QueryExpansionBranchDiagnostics {
+    let baselineSemanticRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.semantic]
+    )
+    let baselineLexicalRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.lexical]
+    )
+    let expandedSemanticRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.semantic, .expansion]
+    )
+    let expandedLexicalRank = try await queryExpansionBranchRank(
+        query: query,
+        index: index,
+        documentIDByPath: documentIDByPath,
+        relevantDocumentIds: relevantDocumentIds,
+        profile: profile,
+        maxK: maxK,
+        features: [.lexical, .expansion]
+    )
+
+    var sourceHits: [QueryExpansionSourceHit] = []
+    for lexicalQuery in uniqueQueryExpansionSources(expansion.lexicalQueries) {
+        let rank = try await queryExpansionBranchRank(
+            query: lexicalQuery,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.lexical]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "lexical", query: lexicalQuery, rankAtK: rank))
+    }
+    for semanticQuery in uniqueQueryExpansionSources(expansion.semanticQueries) {
+        let rank = try await queryExpansionBranchRank(
+            query: semanticQuery,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.semantic]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "semantic", query: semanticQuery, rankAtK: rank))
+    }
+    for hypotheticalDocument in uniqueQueryExpansionSources(expansion.hypotheticalDocuments) {
+        let rank = try await queryExpansionBranchRank(
+            query: hypotheticalDocument,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            relevantDocumentIds: relevantDocumentIds,
+            profile: profile,
+            maxK: maxK,
+            features: [.semantic]
+        )
+        sourceHits.append(QueryExpansionSourceHit(kind: "hypothetical_document", query: hypotheticalDocument, rankAtK: rank))
+    }
+
+    let branchRanks = [
+        baselineSemanticRank,
+        baselineLexicalRank,
+        expandedSemanticRank,
+        expandedLexicalRank
+    ]
+    let classification = classifyQueryExpansionBranch(
+        baselineRank: baselineRank,
+        expandedRank: expandedRank,
+        reciprocalRankDelta: reciprocalRankDelta,
+        branchRanks: branchRanks,
+        sourceHits: sourceHits
+    )
+
+    return QueryExpansionBranchDiagnostics(
+        classification: classification,
+        baselineSemanticRankAtK: baselineSemanticRank,
+        baselineLexicalRankAtK: baselineLexicalRank,
+        expandedSemanticRankAtK: expandedSemanticRank,
+        expandedLexicalRankAtK: expandedLexicalRank,
+        expansionSourceHits: sourceHits
+    )
+}
+
+private func queryExpansionBranchRank(
+    query: String,
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    relevantDocumentIds: Set<String>,
+    profile: EvalProfile,
+    maxK: Int,
+    features: RecallFeatures
+) async throws -> Int? {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let references = try await index.memorySearch(
+        query: trimmed,
+        limit: dedupedDocumentLimitForProfile(profile: profile, maxK: maxK),
+        features: features,
+        dedupeDocuments: true,
+        includeLineRanges: false
+    )
+    let documentIDs = queryExpansionDocumentIDs(from: references, documentIDByPath: documentIDByPath)
+    return firstRelevantRank(in: documentIDs, relevant: relevantDocumentIds, maxK: maxK)
+}
+
+private func uniqueQueryExpansionSources(_ queries: [String]) -> [String] {
+    var seen: Set<String> = []
+    var result: [String] = []
+    for query in queries {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        let key = normalizeForMatch(trimmed)
+        guard !key.isEmpty, seen.insert(key).inserted else { continue }
+        result.append(trimmed)
+    }
+    return result
+}
+
+private func classifyQueryExpansionBranch(
+    baselineRank: Int?,
+    expandedRank: Int?,
+    reciprocalRankDelta: Double?,
+    branchRanks: [Int?],
+    sourceHits: [QueryExpansionSourceHit]
+) -> String {
+    let epsilon = 0.000_000_1
+    if let reciprocalRankDelta, reciprocalRankDelta > epsilon {
+        return "improved"
+    }
+    if let reciprocalRankDelta, reciprocalRankDelta < -epsilon {
+        return "regression_prone"
+    }
+    if expandedRank == 1 {
+        return "already_good"
+    }
+    let hasBranchCoverage = branchRanks.contains(where: { $0 != nil })
+        || sourceHits.contains(where: { $0.rankAtK != nil })
+        || baselineRank != nil
+        || expandedRank != nil
+    if !hasBranchCoverage {
+        return "candidate_coverage_miss"
+    }
+    return "fusion_ranking_miss"
+}
+
+private func queryExpansionBranchClassificationCounts(from results: [QueryExpansionCaseResult]) -> [String: Int]? {
+    var counts: [String: Int] = [:]
+    for result in results {
+        guard let classification = result.branchDiagnostics?.classification else { continue }
+        counts[classification, default: 0] += 1
+    }
+    return counts.isEmpty ? nil : counts
+}
+
+private func queryExpansionTaxonomyMetrics(from results: [QueryExpansionCaseResult]) -> [QueryExpansionTaxonomyMetric]? {
+    var grouped: [String: [QueryExpansionCaseResult]] = [:]
+    for result in results {
+        for tag in result.failureTaxonomy ?? [] {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { continue }
+            grouped[normalized, default: []].append(result)
+        }
+    }
+    guard !grouped.isEmpty else { return nil }
+
+    return grouped.map { tag, cases in
+        let total = Double(cases.count)
+        let baselineHits = cases.filter { $0.baselineHitAtK == true }.count
+        let expandedHits = cases.filter { $0.expandedHitAtK == true }.count
+        let baselineMRR = cases.reduce(0.0) { $0 + ($1.baselineReciprocalRankAtK ?? 0) } / total
+        let expandedMRR = cases.reduce(0.0) { $0 + ($1.expandedReciprocalRankAtK ?? 0) } / total
+        let deltas = cases.map { $0.reciprocalRankDeltaAtK ?? 0 }
+        return QueryExpansionTaxonomyMetric(
+            tag: tag,
+            caseCount: cases.count,
+            baselineHitRate: Double(baselineHits) / total,
+            expandedHitRate: Double(expandedHits) / total,
+            baselineMRR: baselineMRR,
+            expandedMRR: expandedMRR,
+            mrrDelta: expandedMRR - baselineMRR,
+            improvedCount: deltas.filter { $0 > 0.000_000_1 }.count,
+            worsenedCount: deltas.filter { $0 < -0.000_000_1 }.count,
+            flatCount: deltas.filter { abs($0) <= 0.000_000_1 }.count,
+            missCount: cases.filter { $0.expandedHitAtK != true }.count
+        )
+    }
+    .sorted { lhs, rhs in
+        if lhs.mrrDelta == rhs.mrrDelta {
+            if lhs.caseCount == rhs.caseCount {
+                return lhs.tag < rhs.tag
+            }
+            return lhs.caseCount > rhs.caseCount
+        }
+        return lhs.mrrDelta < rhs.mrrDelta
+    }
 }
 
 private func coverageRecall(expected: [String], texts: [String]) -> Double {
@@ -2705,6 +4342,339 @@ private func observeUpdateBehavior(
     return "append"
 }
 
+private func runAgentMemorySuite(
+    profile: EvalProfile,
+    scenarios: [AgentMemoryScenarioCase],
+    datasetRoot: URL,
+    root: URL,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
+) async throws -> AgentMemorySuiteReport {
+    let workspace = try prepareIndexWorkspace(
+        suite: .storage,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root.appendingPathComponent("agent_memory", isDirectory: true),
+        cacheEnabled: false,
+        seed: "agent-memory-\(profile.rawValue)-\(scenarios.map(\.id).joined(separator: "|"))"
+    )
+    try resetWorkspaceForRebuild(workspace)
+
+    var progress = DeterminateProgress(label: "agent-memory", total: scenarios.count)
+    var results: [AgentMemoryScenarioResult] = []
+    var totalExpectedWrites = 0
+    var totalMatchedExpectedWrites = 0
+    var noWriteScenarioCount = 0
+    var falseWriteScenarioCount = 0
+    var activeStateExpectedCount = 0
+    var activeStateCorrectCount = 0
+    var updateExpectedCount = 0
+    var updateCorrectCount = 0
+    var totalRecallQueries = 0
+    var totalRecallHits = 0
+    var reciprocalRanks: [Double] = []
+    var latencies: [Double] = []
+
+    for scenario in scenarios {
+        let started = Date()
+        let caseDatabaseURL = workspace.root
+            .appendingPathComponent("cases", isDirectory: true)
+            .appendingPathComponent(safeFilename(scenario.id), isDirectory: true)
+            .appendingPathComponent("index.sqlite")
+        try FileManager.default.createDirectory(
+            at: caseDatabaseURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: caseDatabaseURL)
+        if let responseCache {
+            installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+        }
+        let index = try MemoryIndex(configuration: config)
+
+        var setupRecords: [MemoryRecord] = []
+        for seed in scenario.setupMemories ?? [] {
+            setupRecords.append(try await saveSeedMemory(seed, in: index, context: "agent-memory scenario \(scenario.id)"))
+        }
+
+        let messages = try parseScenarioMessages(scenario.messages, context: "agent-memory scenario \(scenario.id)")
+        let extracted = try await index.extract(from: messages, limit: 20)
+        let ingestResult = try await index.ingest(extracted)
+        let allRecords = try await fetchAllMemoryRecords(index: index)
+
+        let expectedMemories = scenario.expectedMemories ?? []
+        let expectedWriteCount = scenario.expectedWriteCount ?? expectedMemories.count
+        totalExpectedWrites += expectedWriteCount
+        if expectedWriteCount == 0 {
+            noWriteScenarioCount += 1
+        }
+
+        let matchedExpectedWrites = countMatchedExpectedMemories(
+            expectedMemories,
+            records: allRecords,
+            context: "agent-memory scenario \(scenario.id)"
+        )
+        totalMatchedExpectedWrites += min(expectedWriteCount, matchedExpectedWrites)
+
+        let falseWriteCount = expectedWriteCount == 0
+            ? ingestResult.storedCount
+            : max(0, ingestResult.storedCount - expectedWriteCount)
+        if expectedWriteCount == 0, falseWriteCount > 0 {
+            falseWriteScenarioCount += 1
+        }
+
+        let activeStateCorrect = try activeStateMatchesExpected(
+            expectedMemories,
+            records: allRecords,
+            context: "agent-memory scenario \(scenario.id)"
+        )
+        if let activeStateCorrect {
+            activeStateExpectedCount += 1
+            if activeStateCorrect {
+                activeStateCorrectCount += 1
+            }
+        }
+
+        let observedUpdateBehavior: String?
+        if scenario.expectedUpdateBehavior != nil {
+            observedUpdateBehavior = try await observeUpdateBehavior(
+                index: index,
+                setupRecords: setupRecords,
+                result: ingestResult.records.first
+            )
+            updateExpectedCount += 1
+            if observedUpdateBehavior == scenario.expectedUpdateBehavior {
+                updateCorrectCount += 1
+            }
+        } else {
+            observedUpdateBehavior = nil
+        }
+
+        var scenarioRecallHits = 0
+        var scenarioReciprocalRanks: [Double] = []
+        for expectation in scenario.recallQueries ?? [] {
+            totalRecallQueries += 1
+            let expectedStatuses = try Set((expectation.expectedStatuses ?? []).map {
+                try parseMemoryStatus($0, context: "agent-memory scenario \(scenario.id) recall expectation")
+            })
+            let response = try await index.recall(
+                mode: .hybrid(query: expectation.query),
+                limit: max(1, expectation.limit ?? 10),
+                statuses: expectedStatuses.isEmpty ? [.active] : expectedStatuses
+            )
+            if let rank = try firstMatchingRecallRank(
+                records: response.records,
+                expectation: expectation,
+                context: "agent-memory scenario \(scenario.id)"
+            ) {
+                scenarioRecallHits += 1
+                totalRecallHits += 1
+                let reciprocalRank = 1.0 / Double(rank)
+                scenarioReciprocalRanks.append(reciprocalRank)
+                reciprocalRanks.append(reciprocalRank)
+            } else {
+                scenarioReciprocalRanks.append(0)
+                reciprocalRanks.append(0)
+            }
+        }
+
+        let latencyMs = Date().timeIntervalSince(started) * 1000.0
+        latencies.append(latencyMs)
+
+        results.append(
+            AgentMemoryScenarioResult(
+                id: scenario.id,
+                expectedWriteCount: expectedWriteCount,
+                extractedCount: extracted.count,
+                storedCount: ingestResult.storedCount,
+                matchedExpectedWrites: matchedExpectedWrites,
+                falseWriteCount: falseWriteCount,
+                activeStateCorrect: activeStateCorrect,
+                expectedUpdateBehavior: scenario.expectedUpdateBehavior,
+                observedUpdateBehavior: observedUpdateBehavior,
+                recallHitCount: scenarioRecallHits,
+                recallQueryCount: scenario.recallQueries?.count ?? 0,
+                reciprocalRanks: scenarioReciprocalRanks,
+                latencyMs: latencyMs
+            )
+        )
+
+        if verbose {
+            print("[agent-memory] \(scenario.id): stored=\(ingestResult.storedCount) matched=\(matchedExpectedWrites) recallHits=\(scenarioRecallHits)")
+        }
+        progress.advance(detail: verbose ? scenario.id : nil)
+    }
+
+    return AgentMemorySuiteReport(
+        totalScenarios: scenarios.count,
+        falseWriteRate: safeRatio(falseWriteScenarioCount, noWriteScenarioCount, emptyDefault: 0),
+        expectedWriteRecall: safeRatio(totalMatchedExpectedWrites, totalExpectedWrites, emptyDefault: 1),
+        activeStateAccuracy: safeRatio(activeStateCorrectCount, activeStateExpectedCount, emptyDefault: 1),
+        updateBehaviorAccuracy: safeRatio(updateCorrectCount, updateExpectedCount, emptyDefault: 1),
+        recallHitRate: safeRatio(totalRecallHits, totalRecallQueries, emptyDefault: 1),
+        recallMRR: reciprocalRanks.isEmpty ? 1 : reciprocalRanks.reduce(0, +) / Double(reciprocalRanks.count),
+        latencyStats: computeLatencyStats(samples: latencies),
+        caseResults: results.sorted { $0.id < $1.id }
+    )
+}
+
+private func saveSeedMemory(
+    _ seed: StorageSeedMemory,
+    in index: MemoryIndex,
+    context: String
+) async throws -> MemoryRecord {
+    let kind = try parseMemoryKind(seed.kind, context: "\(context) setup memory")
+    let status = try parseMemoryStatus(seed.status ?? MemoryStatus.active.rawValue, context: "\(context) setup memory")
+    let facetTags = try parseFacetTags(seed.facetTags ?? [], context: "\(context) setup memory")
+    let entities = seed.entityValues?.map {
+        MemoryEntity(label: .other, value: $0, normalizedValue: normalizeForMatch($0))
+    } ?? []
+    return try await index.save(
+        text: seed.text,
+        kind: kind,
+        status: status,
+        facetTags: facetTags,
+        entities: entities,
+        topics: seed.topics ?? [],
+        canonicalKey: seed.canonicalKey
+    )
+}
+
+private func parseScenarioMessages(
+    _ rawMessages: [AgentMemoryScenarioMessage],
+    context: String
+) throws -> [ConversationMessage] {
+    try rawMessages.map { raw in
+        guard let role = ConversationRole(rawValue: raw.role) else {
+            throw ValidationError("Invalid \(context) message role '\(raw.role)'.")
+        }
+        return ConversationMessage(role: role, content: raw.content)
+    }
+}
+
+private func fetchAllMemoryRecords(index: MemoryIndex) async throws -> [MemoryRecord] {
+    var recordsByID: [String: MemoryRecord] = [:]
+    for kind in MemoryKind.allCases {
+        let records = try await index.recall(
+            mode: .kind(kind),
+            limit: 1_000,
+            statuses: [.active, .superseded, .resolved, .archived]
+        ).records
+        for record in records {
+            recordsByID[record.id] = record
+        }
+    }
+    return recordsByID.values.sorted { $0.id < $1.id }
+}
+
+private func countMatchedExpectedMemories(
+    _ expectedMemories: [AgentMemoryExpectedMemory],
+    records: [MemoryRecord],
+    context: String
+) -> Int {
+    var usedIDs: Set<String> = []
+    var count = 0
+    for expected in expectedMemories {
+        if let record = records.first(where: { record in
+            !usedIDs.contains(record.id) && expectedMemoryMatches(expected, record: record)
+        }) {
+            usedIDs.insert(record.id)
+            count += 1
+        }
+    }
+    _ = context
+    return count
+}
+
+private func activeStateMatchesExpected(
+    _ expectedMemories: [AgentMemoryExpectedMemory],
+    records: [MemoryRecord],
+    context: String
+) throws -> Bool? {
+    let statusExpectations = expectedMemories.filter { $0.status != nil }
+    guard !statusExpectations.isEmpty else { return nil }
+    for expected in statusExpectations {
+        guard let rawStatus = expected.status else { continue }
+        let expectedStatus = try parseMemoryStatus(rawStatus, context: context)
+        guard records.contains(where: { record in
+            expectedMemoryMatches(expected, record: record) && record.status == expectedStatus
+        }) else {
+            return false
+        }
+    }
+    return true
+}
+
+private func firstMatchingRecallRank(
+    records: [MemoryRecord],
+    expectation: AgentMemoryRecallExpectation,
+    context: String
+) throws -> Int? {
+    let expectedKinds = try Set((expectation.expectedKinds ?? []).map {
+        try parseMemoryKind($0, context: "\(context) recall expectation").rawValue
+    })
+    let expectedStatuses = try Set((expectation.expectedStatuses ?? []).map {
+        try parseMemoryStatus($0, context: "\(context) recall expectation").rawValue
+    })
+    let expectedText = (expectation.expectedTextContains ?? []).map(normalizeForMatch)
+
+    for (index, record) in records.enumerated() {
+        if !expectedKinds.isEmpty, !expectedKinds.contains(record.kind.rawValue) {
+            continue
+        }
+        if !expectedStatuses.isEmpty, !expectedStatuses.contains(record.status.rawValue) {
+            continue
+        }
+        let text = normalizeForMatch(record.text)
+        if !expectedText.allSatisfy({ text.contains($0) }) {
+            continue
+        }
+        return index + 1
+    }
+    return nil
+}
+
+private func expectedMemoryMatches(
+    _ expected: AgentMemoryExpectedMemory,
+    record: MemoryRecord
+) -> Bool {
+    if let rawKind = expected.kind, record.kind.rawValue != normalizeForMatch(rawKind) {
+        return false
+    }
+    if let rawStatus = expected.status, record.status.rawValue != normalizeForMatch(rawStatus) {
+        return false
+    }
+    if let canonicalKey = expected.canonicalKey,
+       normalizeForMatch(record.canonicalKey ?? "") != normalizeForMatch(canonicalKey) {
+        return false
+    }
+
+    let text = normalizeForMatch(record.text)
+    if !(expected.textContains ?? []).map(normalizeForMatch).allSatisfy({ text.contains($0) }) {
+        return false
+    }
+
+    let recordFacets = Set(record.facetTags.map(\.rawValue).map(normalizeForMatch))
+    let expectedFacets = Set((expected.facets ?? []).map(normalizeForMatch))
+    if !expectedFacets.isSubset(of: recordFacets) {
+        return false
+    }
+
+    let recordEntities = Set(record.entities.map(\.normalizedValue).map(normalizeForMatch))
+    let expectedEntities = Set((expected.entities ?? []).map(normalizeForMatch))
+    if !expectedEntities.isSubset(of: recordEntities) {
+        return false
+    }
+
+    let recordTopics = Set(record.topics.map(normalizeForMatch))
+    let expectedTopics = Set((expected.topics ?? []).map(normalizeForMatch))
+    if !expectedTopics.isSubset(of: recordTopics) {
+        return false
+    }
+
+    return true
+}
+
 private func safeRatio(_ numerator: Int, _ denominator: Int, emptyDefault: Double) -> Double {
     guard denominator > 0 else { return emptyDefault }
     return Double(numerator) / Double(denominator)
@@ -2766,14 +4736,7 @@ private func runRecallSuite(
             memoryTypeByDocumentID[document.id] = parsed
         }
 
-        let ext = extensionForKind(document.kind) ?? "md"
-        let relativePath = document.relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let path: URL
-        if let relativePath, !relativePath.isEmpty {
-            path = docsRoot.appendingPathComponent(relativePath)
-        } else {
-            path = docsRoot.appendingPathComponent("\(safeFilename(document.id)).\(ext)")
-        }
+        let path = materializedRecallDocumentURL(document, docsRoot: docsRoot)
 
         let content = try materializeRecallDocument(document)
         contentByDocumentID[document.id] = content
@@ -3177,7 +5140,7 @@ private func buildConfiguration(
     switch profile {
     case .nlBaseline:
         return MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
-    case .oracleCeiling, .coreMLDefault:
+    case .oracleCeiling, .coreMLDefault, .coreMLLeafIR, .coreMLRerank:
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
@@ -3534,7 +5497,7 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
     switch profile {
     case .appleAugmented:
         return true
-    case .nlBaseline, .coreMLDefault, .oracleCeiling:
+    case .nlBaseline, .coreMLDefault, .coreMLLeafIR, .coreMLRerank, .oracleCeiling:
         return false
     }
 }
@@ -3694,6 +5657,126 @@ private func checkForRegressions(
     return regressions
 }
 
+private func reportMatchesRequirement(_ report: EvalRunReport, requirement: EvalBaselineRequirement) -> Bool {
+    guard report.profile == requirement.profile else { return false }
+
+    let reportRoot = URL(fileURLWithPath: report.datasetRoot).standardizedFileURL
+    if reportRoot.lastPathComponent == requirement.dataset {
+        return true
+    }
+
+    if let datasetRoot = requirement.datasetRoot {
+        let requiredRoot = URL(fileURLWithPath: datasetRoot).standardizedFileURL
+        return reportRoot.path == requiredRoot.path || reportRoot.path.hasSuffix(requiredRoot.path)
+    }
+
+    return report.datasetRoot.hasSuffix(requirement.dataset)
+}
+
+private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
+    var metrics: [String: Double] = [
+        "storage.type_accuracy": report.storage.typeAccuracy,
+        "storage.macro_f1": report.storage.macroF1,
+        "storage.span_coverage": report.storage.spanCoverage,
+    ]
+
+    if let facetMicroF1 = report.storage.facetMicroF1 {
+        metrics["storage.facet_micro_f1"] = facetMicroF1
+    }
+    if let entityRecall = report.storage.entityRecall {
+        metrics["storage.entity_recall"] = entityRecall
+    }
+    if let topicRecall = report.storage.topicRecall {
+        metrics["storage.topic_recall"] = topicRecall
+    }
+    if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
+        metrics["storage.update_behavior_accuracy"] = updateBehaviorAccuracy
+    }
+
+    if let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k }) {
+        metrics["recall.hit_at_\(maxKMetric.k)"] = maxKMetric.hitRate
+        metrics["recall.recall_at_\(maxKMetric.k)"] = maxKMetric.recall
+        metrics["recall.mrr_at_\(maxKMetric.k)"] = maxKMetric.mrr
+        metrics["recall.ndcg_at_\(maxKMetric.k)"] = maxKMetric.ndcg
+
+        for result in report.recall.queryResults {
+            let prefix = "recall.case.\(result.id)"
+            if let hitAtK = result.hitByK[maxKMetric.k] {
+                metrics["\(prefix).hit_at_k"] = hitAtK ? 1 : 0
+            }
+            if let recallAtK = result.recallByK[maxKMetric.k] {
+                metrics["\(prefix).recall_at_k"] = recallAtK
+            }
+            if let reciprocalRankAtK = result.mrrByK[maxKMetric.k] {
+                metrics["\(prefix).reciprocal_rank_at_k"] = reciprocalRankAtK
+            }
+            if let ndcgAtK = result.ndcgByK[maxKMetric.k] {
+                metrics["\(prefix).ndcg_at_k"] = ndcgAtK
+            }
+        }
+    }
+
+    if let queryExpansion = report.queryExpansion {
+        metrics["query_expansion.lexical_coverage_recall"] = queryExpansion.lexicalCoverageRecall
+        metrics["query_expansion.semantic_coverage_recall"] = queryExpansion.semanticCoverageRecall
+        metrics["query_expansion.hyde_anchor_recall"] = queryExpansion.hydeAnchorRecall
+        metrics["query_expansion.facet_micro_f1"] = queryExpansion.facetMicroF1
+        metrics["query_expansion.entity_recall"] = queryExpansion.entityRecall
+        metrics["query_expansion.topic_recall"] = queryExpansion.topicRecall
+        if let retrievalBaselineHitRate = queryExpansion.retrievalBaselineHitRate {
+            metrics["query_expansion.retrieval_baseline_hit_rate"] = retrievalBaselineHitRate
+        }
+        if let retrievalExpandedHitRate = queryExpansion.retrievalExpandedHitRate {
+            metrics["query_expansion.retrieval_expanded_hit_rate"] = retrievalExpandedHitRate
+        }
+        if let retrievalLift = queryExpansion.retrievalLift {
+            metrics["query_expansion.retrieval_lift"] = retrievalLift
+        }
+        if let retrievalBaselineMRR = queryExpansion.retrievalBaselineMRR {
+            metrics["query_expansion.retrieval_baseline_mrr"] = retrievalBaselineMRR
+        }
+        if let retrievalExpandedMRR = queryExpansion.retrievalExpandedMRR {
+            metrics["query_expansion.retrieval_expanded_mrr"] = retrievalExpandedMRR
+        }
+        if let retrievalMRRDelta = queryExpansion.retrievalMRRDelta {
+            metrics["query_expansion.retrieval_mrr_delta"] = retrievalMRRDelta
+        }
+        for result in queryExpansion.caseResults {
+            let prefix = "query_expansion.case.\(result.id)"
+            if let expandedHitAtK = result.expandedHitAtK {
+                metrics["\(prefix).expanded_hit_at_k"] = expandedHitAtK ? 1 : 0
+            }
+            if let expandedReciprocalRankAtK = result.expandedReciprocalRankAtK {
+                metrics["\(prefix).expanded_reciprocal_rank_at_k"] = expandedReciprocalRankAtK
+            }
+            if let reciprocalRankDeltaAtK = result.reciprocalRankDeltaAtK {
+                metrics["\(prefix).reciprocal_rank_delta_at_k"] = reciprocalRankDeltaAtK
+            }
+        }
+    }
+
+    if let agentMemory = report.agentMemory {
+        metrics["agent_memory.false_write_rate"] = agentMemory.falseWriteRate
+        metrics["agent_memory.expected_write_recall"] = agentMemory.expectedWriteRecall
+        metrics["agent_memory.active_state_accuracy"] = agentMemory.activeStateAccuracy
+        metrics["agent_memory.update_behavior_accuracy"] = agentMemory.updateBehaviorAccuracy
+        metrics["agent_memory.recall_hit_rate"] = agentMemory.recallHitRate
+        metrics["agent_memory.recall_mrr"] = agentMemory.recallMRR
+    }
+
+    return metrics
+}
+
+private func metricIsLowerBetter(_ metricName: String) -> Bool {
+    metricName == "agent_memory.false_write_rate"
+}
+
+private func p95Latency(from report: EvalRunReport) -> Double? {
+    report.recall.latencyStats?.p95Ms
+        ?? report.queryExpansion?.latencyStats?.p95Ms
+        ?? report.agentMemory?.latencyStats?.p95Ms
+}
+
 private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
     let sorted = reports.sorted { $0.createdAt < $1.createdAt }
     let includesExpansion = sorted.contains { $0.queryExpansion != nil }
@@ -3701,10 +5784,10 @@ private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
         "# Memory Eval Comparison",
         "",
         includesExpansion
-            ? "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K | Expansion Lex Recall | Expansion Hit@K |"
+            ? "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K | Expansion Lex Recall | Expansion Hit@K | Expansion MRR@K | Expansion MRR Delta |"
             : "| Run | Profile | Storage Acc | Macro F1 | Span Coverage | Recall Hit@K | Recall MRR@K | Recall nDCG@K |",
         includesExpansion
-            ? "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
+            ? "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
             : "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
 
@@ -3717,12 +5800,15 @@ private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
         let mrr = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.mrr) } ?? "n/a"
         let ndcg = report.recall.totalQueries == 0 ? "skipped" : maxMetric.map { format($0.ndcg) } ?? "n/a"
         let kLabel = report.recall.totalQueries == 0 ? "" : (maxMetric.map { "@\($0.k)" } ?? "")
+        let expansionKLabel = report.queryExpansion == nil ? "" : (report.recall.kValues.max().map { "@\($0)" } ?? "")
         let expansionLex = report.queryExpansion.map { percent($0.lexicalCoverageRecall) } ?? "n/a"
         let expansionHit = report.queryExpansion?.retrievalExpandedHitRate.map(percent) ?? "n/a"
+        let expansionMRR = report.queryExpansion?.retrievalExpandedMRR.map(format) ?? "n/a"
+        let expansionMRRDelta = report.queryExpansion?.retrievalMRRDelta.map(format) ?? "n/a"
 
         if includesExpansion {
             lines.append(
-                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) | \(expansionLex) | \(expansionHit)\(kLabel) |"
+                "| \(iso8601(report.createdAt)) | `\(report.profile.rawValue)` | \(storageAccuracy) | \(storageMacroF1) | \(storageSpanCoverage) | \(hit)\(kLabel) | \(mrr)\(kLabel) | \(ndcg)\(kLabel) | \(expansionLex) | \(expansionHit)\(expansionKLabel) | \(expansionMRR)\(expansionKLabel) | \(expansionMRRDelta) |"
             )
         } else {
             lines.append(
@@ -3807,6 +5893,86 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
             if let lift = queryExpansion.retrievalLift {
                 lines.append("- Retrieval lift: \(percent(lift))")
             }
+        }
+        if let baselineMRR = queryExpansion.retrievalBaselineMRR,
+           let expandedMRR = queryExpansion.retrievalExpandedMRR {
+            lines.append("- Retrieval baseline MRR@K: \(format(baselineMRR))")
+            lines.append("- Retrieval expanded MRR@K: \(format(expandedMRR))")
+            if let mrrDelta = queryExpansion.retrievalMRRDelta {
+                lines.append("- Retrieval MRR delta: \(format(mrrDelta))")
+            }
+        }
+        if let counts = queryExpansion.failureTaxonomyCounts, !counts.isEmpty {
+            let summary = counts
+                .sorted { lhs, rhs in lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            lines.append("- Failure taxonomy: \(summary)")
+        }
+        if let counts = queryExpansion.branchClassificationCounts, !counts.isEmpty {
+            let summary = counts
+                .sorted { lhs, rhs in lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            lines.append("- Branch classifications: \(summary)")
+        }
+        if let taxonomyMetrics = queryExpansion.taxonomyMetrics, !taxonomyMetrics.isEmpty {
+            lines.append("")
+            lines.append("### Query Expansion By Taxonomy")
+            lines.append("")
+            lines.append("| Taxonomy | Cases | Expanded Hit@K | Expanded MRR@K | MRR Delta | Improved | Worsened | Flat | Misses |")
+            lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+            for metric in taxonomyMetrics {
+                lines.append(
+                    "| `\(metric.tag)` | \(metric.caseCount) | \(percent(metric.expandedHitRate)) | \(format(metric.expandedMRR)) | \(format(metric.mrrDelta)) | \(metric.improvedCount) | \(metric.worsenedCount) | \(metric.flatCount) | \(metric.missCount) |"
+                )
+            }
+        }
+        let branchCases = queryExpansion.caseResults.filter { $0.branchDiagnostics != nil }
+        if !branchCases.isEmpty {
+            lines.append("")
+            lines.append("### Query Expansion Branch Diagnostics")
+            lines.append("")
+            lines.append("| Case | Classification | Final Ranks | Branch Ranks | Best Expansion Source | Taxonomy |")
+            lines.append("|---|---|---|---|---|---|")
+            for result in branchCases {
+                guard let diagnostics = result.branchDiagnostics else { continue }
+                let finalRanks = "base \(rankLabel(result.baselineBestRankAtK)), expanded \(rankLabel(result.expandedBestRankAtK))"
+                lines.append(
+                    "| `\(markdownTableCell(result.id))` | `\(markdownTableCell(diagnostics.classification))` | \(markdownTableCell(finalRanks)) | \(markdownTableCell(queryExpansionBranchRankSummary(diagnostics))) | \(markdownTableCell(queryExpansionSourceHitSummary(diagnostics.expansionSourceHits))) | \(markdownTableCell((result.failureTaxonomy ?? []).joined(separator: ", "))) |"
+                )
+            }
+        }
+        let missCases = queryExpansion.caseResults.filter { $0.missDiagnostics != nil }
+        if !missCases.isEmpty {
+            lines.append("")
+            lines.append("### Query Expansion Remaining Miss Diagnostics")
+            lines.append("")
+            lines.append("| Case | Classification | Final Relevant | Top Final Candidates | Branch Best Relevant | Taxonomy |")
+            lines.append("|---|---|---|---|---|---|")
+            for result in missCases {
+                guard let diagnostics = result.missDiagnostics else { continue }
+                let classification = result.branchDiagnostics?.classification ?? "-"
+                lines.append(
+                    "| `\(markdownTableCell(result.id))` | `\(markdownTableCell(classification))` | \(markdownTableCell(queryExpansionMissFinalRelevantSummary(diagnostics))) | \(markdownTableCell(queryExpansionRankedCandidateSummary(diagnostics.finalTopCandidates))) | \(markdownTableCell(queryExpansionMissBranchSummary(diagnostics))) | \(markdownTableCell((result.failureTaxonomy ?? []).joined(separator: ", "))) |"
+                )
+            }
+        }
+    }
+
+    if let agentMemory = report.agentMemory {
+        lines.append("")
+        lines.append("## Agent Memory")
+        lines.append("")
+        lines.append("- Scenarios: \(agentMemory.totalScenarios)")
+        lines.append("- False-write rate: \(percent(agentMemory.falseWriteRate))")
+        lines.append("- Expected-write recall: \(percent(agentMemory.expectedWriteRecall))")
+        lines.append("- Active-state accuracy: \(percent(agentMemory.activeStateAccuracy))")
+        lines.append("- Update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
+        lines.append("- Recall Hit: \(percent(agentMemory.recallHitRate))")
+        lines.append("- Recall MRR: \(format(agentMemory.recallMRR))")
+        if let latency = agentMemory.latencyStats {
+            lines.append("- Scenario latency p95: \(String(format: "%.1f", latency.p95Ms)) ms")
         }
     }
 
@@ -3949,6 +6115,82 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
     return lines.joined(separator: "\n")
 }
 
+private func rankLabel(_ rank: Int?) -> String {
+    rank.map(String.init) ?? "-"
+}
+
+private func markdownTableCell(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "|", with: "/")
+        .replacingOccurrences(of: "\n", with: " ")
+}
+
+private func queryExpansionBranchRankSummary(_ diagnostics: QueryExpansionBranchDiagnostics) -> String {
+    "base semantic \(rankLabel(diagnostics.baselineSemanticRankAtK)), base lexical \(rankLabel(diagnostics.baselineLexicalRankAtK)), expanded semantic \(rankLabel(diagnostics.expandedSemanticRankAtK)), expanded lexical \(rankLabel(diagnostics.expandedLexicalRankAtK))"
+}
+
+private func queryExpansionSourceHitSummary(_ hits: [QueryExpansionSourceHit]) -> String {
+    guard let best = hits
+        .compactMap({ hit -> (QueryExpansionSourceHit, Int)? in
+            guard let rank = hit.rankAtK else { return nil }
+            return (hit, rank)
+        })
+        .sorted(by: { lhs, rhs in
+            if lhs.1 == rhs.1 {
+                return lhs.0.kind < rhs.0.kind
+            }
+            return lhs.1 < rhs.1
+        })
+        .first
+    else {
+        return "-"
+    }
+    return "\(best.0.kind) \(best.1): \(truncateForMarkdown(best.0.query, maxLength: 80))"
+}
+
+private func queryExpansionMissFinalRelevantSummary(_ diagnostics: QueryExpansionMissDiagnostics) -> String {
+    guard let rank = diagnostics.finalBestRelevantRank,
+          let documentId = diagnostics.finalBestRelevantDocumentId,
+          let score = diagnostics.finalBestRelevantScore else {
+        return "-"
+    }
+    return "\(rank): \(documentId) [\(queryExpansionScoreSummary(score))]"
+}
+
+private func queryExpansionRankedCandidateSummary(
+    _ candidates: [QueryExpansionRankedCandidate],
+    maxCount: Int = 3
+) -> String {
+    guard !candidates.isEmpty else { return "-" }
+    return candidates.prefix(maxCount).map { candidate in
+        let marker = candidate.isRelevant ? "*" : ""
+        return "\(candidate.rank):\(marker)\(candidate.documentId) [\(queryExpansionScoreSummary(candidate.score))]"
+    }
+    .joined(separator: "; ")
+}
+
+private func queryExpansionMissBranchSummary(_ diagnostics: QueryExpansionMissDiagnostics) -> String {
+    guard !diagnostics.branchRanks.isEmpty else { return "-" }
+    return diagnostics.branchRanks.map { branch in
+        guard let rank = branch.bestRelevantRank,
+              let documentId = branch.bestRelevantDocumentId else {
+            return "\(branch.branch) -"
+        }
+        let score = branch.bestRelevantScore.map { " [\(queryExpansionScoreSummary($0))]" } ?? ""
+        return "\(branch.branch) \(rank): \(documentId)\(score)"
+    }
+    .joined(separator: "; ")
+}
+
+private func queryExpansionScoreSummary(_ score: SearchScoreBreakdown) -> String {
+    "sem \(format(score.semantic)), lex \(format(score.lexical)), rec \(format(score.recency)), tag \(format(score.tag)), schema \(format(score.schema)), temporal \(format(score.temporal)), status \(format(score.status)), fused \(format(score.fused)), blended \(format(score.blended))"
+}
+
+private func truncateForMarkdown(_ value: String, maxLength: Int) -> String {
+    guard value.count > maxLength else { return value }
+    return String(value.prefix(max(0, maxLength - 3))) + "..."
+}
+
 private func parseKValues(_ raw: String) throws -> [Int] {
     let parsed = raw
         .split(separator: ",")
@@ -4033,11 +6275,58 @@ private func computeNDCG(ranked: [String], relevant: Set<String>, k: Int) -> Dou
     return dcg / idcg
 }
 
+private func firstRelevantRank(in ranked: [String], relevant: Set<String>, maxK: Int) -> Int? {
+    guard maxK > 0 else { return nil }
+    return ranked.prefix(maxK).firstIndex { relevant.contains($0) }.map { $0 + 1 }
+}
+
+private func reciprocalRank(for rank: Int?) -> Double {
+    guard let rank, rank > 0 else { return 0 }
+    return 1.0 / Double(rank)
+}
+
+private func reciprocalRankDelta(baseline: Double?, expanded: Double?) -> Double? {
+    guard let baseline, let expanded else { return nil }
+    return expanded - baseline
+}
+
+private func rankImprovement(baselineRank: Int?, expandedRank: Int?) -> Int? {
+    guard let baselineRank, let expandedRank else { return nil }
+    return baselineRank - expandedRank
+}
+
 private func materializeRecallDocument(_ document: RecallDocumentCase) throws -> String {
     if let memoryTypeRaw = document.memoryType {
         _ = try parseLegacyDocumentTypeLabel(memoryTypeRaw, context: "recall document \(document.id)")
     }
     return document.text
+}
+
+private func materializedRecallDocumentURL(_ document: RecallDocumentCase, docsRoot: URL) -> URL {
+    materializedRecallDocumentURL(
+        id: document.id,
+        kind: document.kind,
+        relativePath: document.relativePath,
+        docsRoot: docsRoot
+    )
+}
+
+func materializedRecallDocumentURL(id: String, kind: String?, relativePath: String?, docsRoot: URL) -> URL {
+    let materializedExtension = extensionForKind(kind) ?? "md"
+    let relativePath = relativePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let relativePath, !relativePath.isEmpty else {
+        return docsRoot.appendingPathComponent("\(safeFilename(id)).\(materializedExtension)")
+    }
+
+    let rawURL = docsRoot.appendingPathComponent(relativePath)
+    let rawExtension = rawURL.pathExtension.lowercased()
+    if !rawExtension.isEmpty, MemoryConfiguration.defaultSupportedExtensions.contains(rawExtension) {
+        return rawURL
+    }
+    if rawExtension.isEmpty {
+        return rawURL.appendingPathExtension(materializedExtension)
+    }
+    return rawURL.deletingPathExtension().appendingPathExtension(materializedExtension)
 }
 
 private func parseDocumentKind(_ raw: String?) -> DocumentKind? {

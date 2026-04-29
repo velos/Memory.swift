@@ -25,6 +25,34 @@ struct EvalResponseCacheTests {
         #expect(cached?["value"] == 42)
     }
 
+    @Test
+    func recallDocumentMaterializationUsesIndexableExtensionForMarkdownPdfSources() throws {
+        let root = try makeTemporaryDirectory()
+        let path = materializedRecallDocumentURL(
+            id: "general-v2__doc-0555",
+            kind: "markdown",
+            relativePath: "general-v2/repliqa/pdfs/repliqa_0/xjfymplj.pdf",
+            docsRoot: root
+        )
+
+        #expect(path.pathExtension == "md")
+        #expect(path.path.contains("xjfymplj.md"))
+    }
+
+    @Test
+    func recallDocumentMaterializationKeepsSupportedRelativeExtensions() throws {
+        let root = try makeTemporaryDirectory()
+        let path = materializedRecallDocumentURL(
+            id: "doc-1",
+            kind: "markdown",
+            relativePath: "notes/already.md",
+            docsRoot: root
+        )
+
+        #expect(path.pathExtension == "md")
+        #expect(path.path.contains("notes/already.md"))
+    }
+
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("memory-eval-tests")

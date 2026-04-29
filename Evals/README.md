@@ -171,6 +171,18 @@ Optional larger or experimental corpora should be generated locally under the gi
 
 ## Running Evals
 
+Validate dataset hygiene without running model evals:
+
+```bash
+swift run memory_eval validate-datasets
+```
+
+Use `--strict` before promoting a dataset into a release gate. The validator
+checks JSONL decoding, duplicate IDs, missing recall-document references,
+baseline manifests, local `.DS_Store` files, and scratch/provenance sidecars
+that should usually live under `Evals/_audit/` or `Explorations/` instead of a
+runnable dataset root.
+
 Generate datasets with MiniMax M2.5 via Anthropic-compatible API:
 
 ```bash

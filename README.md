@@ -19,7 +19,7 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - Canonical `memories` table with deterministic update/supersede semantics for agent memories
 - Persistent contexts for reusable chunk sets
 - Default embedding backend with `NLContextualEmbedding`
-- CoreML-first on-device path with LEAF-IR embeddings
+- CoreML-first on-device path with bundled embedding model support
 - Agent memory model: `profile`, `fact`, `decision`, `commitment`, `episode`, `procedure`, `handoff`
 - Fixed facet tags plus open `entities` and `topics` for retrieval
 - Optional Apple Intelligence augmentation on supported OS versions
@@ -30,6 +30,8 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - `MemoryNaturalLanguage`: NaturalLanguage-based embedding defaults, tokenizers, and query analysis
 - `MemoryCoreMLEmbedding`: CoreML embedding and reranker providers
 - `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging
+- `memory`: local CLI for indexing, querying, and benchmark bridge experiments
+- `memory_eval`: eval harness for storage, recall, query expansion, agent-memory behavior, and regression gates
 
 `MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `Memory` product and, optionally, one provider product.
 
@@ -90,7 +92,7 @@ let config = try MemoryConfiguration.coreMLDefault(
 let index = try MemoryIndex(configuration: config)
 ```
 
-`coreMLDefault` is the shipped on-device path: LEAF-IR embeddings, hybrid retrieval, and no neural reranker in the default hot path.
+`coreMLDefault` is the shipped on-device path: CoreML embeddings, hybrid retrieval, heuristic structured expansion, NaturalLanguage query analysis, and no neural reranker in the default hot path. The CLI and eval harness resolve `Models/embedding-v1.mlpackage` by default when run from this repository.
 
 ## Recommended Public API Surface
 
@@ -200,6 +202,8 @@ Build and run:
 swift run memory --help
 ```
 
+The CLI includes `memory serve`, a persistent JSON-lines bridge used for local benchmark adapters. It avoids repeated process startup and CoreML model loading during high-volume retrieval diagnostics.
+
 [qmd cli-style workflow](https://github.com/tobi/qmd#quick-start):
 
 ```bash
@@ -228,144 +232,51 @@ swift run memory search "API" --all --files --min-score 0.3
 
 ## Eval Harness (`memory_eval`)
 
-Generate datasets with MiniMax (Anthropic-compatible API):
+The eval harness is the release gate for Memory.swift behavior. Prefer `coreml_default` for shipped-path validation.
 
 ```bash
-python3 Scripts/generate_eval_data_minimax.py --dataset-root ./Evals --env-file .env --overwrite
+swift run memory_eval validate-datasets
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/general_v2 --no-cache --no-index-cache
+swift run memory_eval compare ./Evals/general_v2/runs/<baseline>.json ./Evals/general_v2/runs/<candidate>.json
 ```
 
-Generate datasets with Codex (`gpt-5.2`) in atomic batches:
+Release gate:
 
 ```bash
-python3 Scripts/generate_eval_data_codex.py \
-  --dataset-root ./Evals \
-  --model gpt-5.2 \
-  --storage-batch-size 6 \
-  --documents-batch-size 8 \
-  --queries-batch-size 10 \
-  --resume
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/memory_schema_gold_v2 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/agent_memory_gold_v1 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/general_v2 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_v2 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_default --dataset-root ./Evals/query_expansion_gold_v1 --no-cache --no-index-cache
+swift run memory_eval gate --baseline ./Evals/baselines/current.json <five-json-reports>
 ```
 
-Tag or augment existing eval datasets with Codex:
+Useful diagnostic commands:
 
 ```bash
-python3 Scripts/tag_eval_data_codex.py \
+swift run memory_eval diagnose-longmemeval \
+  --profile coreml_default \
   --dataset-root ./Evals/longmemeval_v2 \
-  --mode query-tags \
-  --model gpt-5-codex
+  --source-run ./Evals/longmemeval_v2/runs/<run>.json \
+  --scope misses \
+  --wide-limit 100
 ```
 
-Tag or augment existing eval datasets with MiniMax:
+Tracked eval suites:
 
-```bash
-python3 Scripts/tag_eval_data_minimax.py \
-  --dataset-root ./Evals/longmemeval_v2 \
-  --mode query-tags \
-  --env-file .env
-```
-
-Build audit packets and run model-assisted review:
-
-```bash
-python3 Scripts/build_audit_packet.py \
-  --dataset-root ./Evals/general_v2 \
-  --dataset-root ./Evals/longmemeval_v2
-
-python3 Scripts/audit_eval_data.py \
-  --packet ./Evals/_audit/general_v2/packet.jsonl \
-  --backend opencode \
-  --model opencode/nemotron-3-super-free
-
-python3 Scripts/merge_audit_results.py \
-  --packet ./Evals/_audit/general_v2/packet.jsonl
-```
-
-Build additional exploratory corpora locally:
-
-```bash
-python3 Scripts/convert_multidoc2dial_to_eval.py --output-dir ./Explorations/Evals/raw_multidoc2dial
-python3 Scripts/convert_repliqa_to_eval.py --output-dir ./Explorations/Evals/raw_repliqa --splits repliqa_0
-python3 Scripts/convert_qasper_to_eval.py --output-dir ./Explorations/Evals/raw_qasper --splits train,dev
-python3 Scripts/convert_swebench_verified_to_eval.py --output-dir ./Explorations/Evals/raw_swebench_verified --max-instances 250
-```
-
-Merge local exploratory corpora into a staged dataset:
-
-```bash
-python3 Scripts/merge_eval_corpora.py \
-  --dataset-name general_v2 \
-  --output-dir ./Explorations/Evals/general_v2 \
-  --source multidoc2dial=./Explorations/Evals/raw_multidoc2dial \
-  --source repliqa=./Explorations/Evals/raw_repliqa
-```
-
-Initialize dataset templates:
-
-```bash
-swift run memory_eval init --dataset-root ./Evals
-```
-
-Run baseline eval:
-
-```bash
-swift run memory_eval run --profile nl_baseline --dataset-root ./Evals
-```
-
-Recommended benchmark roles:
-- `Evals/memory_schema_gold_v2`: canonical write-path benchmark for `MemoryKind`, `MemoryStatus`, `FacetTag`, `entities`, `topics`, and update behavior
-- `Evals/general_v2`: broad retrieval gate for the shipped hybrid search path
-- `Evals/longmemeval_v2`: long-horizon conversational recall benchmark; treat it as recall-first rather than a canonical write-path benchmark
-- `Evals/query_expansion_gold_v1`: targeted structured-expansion pressure test for regressions and rescue cases
-
-Everything else should be treated as optional exploration material. Keep bulky temporary corpora, audit packets, and experimental model assets under the gitignored `Explorations/` tree rather than tracking them in the main repo history.
-
-Run the supported profile set:
-
-```bash
-swift run memory_eval run --dataset-root ./Evals
-```
-
-Run CoreML-first eval:
-
-```bash
-swift run memory_eval run --profile coreml_default --dataset-root ./Evals
-```
-
-Run oracle ceiling eval (offline ranking upper bound from retrieved candidates):
-
-```bash
-swift run memory_eval run --profile oracle_ceiling --dataset-root ./Evals
-```
-
-Run Apple-augmented eval:
-
-```bash
-swift run memory_eval run --profile apple_augmented --dataset-root ./Evals
-```
-
-Compare run outputs:
-
-```bash
-swift run memory_eval compare ./Evals/runs/*.json
-```
-
-Convert LongMemEval-cleaned into eval format:
-
-```bash
-python3 Scripts/convert_longmemeval_to_eval.py \
-  --split oracle \
-  --output-dir ./Explorations/Evals/longmemeval_v2
-```
-
-Run evals on LongMemEval:
-
-```bash
-swift run memory_eval run --profile coreml_default --dataset-root ./Evals/longmemeval_v2
-```
+- `Evals/memory_schema_gold_v2`: canonical write-path benchmark for kind/status/facet/entity/topic/update behavior
+- `Evals/agent_memory_gold_v1`: no-write, extraction, update/supersede/resolve, active-state, and recall behavior
+- `Evals/general_v2`: broad retrieval gate for the shipped hybrid path
+- `Evals/longmemeval_v2`: long-horizon conversational recall benchmark
+- `Evals/query_expansion_gold_v1`: structured query-expansion benchmark
+- Focused gates: `longmemeval_rescue_v1`, `longmemeval_ranking_v1`, `longmemeval_multievidence_v1`, `query_expansion_rescue_v1`, `agent_memory_pressure_v1`
+- Exploratory storage robustness: `storage_heldout_v1`
 
 Eval caching defaults:
-- Provider responses: `./Evals/cache/provider/eval_provider_cache.sqlite` (disable with `--no-cache`)
-- Built suite indexes: `./Evals/cache/index/...` (disable with `--no-index-cache`)
+- Provider responses: `<dataset-root>/cache/provider/eval_provider_cache.sqlite` (disable with `--no-cache`)
+- Built suite indexes: `<dataset-root>/cache/index/...` (disable with `--no-index-cache`)
+
+See `Evals/README.md` and `.agents/skills/memory-evals/SKILL.md` for dataset generation, audit, focused-slice, and baseline maintenance workflows. See `Docs/agent-memory-benchmark.md` for local external Agent Memory Benchmark notes.
 
 ## Autoresearch
 

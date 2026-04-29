@@ -186,6 +186,36 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func memorySearchDoesNotTreatCompletedAsStatusFilterForPlainDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("painting.md"),
+            "I completed five painting class projects since starting painting classes."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "How many projects have I completed since starting painting classes?",
+            limit: 5,
+            features: [.lexical],
+            includeLineRanges: false
+        )
+
+        #expect(refs.contains(where: { $0.documentPath.hasSuffix("painting.md") }))
+    }
+
+    @Test
     func memoryGetFallsBackToIndexedContentForIngestedMemory() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")
@@ -557,5 +587,600 @@ struct MemoryExternalAPITests {
         #expect(results.records.first?.entities.contains(where: { $0.normalizedValue == "memory.swift" }) == true)
         #expect(results.records.first?.id == preferred.id)
         #expect(results.records.last?.id == competing.id)
+    }
+
+    @Test
+    func heuristicExtractSkipsQuestionsAndChitchat() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "Thanks, can you explain how vector indexes work before we decide anything?"),
+                ConversationMessage(role: .assistant, content: "Sure, I can explain that."),
+            ]
+        )
+
+        #expect(extracted.isEmpty)
+    }
+
+    @Test
+    func detailedExtractReportsRejectedSpansAndProposedActions() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let result = try await index.extractDetailed(
+            from: [
+                ConversationMessage(role: .user, content: "Thanks, can you explain the index first?"),
+                ConversationMessage(role: .user, content: "My role is the maintainer for Memory.swift."),
+                ConversationMessage(role: .user, content: "Action item: add migration tests."),
+            ],
+            limit: 10
+        )
+
+        #expect(result.candidates.count == 2)
+        #expect(result.rejectedSpans.contains(where: { $0.reason == "not_memory_worthy" }))
+        #expect(result.proposedActions.contains(.replaceActive))
+        #expect(result.proposedActions.contains(.create))
+        let extractedProfile = result.candidates.first { candidate in
+            candidate.kind == .profile && candidate.canonicalKey == "profile:role"
+        }
+        let extractedCommitment = result.candidates.first { candidate in
+            candidate.kind == .commitment
+        }
+        #expect(extractedProfile != nil)
+        #expect(extractedCommitment != nil)
+    }
+
+    @Test
+    func heuristicExtractCapturesCanonicalEntitiesAndTopicsForAgentMemoryKinds() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Zac prefers Zed for Memory.swift hybrid retrieval planning."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "We decided to use LEAF-IR embeddings for Memory.swift recall."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Action item: ship entity overlap tests for Memory.swift."
+                ),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first { $0.kind == .profile })
+        let profileEntities = Set(profile.entities.map(\.normalizedValue))
+        #expect(profileEntities.isSuperset(of: ["zac", "zed", "memory.swift"]))
+        #expect(profile.topics.contains("hybrid retrieval"))
+        #expect(profile.topics.contains("memory.swift planning"))
+
+        let decision = try #require(extracted.first { $0.kind == .decision })
+        let decisionEntities = Set(decision.entities.map(\.normalizedValue))
+        #expect(decisionEntities.isSuperset(of: ["leaf-ir", "memory.swift"]))
+        #expect(decision.topics.contains("memory.swift recall"))
+        #expect(decision.topics.contains("embeddings for recall"))
+
+        let commitment = try #require(extracted.first { $0.kind == .commitment })
+        let commitmentEntities = Set(commitment.entities.map(\.normalizedValue))
+        #expect(commitmentEntities.contains("memory.swift"))
+        #expect(commitment.topics.contains("entity overlap tests"))
+    }
+
+    @Test
+    func heuristicExtractGeneralizesHeldoutEntitiesTopicsAndKindCues() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Theo is the release owner for the HarborOps project."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "The HarborOps staging office blocks large artifact uploads."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "We settled on gRPC for the mobile sync boundary."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Runbook: rotate Redis credentials, restart BeaconCRM, and verify session cache."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "On Monday, Rowan reviewed the TrailMap export failure."
+                ),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first { $0.text.contains("release owner") })
+        #expect(profile.kind == .profile)
+        #expect(Set(profile.entities.map(\.normalizedValue)).isSuperset(of: ["theo", "harborops"]))
+        #expect(profile.topics.contains("release owner"))
+        #expect(profile.facetTags.isSuperset(of: [.factAboutUser, .identitySignal, .project]))
+
+        let fact = try #require(extracted.first { $0.text.contains("artifact uploads") })
+        #expect(fact.kind == .fact)
+        #expect(Set(fact.entities.map(\.normalizedValue)).contains("harborops"))
+        #expect(fact.topics.contains("artifact uploads"))
+
+        let decision = try #require(extracted.first { $0.text.contains("gRPC") })
+        #expect(decision.kind == .decision)
+        #expect(Set(decision.entities.map(\.normalizedValue)).contains("grpc"))
+        #expect(decision.topics.contains("mobile sync"))
+        #expect(decision.facetTags.contains(.decisionTopic))
+
+        let procedure = try #require(extracted.first { $0.text.contains("session cache") })
+        #expect(procedure.kind == .procedure)
+        #expect(Set(procedure.entities.map(\.normalizedValue)).isSuperset(of: ["redis", "beaconcrm"]))
+        #expect(procedure.topics.contains("session cache"))
+
+        let episode = try #require(extracted.first { $0.text.contains("export failure") })
+        #expect(episode.kind == .episode)
+        #expect(Set(episode.entities.map(\.normalizedValue)).isSuperset(of: ["rowan", "trailmap"]))
+        #expect(episode.topics.contains("export failure"))
+        #expect(!episode.facetTags.contains(.person))
+    }
+
+    @Test
+    func heuristicExtractFacetsUseEntitiesAndAvoidSubstringFalsePositives() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "Zac's timezone is Pacific Time in San Francisco for Memory.swift collaboration."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "TODO: add migration coverage for facet tags this week."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Today we landed schema v3 for canonical memories."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "Guide: tag projected retrieval metadata as facet, entity, and topic prefixes."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "TODO: verify the mobile sync boundary with gRPC."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "This morning Zac met Sam in San Francisco to review Memory.swift."
+                ),
+                ConversationMessage(
+                    role: .user,
+                    content: "After the demo the team celebrated the CoreML build working offline."
+                ),
+            ],
+            limit: 10
+        )
+
+        let timezone = try #require(extracted.first { $0.text.contains("timezone") })
+        #expect(timezone.facetTags.contains(.location))
+        #expect(!timezone.facetTags.contains(.project))
+        #expect(!timezone.facetTags.contains(.identitySignal))
+
+        let dueThisWeek = try #require(extracted.first { $0.text.contains("this week") })
+        #expect(dueThisWeek.facetTags.isSuperset(of: [.task, .timeSensitive]))
+
+        let landedToday = try #require(extracted.first { $0.text.contains("schema v3") })
+        #expect(!landedToday.facetTags.contains(.timeSensitive))
+
+        let projectedMetadata = try #require(extracted.first { $0.text.contains("projected retrieval") })
+        #expect(!projectedMetadata.facetTags.contains(.project))
+
+        let grpcCommitment = try #require(extracted.first { $0.text.contains("gRPC") })
+        #expect(!grpcCommitment.facetTags.contains(.tool))
+        #expect(!grpcCommitment.facetTags.contains(.person))
+        #expect(!grpcCommitment.facetTags.contains(.relationship))
+
+        let meeting = try #require(extracted.first { $0.text.contains("met Sam") })
+        #expect(meeting.facetTags.isSuperset(of: [.person, .location, .project]))
+
+        let celebration = try #require(extracted.first { $0.text.contains("celebrated") })
+        #expect(celebration.facetTags.isSuperset(of: [.emotion, .tool]))
+    }
+
+    @Test
+    func inferredCanonicalFacetsDriveProfileDecisionAndCommitmentUpdates() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let profileV1 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Zac prefers Vim for Memory.swift release coordination."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let profileV2 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Zac prefers Zed for Memory.swift release coordination."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([profileV1])
+        _ = try await index.ingest([profileV2])
+
+        let profiles = try await index.recall(mode: .kind(.profile), limit: 10)
+        #expect(profiles.records.count == 1)
+        #expect(profiles.records.first?.text.contains("Zed") == true)
+
+        let decisionV1 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "We decided to use LEAF-IR embeddings for Memory.swift recall."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let decisionV2 = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "We decided to use CoreML embeddings for Memory.swift recall."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([decisionV1])
+        _ = try await index.ingest([decisionV2])
+
+        let decisions = try await index.recall(mode: .kind(.decision), limit: 10)
+        #expect(decisions.records.count == 1)
+        #expect(decisions.records.first?.text.contains("CoreML") == true)
+
+        let commitmentActive = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Action item: ship entity overlap tests for Memory.swift."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        let commitmentResolved = try #require(
+            try await index.extract(
+                from: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "Done: ship entity overlap tests for Memory.swift."
+                    ),
+                ],
+                limit: 5
+            ).first
+        )
+        _ = try await index.ingest([commitmentActive])
+        _ = try await index.ingest([commitmentResolved])
+
+        let activeCommitments = try await index.recall(mode: .kind(.commitment), limit: 10)
+        #expect(activeCommitments.records.isEmpty)
+
+        let resolvedCommitments = try await index.recall(
+            mode: .kind(.commitment),
+            limit: 10,
+            statuses: [.resolved]
+        )
+        #expect(resolvedCommitments.records.count == 1)
+        #expect(resolvedCommitments.records.first?.text.contains("entity overlap tests") == true)
+    }
+
+    @Test
+    func memorySearchDefaultsToActiveMemoriesWithoutHidingDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(docs.appendingPathComponent("storage.md"), "The active document mentions SQLite storage.")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let first = try await index.save(
+            text: "Storage decision was LMDB.",
+            kind: .decision,
+            canonicalKey: "decision:storage"
+        )
+        let second = try await index.save(
+            text: "Storage decision is SQLite.",
+            kind: .decision,
+            canonicalKey: "decision:storage"
+        )
+
+        let defaultRefs = try await index.memorySearch(query: "storage decision sqlite", limit: 10)
+        #expect(defaultRefs.contains(where: { $0.documentPath.hasSuffix("storage.md") }))
+        #expect(defaultRefs.contains(where: { $0.memoryID == second.id }))
+        #expect(defaultRefs.contains(where: { $0.memoryID == first.id }) == false)
+
+        let historicalRefs = try await index.memorySearch(
+            query: "storage decision lmdb",
+            limit: 10,
+            statuses: [.superseded]
+        )
+        #expect(historicalRefs.contains(where: { $0.memoryID == first.id }))
+    }
+
+    @Test
+    func memorySearchDoesNotTreatOrdinaryOldObjectQueriesAsHistoricalMemoryOnly() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("keyboard.md"),
+            "Maya kept the old keyboard beside the studio monitor and used it for every demo."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "Who kept the old keyboard?",
+            limit: 5,
+            features: [.lexical],
+            includeLineRanges: false
+        )
+
+        #expect(refs.contains(where: { $0.documentPath.hasSuffix("keyboard.md") }))
+    }
+
+    @Test
+    func memorySearchDoesNotTreatPreviousConversationAsHistoricalMemoryOnly() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("cocktail.md"),
+            "In a previous conversation about building a cocktail bar, the fifth recommended bottle was orange bitters."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "In our previous conversation about building a cocktail bar, what was the fifth bottle?",
+            limit: 5,
+            features: [.lexical],
+            includeLineRanges: false
+        )
+
+        #expect(refs.contains(where: { $0.documentPath.hasSuffix("cocktail.md") }))
+    }
+
+    @Test
+    func ingestReportsWriteActionsForDedupeReplacementAndStatusMerge() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let firstFact = try await index.ingest([
+            MemoryCandidate(text: "The repo uses SQLite as the canonical storage layer.", kind: .fact),
+        ])
+        let duplicateFact = try await index.ingest([
+            MemoryCandidate(text: "The repository uses SQLite as canonical storage layer.", kind: .fact),
+        ])
+        let firstProfile = try await index.ingest([
+            MemoryCandidate(text: "Preferred editor is Vim.", kind: .profile),
+        ])
+        let replacementProfile = try await index.ingest([
+            MemoryCandidate(text: "Preferred editor is Zed.", kind: .profile),
+        ])
+        let activeCommitment = try await index.ingest([
+            MemoryCandidate(
+                text: "Action item: add migration tests.",
+                kind: .commitment,
+                canonicalKey: "commitment:migration-tests"
+            ),
+        ])
+        let resolvedCommitment = try await index.ingest([
+            MemoryCandidate(
+                text: "Done: add migration tests.",
+                kind: .commitment,
+                status: .resolved,
+                canonicalKey: "commitment:migration-tests"
+            ),
+        ])
+
+        #expect(firstFact.actions == [.create])
+        #expect(duplicateFact.actions == [.dedupe])
+        #expect(firstProfile.actions == [.create])
+        #expect(replacementProfile.actions == [.replaceActive])
+        #expect(activeCommitment.actions == [.create])
+        #expect(resolvedCommitment.actions == [.mergeStatus])
+
+        let facts = try await index.recall(mode: .kind(.fact), limit: 10)
+        #expect(facts.records.count == 1)
+    }
+
+    @Test
+    func hybridRecallIncludesResolvedCommitmentsForCompletionQueries() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let active = try await index.save(
+            text: "Action item: add migration tests.",
+            kind: .commitment,
+            canonicalKey: "commitment:migration-tests"
+        )
+        let resolved = try await index.save(
+            text: "Done: add migration tests.",
+            kind: .commitment,
+            status: .resolved,
+            canonicalKey: "commitment:migration-tests"
+        )
+
+        #expect(resolved.id == active.id)
+
+        let activeOnly = try await index.recall(
+            mode: .kind(.commitment),
+            limit: 10,
+            statuses: [.active]
+        )
+        #expect(activeOnly.records.isEmpty)
+
+        let planned = try await index.recall(
+            mode: .hybrid(query: "What happened to migration tests?"),
+            limit: 10
+        )
+        #expect(planned.records.contains(where: { $0.id == active.id && $0.status == .resolved }))
+    }
+
+    @Test
+    func inferredProfileCanonicalKeyReplacesActiveRecord() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let first = try await index.save(text: "Preferred editor is Vim.", kind: .profile)
+        let second = try await index.save(text: "Preferred editor is Zed.", kind: .profile)
+
+        let active = try await index.recall(mode: .kind(.profile), limit: 10)
+        #expect(active.records.count == 1)
+        #expect(active.records.first?.id == second.id)
+        #expect(active.records.first?.canonicalKey == "profile:editor")
+
+        let historical = try await index.recall(
+            mode: .kind(.profile),
+            limit: 10,
+            statuses: [.active, .superseded]
+        )
+        #expect(historical.records.contains(where: { $0.id == first.id && $0.status == .superseded }))
+    }
+
+    @Test
+    func concurrentIdempotentIngestDoesNotDuplicateExactFact() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    _ = try? await index.save(
+                        text: "The repo uses SQLite as the canonical storage layer.",
+                        kind: .fact
+                    )
+                }
+            }
+        }
+
+        let facts = try await index.recall(mode: .kind(.fact), limit: 10)
+        #expect(facts.records.count == 1)
     }
 }

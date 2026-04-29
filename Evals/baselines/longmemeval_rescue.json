@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-27T03:27:29Z",
+  "freshness_hours": 48,
+  "regression_threshold": 0.02,
+  "latency_regression_threshold": 0.15,
+  "notes": [
+    "Focused LongMemEval rescue gate for candidate-generation misses mined from branch diagnostics.",
+    "This gate is separate from the five-suite release gate and is intended for fast recall-regression checks while iterating on long-horizon storage and retrieval.",
+    "The first three cases lock the status-cue and completion-expansion fix; q-gpt4_7f6b06db is intentionally not locked yet because it remains a ranking/pool-depth miss after candidate generation succeeds."
+  ],
+  "required_runs": [
+    {
+      "dataset": "longmemeval_rescue_v1",
+      "dataset_root": "Evals/longmemeval_rescue_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 562.6720190048218,
+      "metrics": {
+        "recall.hit_at_10": 0.75,
+        "recall.recall_at_10": 0.75,
+        "recall.mrr_at_10": 0.75,
+        "recall.ndcg_at_10": 0.7265063588836705,
+        "recall.case.q-06db6396.hit_at_k": 1,
+        "recall.case.q-6a27ffc2.hit_at_k": 1,
+        "recall.case.q-gpt4_2f91af09.hit_at_k": 1
+      },
+      "minimum_metrics": {
+        "recall.hit_at_10": 0.75,
+        "recall.recall_at_10": 0.70,
+        "recall.mrr_at_10": 0.70,
+        "recall.ndcg_at_10": 0.70,
+        "recall.case.q-06db6396.hit_at_k": 1,
+        "recall.case.q-6a27ffc2.hit_at_k": 1,
+        "recall.case.q-gpt4_2f91af09.hit_at_k": 1
+      }
+    }
+  ]
+}

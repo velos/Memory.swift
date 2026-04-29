@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-04-24T15:03:03Z",
+  "freshness_hours": 48,
+  "regression_threshold": 0.02,
+  "latency_regression_threshold": 0.15,
+  "notes": [
+    "Separate query-expansion rescue gate for real low-rank and miss cases mined from recall run artifacts.",
+    "Hit rate may saturate or stay flat on this benchmark; retrieval MRR delta is the primary rescue signal.",
+    "Cases include failure_taxonomy metadata so regressions can be grouped by retrieval_miss, lexical_mismatch, temporal_reasoning, count_aggregation, multi_evidence, and related categories.",
+    "Per-case minimums lock known rescue wins and the previously skipped RepliQA-style markdown documents whose source paths end in .pdf."
+  ],
+  "required_runs": [
+    {
+      "dataset": "query_expansion_rescue_v1",
+      "dataset_root": "Evals/query_expansion_rescue_v1",
+      "profile": "coreml_default",
+      "latency_p95_ms": 530.8859348297119,
+      "metrics": {
+        "query_expansion.lexical_coverage_recall": 0.3802083333333333,
+        "query_expansion.facet_micro_f1": 0.5806451612903225,
+        "query_expansion.entity_recall": 0.24390243902439024,
+        "query_expansion.topic_recall": 0.4375,
+        "query_expansion.retrieval_baseline_hit_rate": 0.875,
+        "query_expansion.retrieval_expanded_hit_rate": 0.96875,
+        "query_expansion.retrieval_lift": 0.09375,
+        "query_expansion.retrieval_baseline_mrr": 0.6463541666666667,
+        "query_expansion.retrieval_expanded_mrr": 0.707452876984127,
+        "query_expansion.retrieval_mrr_delta": 0.06109871031746028
+      },
+      "minimum_metrics": {
+        "query_expansion.lexical_coverage_recall": 0.35,
+        "query_expansion.entity_recall": 0.20,
+        "query_expansion.topic_recall": 0.40,
+        "query_expansion.retrieval_baseline_hit_rate": 0.85,
+        "query_expansion.retrieval_expanded_hit_rate": 0.95,
+        "query_expansion.retrieval_expanded_mrr": 0.68,
+        "query_expansion.retrieval_lift": 0,
+        "query_expansion.retrieval_mrr_delta": 0,
+        "query_expansion.case.qer-general-v2-q-0008.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0274.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0891.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0906.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0907.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0911.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0913.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0921.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0931.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0951.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0956.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0961.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0965.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0983.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-0986.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-1033.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-general-v2-q-1033.expanded_reciprocal_rank_at_k": 1,
+        "query_expansion.case.qer-longmemeval-v2-q-gpt4_e061b84f.expanded_hit_at_k": 1,
+        "query_expansion.case.qer-longmemeval-v2-q-gpt4_fa19884c.expanded_hit_at_k": 1
+      }
+    }
+  ]
+}
