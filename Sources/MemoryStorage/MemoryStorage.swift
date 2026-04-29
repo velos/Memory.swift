@@ -375,6 +375,8 @@ public actor MemoryStorage {
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
     private static let schemaMetadataTableName = "memory_schema_metadata"
+    private static let scopedLexicalFTSTableName = "scoped_chunks_fts"
+    private static let scopedLexicalSearchThreshold = 4_096
     private static let scopedVectorSearchThreshold = 4_096
     private static let schemaVersion = 3
     private static let legacyTableNames: Set<String> = [
@@ -1121,6 +1123,20 @@ public actor MemoryStorage {
         guard limit > 0 else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
+        if let allowedChunkIDs {
+            if allowedChunkIDs.isEmpty {
+                return []
+            }
+            if allowedChunkIDs.count <= Self.scopedLexicalSearchThreshold {
+                return try scopedLexicalSearch(
+                    query: trimmed,
+                    limit: limit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+            }
+        }
+        if allowedMemoryTypes?.isEmpty == true { return [] }
 
         let strictPattern = Self.makeStrictFTSQuery(from: trimmed)
         let relaxedPattern = Self.makeRelaxedFTSQuery(from: trimmed)
@@ -1185,6 +1201,14 @@ public actor MemoryStorage {
 
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
+        if let allowedChunkIDs, allowedChunkIDs.count <= Self.scopedLexicalSearchThreshold {
+            return try scopedLexicalDocumentSearch(
+                query: trimmed,
+                limit: limit,
+                allowedChunkIDs: allowedChunkIDs,
+                allowedMemoryTypes: allowedMemoryTypes
+            )
+        }
 
         let strictPattern = Self.makeStrictFTSQuery(from: trimmed)
         let relaxedPattern = Self.makeRelaxedFTSQuery(from: trimmed)
@@ -1310,6 +1334,259 @@ public actor MemoryStorage {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private func scopedLexicalSearch(
+        query: String,
+        limit: Int,
+        allowedChunkIDs: Set<Int64>,
+        allowedMemoryTypes: Set<String>?
+    ) throws -> [LexicalHit] {
+        guard limit > 0, !allowedChunkIDs.isEmpty else { return [] }
+        guard allowedMemoryTypes?.isEmpty != true else { return [] }
+
+        let strictPattern = Self.makeStrictFTSQuery(from: query)
+        let relaxedPattern = Self.makeRelaxedFTSQuery(from: query)
+        guard strictPattern != nil || relaxedPattern != nil else { return [] }
+
+        let metadataRows = try scopedLexicalRows(
+            allowedChunkIDs: allowedChunkIDs,
+            allowedMemoryTypes: allowedMemoryTypes
+        )
+        guard !metadataRows.isEmpty else { return [] }
+
+        return try withScopedLexicalFTS(metadataRows) {
+            var mergedByChunkID: [Int64: Double] = [:]
+            var seenChunkIDs: Set<Int64> = []
+
+            if let strictPattern {
+                let strictHits = try Self.runPreparedScopedLexicalSearchQuery(
+                    in: database,
+                    pattern: strictPattern,
+                    limit: limit
+                )
+                for hit in strictHits {
+                    seenChunkIDs.insert(hit.chunkID)
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.2
+                }
+            }
+
+            if let relaxedPattern {
+                let relaxedHits = try Self.runPreparedScopedLexicalSearchQuery(
+                    in: database,
+                    pattern: relaxedPattern,
+                    limit: limit
+                )
+                for hit in relaxedHits {
+                    seenChunkIDs.insert(hit.chunkID)
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score
+                }
+            }
+
+            return seenChunkIDs
+                .map { LexicalHit(chunkID: $0, score: mergedByChunkID[$0, default: 0]) }
+                .sorted { lhs, rhs in
+                    if lhs.score == rhs.score {
+                        return lhs.chunkID < rhs.chunkID
+                    }
+                    return lhs.score > rhs.score
+                }
+                .prefix(limit)
+                .map { $0 }
+        }
+    }
+
+    private func scopedLexicalDocumentSearch(
+        query: String,
+        limit: Int,
+        allowedChunkIDs: Set<Int64>,
+        allowedMemoryTypes: Set<String>?
+    ) throws -> [LexicalHit] {
+        guard limit > 0, !allowedChunkIDs.isEmpty else { return [] }
+        guard allowedMemoryTypes?.isEmpty != true else { return [] }
+
+        let strictPattern = Self.makeStrictFTSQuery(from: query)
+        let relaxedPattern = Self.makeRelaxedFTSQuery(from: query)
+        guard strictPattern != nil || relaxedPattern != nil else { return [] }
+
+        let metadataRows = try scopedLexicalRows(
+            allowedChunkIDs: allowedChunkIDs,
+            allowedMemoryTypes: allowedMemoryTypes
+        )
+        guard !metadataRows.isEmpty else { return [] }
+
+        let probeLimit = min(max(limit * 12, limit + 128), 2_048)
+        let mergedByChunkID = try withScopedLexicalFTS(metadataRows) {
+            var mergedByChunkID: [Int64: Double] = [:]
+
+            if let strictPattern {
+                let strictHits = try Self.runPreparedScopedLexicalSearchQuery(
+                    in: database,
+                    pattern: strictPattern,
+                    limit: probeLimit
+                )
+                for hit in strictHits {
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.15
+                }
+            }
+
+            if let relaxedPattern {
+                let relaxedHits = try Self.runPreparedScopedLexicalSearchQuery(
+                    in: database,
+                    pattern: relaxedPattern,
+                    limit: probeLimit
+                )
+                for hit in relaxedHits {
+                    mergedByChunkID[hit.chunkID, default: 0] += hit.score
+                }
+            }
+
+            return mergedByChunkID
+        }
+        guard !mergedByChunkID.isEmpty else { return [] }
+
+        let anchorTokens = Self.lexicalAnchorTokens(from: query, maxCount: 16)
+        let anchorSet = Set(anchorTokens)
+
+        struct DocumentAggregate {
+            var representativeChunkID: Int64
+            var representativeChunkScore: Double
+            var representativeAnchorCount: Int
+            var bestChunkScore: Double
+            var scoreMass: Double
+            var matchedChunks: Int
+            var matchedAnchors: Set<String>
+
+            mutating func add(
+                chunkID: Int64,
+                chunkScore: Double,
+                matchedAnchorCount: Int,
+                matchedAnchors: Set<String>
+            ) {
+                scoreMass += chunkScore
+                matchedChunks += 1
+                self.matchedAnchors.formUnion(matchedAnchors)
+                bestChunkScore = max(bestChunkScore, chunkScore)
+
+                if matchedAnchorCount > representativeAnchorCount
+                    || (matchedAnchorCount == representativeAnchorCount && chunkScore > representativeChunkScore)
+                    || (matchedAnchorCount == representativeAnchorCount
+                        && chunkScore == representativeChunkScore
+                        && chunkID < representativeChunkID) {
+                    representativeChunkID = chunkID
+                    representativeChunkScore = chunkScore
+                    representativeAnchorCount = matchedAnchorCount
+                }
+            }
+        }
+
+        var aggregates: [String: DocumentAggregate] = [:]
+        for metadata in metadataRows {
+            guard let chunkScore = mergedByChunkID[metadata.chunkID] else { continue }
+            let matchedAnchors = Self.lexicalAnchorMatches(
+                anchorTokens: anchorSet,
+                in: ((metadata.title ?? "") + " " + metadata.content)
+            )
+            let matchedAnchorCount = matchedAnchors.count
+
+            if var aggregate = aggregates[metadata.documentPath] {
+                aggregate.add(
+                    chunkID: metadata.chunkID,
+                    chunkScore: chunkScore,
+                    matchedAnchorCount: matchedAnchorCount,
+                    matchedAnchors: matchedAnchors
+                )
+                aggregates[metadata.documentPath] = aggregate
+            } else {
+                aggregates[metadata.documentPath] = DocumentAggregate(
+                    representativeChunkID: metadata.chunkID,
+                    representativeChunkScore: chunkScore,
+                    representativeAnchorCount: matchedAnchorCount,
+                    bestChunkScore: chunkScore,
+                    scoreMass: chunkScore,
+                    matchedChunks: 1,
+                    matchedAnchors: matchedAnchors
+                )
+            }
+        }
+
+        return aggregates.values
+            .map { aggregate in
+                let coverage = anchorSet.isEmpty
+                    ? 0
+                    : Double(aggregate.matchedAnchors.count) / Double(anchorSet.count)
+                let chunkAgreement = min(0.20, 0.035 * sqrt(Double(aggregate.matchedChunks)))
+                let massBonus = min(0.12, aggregate.scoreMass * 0.035)
+                let score = aggregate.bestChunkScore + (0.24 * coverage) + chunkAgreement + massBonus
+                return LexicalHit(chunkID: aggregate.representativeChunkID, score: score)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score == rhs.score {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.score > rhs.score
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private func withScopedLexicalFTS<T>(
+        _ metadataRows: [StoredChunkMetadata],
+        _ body: () throws -> T
+    ) throws -> T {
+        try database.execute(
+            sql: "CREATE VIRTUAL TABLE IF NOT EXISTS temp.\(Self.scopedLexicalFTSTableName) USING fts5(content)"
+        )
+
+        return try database.transaction {
+            try database.execute(sql: "DELETE FROM temp.\(Self.scopedLexicalFTSTableName)")
+            for metadata in metadataRows {
+                try database.execute(
+                    sql: """
+                    INSERT INTO temp.\(Self.scopedLexicalFTSTableName) (rowid, content)
+                    VALUES (?, ?)
+                    """,
+                    arguments: [metadata.chunkID, metadata.content]
+                )
+            }
+            return try body()
+        }
+    }
+
+    private static func runPreparedScopedLexicalSearchQuery(
+        in database: SQLiteDatabase,
+        pattern: String,
+        limit: Int
+    ) throws -> [LexicalHit] {
+        guard limit > 0 else { return [] }
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT rowid AS chunk_id, rank AS rank
+            FROM temp.\(Self.scopedLexicalFTSTableName)
+            WHERE \(Self.scopedLexicalFTSTableName) MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            arguments: [pattern, limit]
+        )
+
+        return rows.enumerated().map { index, row in
+            let chunkID: Int64 = row["chunk_id"]
+            let rank: Double? = row["rank"]
+            let rawScore = -(rank ?? Double(index + 1))
+            let normalizedScore = abs(rawScore) / (1.0 + abs(rawScore))
+            return LexicalHit(chunkID: chunkID, score: normalizedScore)
+        }
+    }
+
+    private func scopedLexicalRows(
+        allowedChunkIDs: Set<Int64>,
+        allowedMemoryTypes: Set<String>?
+    ) throws -> [StoredChunkMetadata] {
+        let rows = try fetchChunkMetadata(chunkIDs: allowedChunkIDs.sorted())
+        guard let allowedMemoryTypes else { return rows }
+        return rows.filter { allowedMemoryTypes.contains($0.memoryType) }
     }
 
     public func contentTagSearch(

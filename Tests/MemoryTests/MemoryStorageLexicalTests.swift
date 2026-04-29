@@ -44,6 +44,49 @@ struct MemoryStorageLexicalTests {
         #expect(paths.contains("/tmp/target.md"))
     }
 
+    @Test
+    func scopedLexicalSearchOnlyRanksAllowedChunks() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("scoped-lexical.sqlite")
+        let storage = try MemoryStorage(databaseURL: dbURL)
+
+        try await storage.replaceDocument(
+            makeDocument(
+                path: "/tmp/scope/target.md",
+                chunks: [
+                    "Maya booked the lantern tour at Caldera Bay for June 12.",
+                    "The harbor note mentions tides and ferry timing.",
+                ]
+            )
+        )
+        try await storage.replaceDocument(
+            makeDocument(
+                path: "/tmp/scope/distractor.md",
+                chunks: ["Routine travel planning note without the requested destination."]
+            )
+        )
+        try await storage.replaceDocument(
+            makeDocument(
+                path: "/tmp/outside/global-best.md",
+                chunks: [
+                    Array(repeating: "Maya lantern tour Caldera Bay", count: 20).joined(separator: " ")
+                ]
+            )
+        )
+
+        let allowedChunkIDs = Set(try await storage.fetchChunkIDs(documentPathPrefix: "/tmp/scope"))
+        let hits = try await storage.lexicalSearch(
+            query: "Maya lantern tour Caldera Bay",
+            limit: 5,
+            allowedChunkIDs: allowedChunkIDs
+        )
+        let metadata = try await storage.fetchChunkMetadata(chunkIDs: hits.map(\.chunkID))
+        let paths = metadata.map(\.documentPath)
+
+        #expect(paths.first == "/tmp/scope/target.md")
+        #expect(!paths.contains("/tmp/outside/global-best.md"))
+    }
+
     private func makeDocument(path: String, chunks: [String]) -> StoredDocumentInput {
         StoredDocumentInput(
             path: path,

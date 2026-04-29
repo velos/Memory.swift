@@ -166,7 +166,10 @@ private final class MemoryBridgeServer {
             documentPathPrefix: scopedCollection?.path
         )
 
-        var results = try await index.search(searchQuery)
+        let diagnostics = BridgeSearchDiagnostics()
+        var results = try await index.search(searchQuery) { event in
+            diagnostics.record(event)
+        }
         if let scopedCollection {
             let root = scopedCollection.path
             results = results.filter { $0.documentPath.hasPrefix(root + "/") || $0.documentPath == root }
@@ -178,6 +181,7 @@ private final class MemoryBridgeServer {
         }
 
         return BridgeSearchResponse(
+            diagnostics: diagnostics.snapshot(),
             results: results.map { result in
                 BridgeSearchResult(
                     chunkID: result.chunkID,
@@ -319,7 +323,63 @@ private struct BridgeSyncResult: Encodable {
 }
 
 private struct BridgeSearchResponse: Encodable {
+    var diagnostics: BridgeSearchDiagnosticsSnapshot?
     var results: [BridgeSearchResult]
+}
+
+private final class BridgeSearchDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stageTimings: [String: Double] = [:]
+    private var expandedQueryCount: Int?
+    private var embeddedQueryCount = 0
+    private var semanticCandidateCount: Int?
+    private var lexicalCandidateCount: Int?
+    private var fusedCandidateCount: Int?
+
+    func record(_ event: SearchEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch event {
+        case .stageTiming(let stage, let durationMs):
+            stageTimings[stage.rawValue] = durationMs
+        case .expandedQueries(let count):
+            expandedQueryCount = count
+        case .embeddedQuery:
+            embeddedQueryCount += 1
+        case .semanticCandidates(let count):
+            semanticCandidateCount = count
+        case .lexicalCandidates(let count):
+            lexicalCandidateCount = count
+        case .fusedCandidates(let count):
+            fusedCandidateCount = count
+        default:
+            break
+        }
+    }
+
+    func snapshot() -> BridgeSearchDiagnosticsSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return BridgeSearchDiagnosticsSnapshot(
+            stageTimingsMs: stageTimings,
+            expandedQueries: expandedQueryCount,
+            embeddedQueries: embeddedQueryCount,
+            semanticCandidates: semanticCandidateCount,
+            lexicalCandidates: lexicalCandidateCount,
+            fusedCandidates: fusedCandidateCount
+        )
+    }
+}
+
+private struct BridgeSearchDiagnosticsSnapshot: Encodable {
+    var stageTimingsMs: [String: Double]
+    var expandedQueries: Int?
+    var embeddedQueries: Int
+    var semanticCandidates: Int?
+    var lexicalCandidates: Int?
+    var fusedCandidates: Int?
 }
 
 private struct BridgeSearchResult: Encodable {
