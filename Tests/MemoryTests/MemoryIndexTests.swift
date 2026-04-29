@@ -75,6 +75,21 @@ struct MemoryIndexTests {
 
         #expect(scoped.isEmpty == false)
         #expect(scoped.allSatisfy { $0.documentPath.hasPrefix(userA.path + "/") })
+
+        let semanticScoped = try await index.search(
+            SearchQuery(
+                text: "shared alpha anchor",
+                limit: 10,
+                semanticCandidateLimit: 10,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        #expect(semanticScoped.isEmpty == false)
+        #expect(semanticScoped.allSatisfy { $0.documentPath.hasPrefix(userA.path + "/") })
     }
 
     @Test
@@ -490,7 +505,7 @@ struct MemoryIndexTests {
             databaseURL: dbURL,
             embeddingProvider: embeddingProvider,
             structuredQueryExpander: StaticStructuredQueryExpander(
-                lexicalQueries: ["deployment rollout", "service cutover"]
+                semanticQueries: ["deployment rollout", "service cutover"]
             ),
             tokenizer: DefaultTokenizer(),
             chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
@@ -514,6 +529,96 @@ struct MemoryIndexTests {
         let stats = await embeddingProvider.stats()
         #expect(stats.singleCalls == 0)
         #expect(stats.batchSizes == [3])
+    }
+
+    @Test
+    func lexicalExpansionQueriesDoNotRequestUnusedSemanticEmbeddings() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deploy.md"),
+            "deployment rollout checklist and service cutover notes"
+        )
+        try writeFile(
+            docs.appendingPathComponent("ops.md"),
+            "incident response timeline and postmortem follow-up items"
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            structuredQueryExpander: StaticStructuredQueryExpander(
+                lexicalQueries: ["deployment rollout", "service cutover"]
+            ),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        _ = try await index.search(
+            SearchQuery(
+                text: "release process",
+                limit: 3,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 0,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [1])
+    }
+
+    @Test
+    func scopedLexicalCoverageCanSkipSemanticEmbedding() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let userA = docs.appendingPathComponent("user-a")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<10 {
+            try writeFile(
+                userA.appendingPathComponent("memory-\(index).md"),
+                "alpha scoped memory note \(index) with recurring lexical anchors"
+            )
+        }
+
+        let embeddingProvider = CountingEmbeddingProvider()
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha scoped memory",
+                limit: 10,
+                semanticCandidateLimit: 30,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                documentPathPrefix: userA.path
+            )
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(results.count == 10)
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes.isEmpty)
     }
 
     @Test

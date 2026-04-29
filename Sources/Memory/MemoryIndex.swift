@@ -296,6 +296,11 @@ public actor MemoryIndex {
             allowedMemoryTypes: allowedMemoryTypes
         )
         var lexicalSearchDurationMs = elapsedMilliseconds(since: lexicalProbeStart)
+        let skipSemanticSearch = shouldSkipSemanticSearchForScopedQuery(
+            query: query,
+            allowedChunkIDs: allowedChunkIDs,
+            lexicalProbe: lexicalProbe
+        )
 
         let expansionStart = DispatchTime.now().uptimeNanoseconds
         let searchPlan = try await prepareStructuredSearchPlan(
@@ -312,7 +317,7 @@ public actor MemoryIndex {
         let queryEmbeddingStart = DispatchTime.now().uptimeNanoseconds
         let semanticQueryVectors = try await embedExpandedQueries(
             searchPlan.expandedQueries,
-            semanticCandidateLimit: query.semanticCandidateLimit,
+            semanticCandidateLimit: skipSemanticSearch ? 0 : query.semanticCandidateLimit,
             events: events
         )
         events?(.stageTiming(stage: .queryEmbedding, durationMs: elapsedMilliseconds(since: queryEmbeddingStart)))
@@ -333,13 +338,16 @@ public actor MemoryIndex {
 
         for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
             let skipSemantic = expandedQuery.expansionType == .lexical
+                || skipSemanticSearch
             let skipLexical = expandedQuery.expansionType == .semantic
                 || expandedQuery.expansionType == .hypotheticalDocument
 
-            if !skipSemantic, let semanticQueryVectors {
+            if !skipSemantic,
+               let semanticQueryVectors,
+               let semanticQueryVector = semanticQueryVectors[index] {
                 let semanticSearchStart = DispatchTime.now().uptimeNanoseconds
                 let semanticHits = try await semanticSearch(
-                    queryVector: semanticQueryVectors[index],
+                    queryVector: semanticQueryVector,
                     limit: query.semanticCandidateLimit,
                     allowedChunkIDs: allowedChunkIDs,
                     allowedMemoryTypes: allowedMemoryTypes
@@ -4280,11 +4288,18 @@ public actor MemoryIndex {
         _ queries: [WeightedQuery],
         semanticCandidateLimit: Int,
         events: SearchEventHandler?
-    ) async throws -> [[Float]]? {
+    ) async throws -> [[Float]?]? {
         guard semanticCandidateLimit > 0 else { return nil }
         guard !queries.isEmpty else { return [] }
 
-        let texts = queries.map(\.text)
+        let semanticBranches = queries.enumerated().filter { _, query in
+            query.expansionType != .lexical
+        }
+        guard !semanticBranches.isEmpty else {
+            return Array(repeating: nil, count: queries.count)
+        }
+
+        let texts = semanticBranches.map { $0.element.text }
         let vectors: [[Float]]
         do {
             vectors = try await configuration.embeddingProvider.embed(texts: texts, format: .query)
@@ -4302,7 +4317,12 @@ public actor MemoryIndex {
             events?(.embeddedQuery(dimension: vector.count))
         }
 
-        return vectors
+        var result = Array<[Float]?>(repeating: nil, count: queries.count)
+        for (offset, branch) in semanticBranches.enumerated() {
+            result[branch.offset] = vectors[offset]
+        }
+
+        return result
     }
 
     private func runLexicalProbe(
@@ -4326,6 +4346,26 @@ public actor MemoryIndex {
         let seededHits = Array(probeHits.prefix(query.lexicalCandidateLimit))
         let strongSignal = hasStrongLexicalSignal(query: query, hits: probeHits)
         return (seededHits: seededHits, strongSignal: strongSignal)
+    }
+
+    private func shouldSkipSemanticSearchForScopedQuery(
+        query: SearchQuery,
+        allowedChunkIDs: Set<Int64>?,
+        lexicalProbe: (seededHits: [LexicalHit]?, strongSignal: Bool)
+    ) -> Bool {
+        guard query.documentPathPrefix != nil else { return false }
+        guard query.semanticCandidateLimit > 0, query.lexicalCandidateLimit > 0 else { return false }
+
+        let lexicalCount = lexicalProbe.seededHits?.count ?? 0
+        guard lexicalCount > 0 else { return false }
+
+        if lexicalProbe.strongSignal, lexicalCount >= min(query.limit, 8) {
+            return true
+        }
+
+        let scopedChunkCount = allowedChunkIDs?.count ?? Int.max
+        let requiredCoverage = min(query.limit, min(scopedChunkCount, 24))
+        return lexicalCount >= max(8, requiredCoverage)
     }
 
     private func hasStrongLexicalSignal(query: SearchQuery, hits: [LexicalHit]) -> Bool {

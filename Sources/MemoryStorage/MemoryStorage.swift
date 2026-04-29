@@ -375,6 +375,7 @@ public actor MemoryStorage {
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
     private static let schemaMetadataTableName = "memory_schema_metadata"
+    private static let scopedVectorSearchThreshold = 4_096
     private static let schemaVersion = 3
     private static let legacyTableNames: Set<String> = [
         "grdb_migrations",
@@ -1391,6 +1392,19 @@ public actor MemoryStorage {
     ) throws -> [LexicalHit] {
         guard limit > 0 else { return [] }
         guard !queryVector.isEmpty else { return [] }
+        if let allowedChunkIDs {
+            if allowedChunkIDs.isEmpty {
+                return []
+            }
+            if allowedChunkIDs.count <= Self.scopedVectorSearchThreshold {
+                return try scopedVectorSearch(
+                    queryVector: queryVector,
+                    limit: limit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+            }
+        }
 
         guard try Self.vectorTableExists(in: database) else {
             return []
@@ -1462,6 +1476,78 @@ public actor MemoryStorage {
             )
 
             candidates = candidates.filter { allowedIDs.contains($0.chunkID) }
+        }
+
+        return candidates
+            .sorted { lhs, rhs in
+                if lhs.distance == rhs.distance {
+                    return lhs.chunkID < rhs.chunkID
+                }
+                return lhs.distance < rhs.distance
+            }
+            .prefix(limit)
+            .map { LexicalHit(chunkID: $0.chunkID, score: -$0.distance) }
+    }
+
+    private func scopedVectorSearch(
+        queryVector: [Float],
+        limit: Int,
+        allowedChunkIDs: Set<Int64>,
+        allowedMemoryTypes: Set<String>?
+    ) throws -> [LexicalHit] {
+        guard limit > 0, !queryVector.isEmpty, !allowedChunkIDs.isEmpty else { return [] }
+        guard allowedMemoryTypes?.isEmpty != true else { return [] }
+
+        if let configuredDimension = try Self.configuredVectorDimension(in: database),
+           configuredDimension != queryVector.count {
+            return []
+        }
+
+        let sortedChunkIDs = Array(allowedChunkIDs).sorted()
+        var arguments: [Any?] = sortedChunkIDs
+        var predicates = ["e.chunk_id IN (\(SQLiteDatabase.placeholders(count: sortedChunkIDs.count)))"]
+
+        if let allowedMemoryTypes {
+            let sortedTypes = Array(allowedMemoryTypes).sorted()
+            predicates.append("COALESCE(c.memory_type_override, d.memory_type) IN (\(SQLiteDatabase.placeholders(count: sortedTypes.count)))")
+            arguments.append(contentsOf: sortedTypes)
+        }
+
+        let rows = try database.fetchAll(
+            sql: """
+            SELECT
+                e.chunk_id AS chunk_id,
+                e.vector_blob AS vector_blob,
+                e.norm AS norm
+            FROM embeddings e
+            JOIN chunks c ON c.id = e.chunk_id
+            JOIN documents d ON d.id = c.document_id
+            WHERE \(predicates.joined(separator: " AND "))
+            """,
+            arguments: arguments
+        )
+
+        let queryNorm = Self.vectorNorm(queryVector)
+        guard queryNorm > 0 else { return [] }
+
+        var candidates: [(chunkID: Int64, distance: Double)] = []
+        candidates.reserveCapacity(rows.count)
+        for row in rows {
+            guard
+                let vectorData: Data = row["vector_blob"],
+                let vector = Self.decodeVector(vectorData),
+                vector.count == queryVector.count
+            else {
+                continue
+            }
+
+            let vectorNorm: Double = row["norm"]
+            guard vectorNorm > 0 else { continue }
+
+            let cosine = Self.dotProduct(queryVector, vector) / (queryNorm * vectorNorm)
+            let distance = 1.0 - cosine
+            guard distance.isFinite else { continue }
+            candidates.append((chunkID: row["chunk_id"], distance: distance))
         }
 
         return candidates
@@ -2359,6 +2445,23 @@ public actor MemoryStorage {
             data.copyBytes(to: target)
         }
         return vector
+    }
+
+    private static func vectorNorm(_ vector: [Float]) -> Double {
+        var sum = 0.0
+        for value in vector {
+            let double = Double(value)
+            sum += double * double
+        }
+        return sqrt(sum)
+    }
+
+    private static func dotProduct(_ lhs: [Float], _ rhs: [Float]) -> Double {
+        var sum = 0.0
+        for index in lhs.indices {
+            sum += Double(lhs[index]) * Double(rhs[index])
+        }
+        return sum
     }
 
     private static func encodeContentTags(_ tags: [StoredChunkTag]) -> String {
