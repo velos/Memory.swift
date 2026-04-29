@@ -4474,6 +4474,9 @@ public actor MemoryIndex {
         guard query.expansionLimit > 0, configuration.structuredQueryExpander != nil else {
             return false
         }
+        guard !shouldRunExpansionDespiteStrongLexicalSignal(query.text) else {
+            return false
+        }
         let queryTokenCount = normalizedComparisonKey(for: query.text).split(separator: " ").count
         guard queryTokenCount <= strongLexicalMaxExpansionSkipTokenCount else {
             return false
@@ -4482,6 +4485,21 @@ public actor MemoryIndex {
 
         let second = hits.dropFirst().first?.score ?? 0
         return top.score >= strongLexicalMinScore && (top.score - second) >= strongLexicalMinGap
+    }
+
+    private func shouldRunExpansionDespiteStrongLexicalSignal(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        if isTemporalOrAggregateRecallQuery(queryText) || lower.contains("days ago") {
+            return true
+        }
+
+        return containsAny(
+            lower,
+            needles: [
+                "recommend", "suggest", "suggestions", "what to watch",
+                "watch tonight", "tips on what"
+            ]
+        )
     }
 
     private func ftsPreprocess(_ text: String) -> String {

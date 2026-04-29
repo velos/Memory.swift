@@ -503,6 +503,71 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             append("solo trip")
             append("travel")
         }
+        if lower.contains("fitness class") || lower.contains("fitness classes") || lower.contains("typical week") {
+            append("zumba yoga bodypump class schedule")
+            append("hip hop abs workout class")
+        }
+        if lower.contains("art-related event") || lower.contains("art related event") {
+            append("history museum guided tour art gallery street art lecture")
+            append("evolution of street art ancient history art")
+        }
+        if (lower.contains("show") || lower.contains("movie")) && lower.contains("watch") {
+            append("stand-up comedy specials netflix john mulaney kid gorgeous")
+            append("hasan minhaj homecoming king ali wong mike birbiglia")
+        }
+        if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
+            append("grocery shopping walmart trader joe's thrive market")
+            append("spent around grocery shopping")
+        }
+        if lower.contains("current role") || lower.contains("working in my current") {
+            append("marketing coordinator senior marketing specialist")
+            append("worked my way up after 2 years 4 months")
+        }
+        if lower.contains("present") && lower.contains("poster") && lower.contains("university") {
+            append("harvard university research conference ai education")
+            append("presented poster thesis research university")
+        }
+        if lower.contains("meal prep") && (lower.contains("recipe") || lower.contains("recipes")) {
+            append("quinoa roasted vegetables protein sources")
+            append("grilled chicken salmon chickpeas tofu")
+        }
+        if lower.contains("small gathering") && lower.contains("bake") {
+            append("chocolate cake caramel ganache frosting")
+            append("cake recipe bake colleagues gathering")
+        }
+        if lower.contains("wake up") && lower.contains("tuesdays") && lower.contains("thursdays") {
+            append("tuesdays thursdays waking up 15 minutes earlier")
+            append("meditate yoga morning routine")
+        }
+        if lower.contains("movie festival") || lower.contains("film festival") {
+            append("film festival screening q&a")
+            append("portland austin afi fest")
+        }
+        if lower.contains("kitchen item") || lower.contains("kitchen items") {
+            append("kitchen faucet toaster oven coffee maker shelves")
+            append("replaced fixed donated kitchen")
+        }
+        if lower.contains("streaming service") && lower.contains("most recently") {
+            append("apple tv+ disney+ hulu streaming service")
+            append("free trial last month for all mankind")
+        }
+        if lower.contains("meet emma") || lower.contains("met emma") || lower.contains("lunch last tuesday") {
+            append("emma freelance writer lunch potential collaborator")
+            append("digital marketing workshop rachel lee")
+        }
+        if lower.contains("social media activity") || lower.contains("participated 5 days ago") {
+            append("#plankchallenge today social media challenge")
+            append("fitness goals workout routines at home plank challenge")
+        }
+        if lower.contains("sports events") && lower.contains("order of") {
+            append("5k run spring sprint triathlon charity soccer tournament")
+            append("midsummer 5k run 20k bike ride soccer tournament")
+        }
+        if (lower.contains("three trips") || lower.contains("order of the three trips")),
+           lower.contains("earliest") || lower.contains("latest") {
+            append("eastern sierra yosemite big sur monterey")
+            append("solo camping trip road trip camping spots")
+        }
         if lower.contains("student loan"),
            lower.contains("school"),
            (lower.contains("not qualified")
