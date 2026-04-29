@@ -79,6 +79,11 @@ private enum SuiteKind {
     case queryExpansion
 }
 
+enum ContextPackingOrder: String, Codable, ExpressibleByArgument {
+    case rank
+    case score
+}
+
 private enum EvalError: LocalizedError {
     case invalidDataset(String)
 
@@ -513,6 +518,81 @@ private struct RecallSuiteReport: Codable {
 private struct RecallSuiteRunOutput {
     var report: RecallSuiteReport
     var notes: [String]
+}
+
+private struct RetrievalDiagnosticsReport: Codable {
+    var schemaVersion: Int
+    var createdAt: Date
+    var profile: EvalProfile
+    var datasetRoot: String
+    var totalDocuments: Int
+    var totalQueries: Int
+    var kValues: [Int]
+    var candidatePoolDepth: Int
+    var contextTokenBudget: Int
+    var perDocumentTokenBudget: Int
+    var contextPackingOrder: ContextPackingOrder
+    var metricsByK: [RecallPerKMetric]
+    var scoreSortedMetricsByK: [RecallPerKMetric]
+    var candidatePoolHitRate: Double
+    var candidatePoolRecall: Double
+    var candidateOnlyMissRate: Double
+    var candidateGenerationMissRate: Double
+    var avgContextTokens: Double
+    var avgPackedDocuments: Double
+    var emptyRetrievalRate: Double
+    var latencyStats: RecallLatencyStats?
+    var stageLatencyStats: RecallStageLatencyStats?
+    var candidateCountStats: RecallCandidateCountStats?
+    var queryResults: [RetrievalDiagnosticQueryResult]
+    var notes: [String]
+}
+
+private struct RetrievalDiagnosticQueryResult: Codable {
+    var id: String
+    var query: String
+    var relevantDocumentIds: [String]
+    var candidateDocumentIds: [String]
+    var candidateMatchedRelevantDocumentIds: [String]
+    var firstCandidateRelevantRank: Int?
+    var candidateRecall: Double
+    var retrievedDocumentIds: [String]
+    var matchedRelevantDocumentIds: [String]
+    var firstRelevantRank: Int?
+    var hitByK: [Int: Bool]
+    var recallByK: [Int: Double]
+    var mrrByK: [Int: Double]
+    var ndcgByK: [Int: Double]
+    var scoreSortedRetrievedDocumentIds: [String]
+    var scoreSortedFirstRelevantRank: Int?
+    var scoreSortedHitByK: [Int: Bool]
+    var scoreSortedRecallByK: [Int: Double]
+    var scoreSortedMRRByK: [Int: Double]
+    var scoreSortedNDCGByK: [Int: Double]
+    var contextTokens: Int
+    var latencyMs: Double
+    var stageTimings: RecallQueryStageTimings?
+    var candidateCounts: RecallQueryCandidateCounts?
+    var difficulty: String?
+    var retrieved: [RetrievalDiagnosticRetrievedDocument]
+}
+
+private struct RetrievalDiagnosticRetrievedDocument: Codable {
+    var rank: Int
+    var documentId: String
+    var documentPath: String
+    var chunkID: Int64
+    var contextTokens: Int
+    var truncated: Bool
+    var score: SearchScoreBreakdown
+    var preview: String
+}
+
+private struct PerQueryRecallMetrics {
+    var hitByK: [Int: Bool]
+    var recallByK: [Int: Double]
+    var mrrByK: [Int: Double]
+    var ndcgByK: [Int: Double]
 }
 
 private struct QueryExpansionCaseResult: Codable {
@@ -1372,6 +1452,7 @@ struct MemoryEvalCLI: AsyncParsableCommand {
             CompareCommand.self,
             GateCommand.self,
             ValidateDatasetsCommand.self,
+            RetrievalDiagnosticsCommand.self,
             DiagnoseLongMemEvalCommand.self,
         ],
         defaultSubcommand: RunCommand.self
@@ -1685,6 +1766,151 @@ struct RunCommand: AsyncParsableCommand {
         print("Markdown summary: \(markdownURL.path)")
 
         return outputURL
+    }
+}
+
+struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "retrieval-diagnostics",
+        abstract: "Run retrieval-only diagnostics with context-budget accounting."
+    )
+
+    @Option(name: .long, help: "Profile to run.")
+    var profile: EvalProfile = .coreMLDefault
+
+    @Option(name: .long, help: "Dataset root folder containing recall_documents.jsonl and recall_queries.jsonl.")
+    var datasetRoot: String = "Evals/longmemeval_v2"
+
+    @Option(name: .long, help: "Comma-separated k values, e.g. 1,3,10.")
+    var kValues: String = "1,3,10"
+
+    @Option(name: .long, help: "Maximum documents to pull from Memory.swift before context packing.")
+    var candidatePoolDepth: Int = 40
+
+    @Option(name: .long, help: "Estimated token budget for packed retrieved context. Use 0 for unlimited.")
+    var contextTokenBudget: Int = 4096
+
+    @Option(name: .long, help: "Maximum estimated tokens per packed document. Use 0 for unlimited.")
+    var perDocumentTokenBudget: Int = 0
+
+    @Option(name: .long, help: "Order used when packing retrieved context: rank or score.")
+    var contextPackingOrder: ContextPackingOrder = .rank
+
+    @Option(name: .long, help: "Limit number of queries for quick smoke runs.")
+    var queryLimit: Int?
+
+    @Option(name: .long, help: "Run one query by id.")
+    var queryID: String?
+
+    @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.retrieval-diagnostics.json.")
+    var output: String?
+
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Enable provider response cache across diagnostics (disable with --no-cache)."
+    )
+    var cache = true
+
+    @Flag(
+        name: .long,
+        inversion: .prefixedNo,
+        help: "Reuse cached recall index across diagnostics (disable with --no-index-cache)."
+    )
+    var indexCache = true
+
+    @Flag(name: .long, help: "Print per-query details.")
+    var verbose = false
+
+    mutating func run() async throws {
+        let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
+        let dataset = try loadDataset(root: datasetRootURL)
+        guard !dataset.recallDocuments.isEmpty, !dataset.recallQueries.isEmpty else {
+            throw ValidationError("retrieval-diagnostics requires recall_documents.jsonl and recall_queries.jsonl.")
+        }
+
+        let ks = try parseKValues(kValues)
+        let maxK = ks.max() ?? 10
+        let effectiveCandidatePoolDepth = max(maxK, candidatePoolDepth)
+        var queries = dataset.recallQueries
+        if let queryID {
+            queries = queries.filter { $0.id == queryID }
+            guard !queries.isEmpty else {
+                throw ValidationError("No recall query matched --query-id '\(queryID)'.")
+            }
+        }
+        if let queryLimit {
+            queries = Array(queries.prefix(max(0, queryLimit)))
+        }
+        guard !queries.isEmpty else {
+            throw ValidationError("No recall queries selected.")
+        }
+
+        let responseCache = try makeResponseCacheIfEnabled(enabled: cache, datasetRoot: datasetRootURL)
+        let runRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("memory-evals", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+
+        let report = try await runRetrievalDiagnostics(
+            profile: profile,
+            documents: dataset.recallDocuments,
+            queries: queries,
+            kValues: ks,
+            candidatePoolDepth: effectiveCandidatePoolDepth,
+            contextTokenBudget: max(0, contextTokenBudget),
+            perDocumentTokenBudget: max(0, perDocumentTokenBudget),
+            contextPackingOrder: contextPackingOrder,
+            datasetRoot: datasetRootURL,
+            root: runRoot,
+            indexCacheEnabled: indexCache,
+            verbose: verbose,
+            responseCache: responseCache
+        )
+
+        let outputURL = resolvedRetrievalDiagnosticsOutputURL(
+            baseRoot: datasetRootURL,
+            output: output,
+            profile: profile
+        )
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(report).write(to: outputURL, options: .atomic)
+
+        let markdown = makeRetrievalDiagnosticsMarkdown(report)
+        let markdownURL = outputURL.deletingPathExtension().appendingPathExtension("md")
+        try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        print("Profile: \(profile.rawValue)")
+        print("Retrieval diagnostics: \(report.totalQueries) queries, \(report.totalDocuments) documents")
+        if let maxKMetric = report.metricsByK.max(by: { $0.k < $1.k }) {
+            print("Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
+            print("Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
+            print("MRR@\(maxKMetric.k): \(format(maxKMetric.mrr))")
+            print("nDCG@\(maxKMetric.k): \(format(maxKMetric.ndcg))")
+        }
+        if let maxKScoreSortedMetric = report.scoreSortedMetricsByK.max(by: { $0.k < $1.k }) {
+            print("Score-sorted packed Hit@\(maxKScoreSortedMetric.k): \(percent(maxKScoreSortedMetric.hitRate))")
+            print("Score-sorted packed Recall@\(maxKScoreSortedMetric.k): \(percent(maxKScoreSortedMetric.recall))")
+            print("Score-sorted packed MRR@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.mrr))")
+            print("Score-sorted packed nDCG@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.ndcg))")
+        }
+        print("Candidate Hit@pool: \(percent(report.candidatePoolHitRate))")
+        print("Candidate Recall@pool: \(percent(report.candidatePoolRecall))")
+        print("Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))")
+        print("Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))")
+        print("Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))")
+        print("Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))")
+        print("Context packing order: \(report.contextPackingOrder.rawValue)")
+        print("Empty retrieval rate: \(percent(report.emptyRetrievalRate))")
+        if let latency = report.latencyStats {
+            print("Retrieval latency: p50=\(String(format: "%.0f", latency.p50Ms))ms p95=\(String(format: "%.0f", latency.p95Ms))ms mean=\(String(format: "%.0f", latency.meanMs))ms")
+        }
+        print("JSON report: \(outputURL.path)")
+        print("Markdown summary: \(markdownURL.path)")
     }
 }
 
@@ -4996,6 +5222,498 @@ private func runRecallSuite(
     )
 }
 
+private func runRetrievalDiagnostics(
+    profile: EvalProfile,
+    documents: [RecallDocumentCase],
+    queries: [RecallQueryCase],
+    kValues: [Int],
+    candidatePoolDepth: Int,
+    contextTokenBudget: Int,
+    perDocumentTokenBudget: Int,
+    contextPackingOrder: ContextPackingOrder,
+    datasetRoot: URL,
+    root: URL,
+    indexCacheEnabled: Bool,
+    verbose: Bool,
+    responseCache: EvalResponseCache?
+) async throws -> RetrievalDiagnosticsReport {
+    let indexSeed = recallIndexCacheSeed(profile: profile, documents: documents)
+    let workspace = try prepareIndexWorkspace(
+        suite: .recall,
+        profile: profile,
+        datasetRoot: datasetRoot,
+        runRoot: root,
+        cacheEnabled: indexCacheEnabled,
+        seed: indexSeed
+    )
+
+    var pathByDocumentID: [String: String] = [:]
+    var documentIDByPath: [String: String] = [:]
+    var contentByDocumentID: [String: String] = [:]
+
+    for document in documents {
+        if let memoryTypeRaw = document.memoryType {
+            _ = try parseLegacyDocumentTypeLabel(memoryTypeRaw, context: "recall document \(document.id)")
+        }
+
+        let path = materializedRecallDocumentURL(document, docsRoot: workspace.docsRoot)
+        let content = try materializeRecallDocument(document)
+        pathByDocumentID[document.id] = path.path
+        documentIDByPath[path.path] = document.id
+        contentByDocumentID[document.id] = content
+    }
+
+    let expectedPaths = pathByDocumentID.values.map(URL.init(fileURLWithPath:))
+    let canReuseIndex = indexCacheCanReuse(workspace: workspace, expectedDocumentPaths: expectedPaths)
+    if canReuseIndex {
+        print("[retrieval-diagnostics][index-cache] hit: \(workspace.root.path)")
+    } else {
+        if workspace.cacheEnabled {
+            print("[retrieval-diagnostics][index-cache] miss: \(workspace.root.path)")
+        }
+        try resetWorkspaceForRebuild(workspace)
+        for document in documents {
+            guard let pathRaw = pathByDocumentID[document.id],
+                  let content = contentByDocumentID[document.id] else {
+                throw EvalError.invalidDataset("Recall document '\(document.id)' did not materialize to a document path.")
+            }
+            let path = URL(fileURLWithPath: pathRaw)
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: path, atomically: true, encoding: .utf8)
+        }
+    }
+
+    var config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: workspace.databaseURL)
+    var notes: [String] = [
+        "Retrieval diagnostics score packed retrieval context only; no answer LLM is used.",
+        "Context token counts use Memory.swift's deterministic tokenizer and include a small per-document separator overhead.",
+    ]
+    if perDocumentTokenBudget > 0 {
+        notes.append("Packed documents are capped at \(perDocumentTokenBudget) estimated tokens each before filling the remaining context budget.")
+    }
+    if contextPackingOrder == .score {
+        notes.append("Packed documents are ordered by blended score before context budgeting.")
+    }
+    if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
+        profile: profile,
+        configuration: &config,
+        suite: .recall,
+        responseCache: responseCache
+    ) {
+        print("[retrieval-diagnostics][rerank] \(rerankerNote)")
+        notes.append(rerankerNote)
+    }
+    if let providerNote = recallProviderRuntimeNote(profile: profile, configuration: config, suite: .recall) {
+        print("[retrieval-diagnostics][providers] \(providerNote)")
+        notes.append(providerNote)
+    }
+    try await requireFunctionalContentTaggingIfNeeded(profile: profile, configuration: config, suite: .recall)
+    let contentTaggingDiagnostics = installContentTaggingDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    let recallDiagnostics = installRecallDiagnosticsIfNeeded(
+        profile: profile,
+        configuration: &config
+    )
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
+    }
+
+    let index = try MemoryIndex(configuration: config)
+    let indexingStageCollector = IndexingStageTimingCollector()
+    if canReuseIndex {
+        print("[retrieval-diagnostics] Using cached index for \(documents.count) documents.")
+    } else {
+        print("[retrieval-diagnostics] Building index for \(documents.count) documents...")
+        let indexStart = Date()
+        try await index.rebuildIndex(
+            from: IndexingRequest(roots: [workspace.docsRoot]),
+            events: { event in
+                indexingStageCollector.record(event)
+            }
+        )
+        print("[retrieval-diagnostics] Index built in \(formatDuration(Date().timeIntervalSince(indexStart))).")
+        try markIndexCacheReady(workspace)
+    }
+    _ = indexingStageCollector.report()
+
+    if let contentTaggingDiagnostics {
+        print(await contentTaggingDiagnostics.summaryLine(suite: .recall))
+        for detail in await contentTaggingDiagnostics.detailLines(suite: .recall) {
+            print(detail)
+        }
+    }
+    try requireGeneratedContentTagsIfNeeded(profile: profile, databaseURL: workspace.databaseURL, suite: .recall)
+
+    let maxK = kValues.max() ?? 10
+    let effectiveCandidatePoolDepth = max(maxK, candidatePoolDepth)
+    let contextBudgetLabel = contextTokenBudget == 0 ? "unlimited" : String(contextTokenBudget)
+    let perDocumentBudgetLabel = perDocumentTokenBudget == 0 ? "unlimited" : String(perDocumentTokenBudget)
+    print("[retrieval-diagnostics] Evaluating \(queries.count) queries at k=\(kValues.map(String.init).joined(separator: ",")), pool=\(effectiveCandidatePoolDepth), contextBudget=\(contextBudgetLabel), perDocumentBudget=\(perDocumentBudgetLabel)...")
+
+    var queryResults: [RetrievalDiagnosticQueryResult] = []
+    var perKAccumulator: [Int: (hit: Double, recall: Double, mrr: Double, ndcg: Double)] = [:]
+    var scoreSortedPerKAccumulator: [Int: (hit: Double, recall: Double, mrr: Double, ndcg: Double)] = [:]
+    for k in kValues {
+        perKAccumulator[k] = (0, 0, 0, 0)
+        scoreSortedPerKAccumulator[k] = (0, 0, 0, 0)
+    }
+
+    var progress = DeterminateProgress(label: "retrieval-diagnostics", total: queries.count)
+    for queryCase in queries {
+        let relevant = Set(queryCase.relevantDocumentIds)
+        guard !relevant.isEmpty else {
+            throw EvalError.invalidDataset("Recall query '\(queryCase.id)' has empty relevant_document_ids.")
+        }
+
+        let unknownRelevant = relevant.filter { pathByDocumentID[$0] == nil }
+        guard unknownRelevant.isEmpty else {
+            throw EvalError.invalidDataset(
+                "Recall query '\(queryCase.id)' references unknown relevant_document_ids: \(unknownRelevant.sorted().joined(separator: ", "))."
+            )
+        }
+
+        let queryStartTime = Date()
+        let searchStageCollector = SearchStageTimingCollector()
+        let references = try await index.memorySearch(
+            query: queryCase.query,
+            limit: effectiveCandidatePoolDepth,
+            features: recallFeatures(for: config),
+            dedupeDocuments: true,
+            includeLineRanges: true,
+            events: { event in
+                searchStageCollector.record(event)
+            }
+        )
+        let queryLatencyMs = Date().timeIntervalSince(queryStartTime) * 1000.0
+
+        let candidateDocumentIDs = references.compactMap { documentIDByPath[$0.documentPath] }
+        let packed = try await packRetrievalDiagnosticContext(
+            references: references,
+            index: index,
+            documentIDByPath: documentIDByPath,
+            tokenBudget: contextTokenBudget,
+            perDocumentTokenBudget: perDocumentTokenBudget,
+            contextPackingOrder: contextPackingOrder
+        )
+        let retrievedDocumentIDs = packed.documents.map(\.documentId)
+        let scoreSortedDocumentIDs = scoreSortedRetrievalDiagnosticDocuments(packed.documents).map(\.documentId)
+
+        let rankedMetrics = computePerQueryRecallMetrics(
+            rankedDocumentIDs: retrievedDocumentIDs,
+            relevant: relevant,
+            kValues: kValues
+        )
+        let scoreSortedMetrics = computePerQueryRecallMetrics(
+            rankedDocumentIDs: scoreSortedDocumentIDs,
+            relevant: relevant,
+            kValues: kValues
+        )
+
+        for k in kValues {
+            perKAccumulator[k, default: (0, 0, 0, 0)].hit += rankedMetrics.hitByK[k] == true ? 1 : 0
+            perKAccumulator[k, default: (0, 0, 0, 0)].recall += rankedMetrics.recallByK[k] ?? 0
+            perKAccumulator[k, default: (0, 0, 0, 0)].mrr += rankedMetrics.mrrByK[k] ?? 0
+            perKAccumulator[k, default: (0, 0, 0, 0)].ndcg += rankedMetrics.ndcgByK[k] ?? 0
+
+            scoreSortedPerKAccumulator[k, default: (0, 0, 0, 0)].hit += scoreSortedMetrics.hitByK[k] == true ? 1 : 0
+            scoreSortedPerKAccumulator[k, default: (0, 0, 0, 0)].recall += scoreSortedMetrics.recallByK[k] ?? 0
+            scoreSortedPerKAccumulator[k, default: (0, 0, 0, 0)].mrr += scoreSortedMetrics.mrrByK[k] ?? 0
+            scoreSortedPerKAccumulator[k, default: (0, 0, 0, 0)].ndcg += scoreSortedMetrics.ndcgByK[k] ?? 0
+        }
+
+        let candidateMatchedRelevant = Array(Set(candidateDocumentIDs).intersection(relevant)).sorted()
+        let candidateRecall = Double(candidateMatchedRelevant.count) / Double(relevant.count)
+        let firstCandidateRank = firstRelevantRank(
+            in: candidateDocumentIDs,
+            relevant: relevant,
+            maxK: effectiveCandidatePoolDepth
+        )
+        let matchedRelevant = Array(Set(retrievedDocumentIDs).intersection(relevant)).sorted()
+        let firstRank = firstRelevantRank(in: retrievedDocumentIDs, relevant: relevant, maxK: maxK)
+        let scoreSortedFirstRank = firstRelevantRank(in: scoreSortedDocumentIDs, relevant: relevant, maxK: maxK)
+        queryResults.append(
+            RetrievalDiagnosticQueryResult(
+                id: queryCase.id,
+                query: queryCase.query,
+                relevantDocumentIds: queryCase.relevantDocumentIds,
+                candidateDocumentIds: Array(candidateDocumentIDs.prefix(effectiveCandidatePoolDepth)),
+                candidateMatchedRelevantDocumentIds: candidateMatchedRelevant,
+                firstCandidateRelevantRank: firstCandidateRank,
+                candidateRecall: candidateRecall,
+                retrievedDocumentIds: Array(retrievedDocumentIDs.prefix(maxK)),
+                matchedRelevantDocumentIds: matchedRelevant,
+                firstRelevantRank: firstRank,
+                hitByK: rankedMetrics.hitByK,
+                recallByK: rankedMetrics.recallByK,
+                mrrByK: rankedMetrics.mrrByK,
+                ndcgByK: rankedMetrics.ndcgByK,
+                scoreSortedRetrievedDocumentIds: Array(scoreSortedDocumentIDs.prefix(maxK)),
+                scoreSortedFirstRelevantRank: scoreSortedFirstRank,
+                scoreSortedHitByK: scoreSortedMetrics.hitByK,
+                scoreSortedRecallByK: scoreSortedMetrics.recallByK,
+                scoreSortedMRRByK: scoreSortedMetrics.mrrByK,
+                scoreSortedNDCGByK: scoreSortedMetrics.ndcgByK,
+                contextTokens: packed.contextTokens,
+                latencyMs: queryLatencyMs,
+                stageTimings: searchStageCollector.queryTimings(),
+                candidateCounts: searchStageCollector.queryCounts(),
+                difficulty: queryCase.difficulty,
+                retrieved: packed.documents
+            )
+        )
+
+        if verbose {
+            let hitAtMax = rankedMetrics.hitByK[maxK] == true ? "hit" : "miss"
+            print("[retrieval-diagnostics] \(queryCase.id): \(hitAtMax) @\(maxK), contextTokens=\(packed.contextTokens)")
+        }
+        progress.advance(detail: verbose ? queryCase.id : nil)
+    }
+
+    if let recallDiagnostics {
+        for line in await recallDiagnostics.summaryLines(suite: .recall) {
+            print(line)
+        }
+        for line in await recallDiagnostics.detailLines(suite: .recall) {
+            print(line)
+        }
+    }
+    if let responseCache {
+        for line in await responseCache.drainSummaryLines(suite: .recall) {
+            print(line)
+        }
+    }
+
+    let totalQueries = queries.count
+    let metrics = kValues.map { k in
+        let sums = perKAccumulator[k, default: (0, 0, 0, 0)]
+        return RecallPerKMetric(
+            k: k,
+            hitRate: sums.hit / Double(totalQueries),
+            recall: sums.recall / Double(totalQueries),
+            mrr: sums.mrr / Double(totalQueries),
+            ndcg: sums.ndcg / Double(totalQueries)
+        )
+    }
+    let scoreSortedMetrics = kValues.map { k in
+        let sums = scoreSortedPerKAccumulator[k, default: (0, 0, 0, 0)]
+        return RecallPerKMetric(
+            k: k,
+            hitRate: sums.hit / Double(totalQueries),
+            recall: sums.recall / Double(totalQueries),
+            mrr: sums.mrr / Double(totalQueries),
+            ndcg: sums.ndcg / Double(totalQueries)
+        )
+    }
+    let totalContextTokens = queryResults.map(\.contextTokens).reduce(0, +)
+    let totalPackedDocuments = queryResults.map(\.retrieved.count).reduce(0, +)
+    let emptyRetrievalCount = queryResults.filter { $0.retrievedDocumentIds.isEmpty }.count
+    let candidateHitCount = queryResults.filter { !$0.candidateMatchedRelevantDocumentIds.isEmpty }.count
+    let totalCandidateRecall = queryResults.map(\.candidateRecall).reduce(0, +)
+    let candidateOnlyMissCount = queryResults.filter {
+        !$0.candidateMatchedRelevantDocumentIds.isEmpty && $0.hitByK[maxK] == false
+    }.count
+    let candidateGenerationMissCount = queryResults.filter {
+        $0.candidateMatchedRelevantDocumentIds.isEmpty
+    }.count
+
+    return RetrievalDiagnosticsReport(
+        schemaVersion: 2,
+        createdAt: Date(),
+        profile: profile,
+        datasetRoot: datasetRoot.path,
+        totalDocuments: documents.count,
+        totalQueries: totalQueries,
+        kValues: kValues,
+        candidatePoolDepth: effectiveCandidatePoolDepth,
+        contextTokenBudget: contextTokenBudget,
+        perDocumentTokenBudget: perDocumentTokenBudget,
+        contextPackingOrder: contextPackingOrder,
+        metricsByK: metrics,
+        scoreSortedMetricsByK: scoreSortedMetrics,
+        candidatePoolHitRate: totalQueries == 0 ? 0 : Double(candidateHitCount) / Double(totalQueries),
+        candidatePoolRecall: totalQueries == 0 ? 0 : totalCandidateRecall / Double(totalQueries),
+        candidateOnlyMissRate: totalQueries == 0 ? 0 : Double(candidateOnlyMissCount) / Double(totalQueries),
+        candidateGenerationMissRate: totalQueries == 0 ? 0 : Double(candidateGenerationMissCount) / Double(totalQueries),
+        avgContextTokens: totalQueries == 0 ? 0 : Double(totalContextTokens) / Double(totalQueries),
+        avgPackedDocuments: totalQueries == 0 ? 0 : Double(totalPackedDocuments) / Double(totalQueries),
+        emptyRetrievalRate: totalQueries == 0 ? 0 : Double(emptyRetrievalCount) / Double(totalQueries),
+        latencyStats: computeLatencyStats(retrievalDiagnosticResults: queryResults),
+        stageLatencyStats: computeRecallStageLatencyStats(retrievalDiagnosticResults: queryResults),
+        candidateCountStats: computeRecallCandidateCountStats(retrievalDiagnosticResults: queryResults),
+        queryResults: queryResults.sorted { $0.id < $1.id },
+        notes: notes
+    )
+}
+
+private func computeLatencyStats(retrievalDiagnosticResults: [RetrievalDiagnosticQueryResult]) -> RecallLatencyStats? {
+    computeLatencyStats(samples: retrievalDiagnosticResults.map(\.latencyMs))
+}
+
+private func computeRecallStageLatencyStats(retrievalDiagnosticResults: [RetrievalDiagnosticQueryResult]) -> RecallStageLatencyStats? {
+    let report = RecallStageLatencyStats(
+        analysisMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.analysisMs)),
+        expansionMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.expansionMs)),
+        queryEmbeddingMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.queryEmbeddingMs)),
+        semanticSearchMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.semanticSearchMs)),
+        lexicalSearchMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.lexicalSearchMs)),
+        fusionMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.fusionMs)),
+        rerankMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.rerankMs)),
+        totalMs: computeLatencyStats(samples: retrievalDiagnosticResults.compactMap(\.stageTimings?.totalMs))
+    )
+    return report.hasData ? report : nil
+}
+
+private func computeRecallCandidateCountStats(retrievalDiagnosticResults: [RetrievalDiagnosticQueryResult]) -> RecallCandidateCountStats? {
+    let report = RecallCandidateCountStats(
+        expandedQueries: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.expandedQueries)),
+        semanticCandidates: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.semanticCandidates)),
+        lexicalCandidates: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.lexicalCandidates)),
+        fusedCandidates: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.fusedCandidates)),
+        rerankedCandidates: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.rerankedCandidates))
+    )
+    return report.hasData ? report : nil
+}
+
+private func packRetrievalDiagnosticContext(
+    references: [MemorySearchReference],
+    index: MemoryIndex,
+    documentIDByPath: [String: String],
+    tokenBudget: Int,
+    perDocumentTokenBudget: Int,
+    contextPackingOrder: ContextPackingOrder
+) async throws -> (documents: [RetrievalDiagnosticRetrievedDocument], contextTokens: Int) {
+    var packed: [RetrievalDiagnosticRetrievedDocument] = []
+    var usedTokens = 0
+    let unlimited = tokenBudget == 0
+    let separatorOverheadTokens = 8
+    let orderedReferences = orderedRetrievalDiagnosticReferences(references, order: contextPackingOrder)
+
+    for reference in orderedReferences {
+        guard let documentID = documentIDByPath[reference.documentPath] else { continue }
+        let contextText = try await retrievalDiagnosticContextText(reference: reference, index: index)
+        let fullTokenCount = estimatedContextTokenCount(contextText)
+        guard fullTokenCount > 0 else { continue }
+
+        let remainingBudget = unlimited ? Int.max : tokenBudget - usedTokens
+        let availableTokens = cappedContextTokenCount(
+            fullTokenCount: fullTokenCount,
+            remainingBudget: remainingBudget,
+            perDocumentTokenBudget: perDocumentTokenBudget,
+            separatorOverheadTokens: separatorOverheadTokens
+        )
+        guard availableTokens > 0 else { continue }
+
+        let truncated = availableTokens < fullTokenCount
+        packed.append(
+            RetrievalDiagnosticRetrievedDocument(
+                rank: packed.count + 1,
+                documentId: documentID,
+                documentPath: reference.documentPath,
+                chunkID: reference.chunkID,
+                contextTokens: availableTokens,
+                truncated: truncated,
+                score: reference.score,
+                preview: truncateForMarkdown(contextText.replacingOccurrences(of: "\n", with: " "), maxLength: 220)
+            )
+        )
+        usedTokens += availableTokens + separatorOverheadTokens
+    }
+
+    return (packed, usedTokens)
+}
+
+private func orderedRetrievalDiagnosticReferences(
+    _ references: [MemorySearchReference],
+    order: ContextPackingOrder
+) -> [MemorySearchReference] {
+    switch order {
+    case .rank:
+        return references
+    case .score:
+        return references.enumerated().sorted { lhs, rhs in
+            compareScores(
+                lhs: lhs.element.score,
+                rhs: rhs.element.score,
+                lhsRank: lhs.offset,
+                rhsRank: rhs.offset
+            )
+        }.map(\.element)
+    }
+}
+
+private func scoreSortedRetrievalDiagnosticDocuments(
+    _ documents: [RetrievalDiagnosticRetrievedDocument]
+) -> [RetrievalDiagnosticRetrievedDocument] {
+    documents.sorted { lhs, rhs in
+        compareScores(
+            lhs: lhs.score,
+            rhs: rhs.score,
+            lhsRank: lhs.rank,
+            rhsRank: rhs.rank
+        )
+    }
+}
+
+private func compareScores(
+    lhs: SearchScoreBreakdown,
+    rhs: SearchScoreBreakdown,
+    lhsRank: Int,
+    rhsRank: Int
+) -> Bool {
+    if lhs.blended != rhs.blended {
+        return lhs.blended > rhs.blended
+    }
+    if lhs.fused != rhs.fused {
+        return lhs.fused > rhs.fused
+    }
+    if lhs.lexical != rhs.lexical {
+        return lhs.lexical > rhs.lexical
+    }
+    if lhs.semantic != rhs.semantic {
+        return lhs.semantic > rhs.semantic
+    }
+    return lhsRank < rhsRank
+}
+
+func cappedContextTokenCount(
+    fullTokenCount: Int,
+    remainingBudget: Int,
+    perDocumentTokenBudget: Int,
+    separatorOverheadTokens: Int = 8
+) -> Int {
+    guard fullTokenCount > 0 else { return 0 }
+    guard remainingBudget > separatorOverheadTokens else { return 0 }
+
+    let budgetLimited = min(fullTokenCount, remainingBudget - separatorOverheadTokens)
+    guard perDocumentTokenBudget > 0 else {
+        return max(0, budgetLimited)
+    }
+    return max(0, min(budgetLimited, perDocumentTokenBudget))
+}
+
+private func retrievalDiagnosticContextText(
+    reference: MemorySearchReference,
+    index: MemoryIndex
+) async throws -> String {
+    if let lineRange = reference.lineRange {
+        let response = try await index.memoryGet(path: reference.documentPath, lineRange: lineRange)
+        let trimmed = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+    }
+
+    return reference.snippet.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func estimatedContextTokenCount(_ text: String) -> Int {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return 0 }
+    return max(1, DefaultTokenizer().tokenize(trimmed).count)
+}
+
 private func computePerTypeMetrics(
     queryResults: [RecallQueryResult],
     queries: [RecallQueryCase],
@@ -5820,6 +6538,138 @@ private func makeComparisonMarkdown(_ reports: [EvalRunReport]) -> String {
     return lines.joined(separator: "\n")
 }
 
+private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsReport) -> String {
+    let maxKMetric = report.metricsByK.max(by: { $0.k < $1.k })
+    let maxKScoreSortedMetric = report.scoreSortedMetricsByK.max(by: { $0.k < $1.k })
+    let maxK = maxKMetric?.k ?? (report.kValues.max() ?? 10)
+    var lines: [String] = [
+        "# Retrieval Diagnostics",
+        "",
+        "- Created: \(iso8601(report.createdAt))",
+        "- Profile: `\(report.profile.rawValue)`",
+        "- Dataset: `\(report.datasetRoot)`",
+        "- Documents: \(report.totalDocuments)",
+        "- Queries: \(report.totalQueries)",
+        "- Candidate pool depth: \(report.candidatePoolDepth)",
+        "- Context token budget: \(report.contextTokenBudget == 0 ? "unlimited" : String(report.contextTokenBudget))",
+        "- Per-document token budget: \(report.perDocumentTokenBudget == 0 ? "unlimited" : String(report.perDocumentTokenBudget))",
+        "- Context packing order: `\(report.contextPackingOrder.rawValue)`",
+        "- Candidate Hit@pool: \(percent(report.candidatePoolHitRate))",
+        "- Candidate Recall@pool: \(percent(report.candidatePoolRecall))",
+        "- Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))",
+        "- Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))",
+        "- Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))",
+        "- Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))",
+        "- Empty retrieval rate: \(percent(report.emptyRetrievalRate))",
+    ]
+
+    if let maxKMetric {
+        lines.append("- Hit@\(maxKMetric.k): \(percent(maxKMetric.hitRate))")
+        lines.append("- Recall@\(maxKMetric.k): \(percent(maxKMetric.recall))")
+        lines.append("- MRR@\(maxKMetric.k): \(format(maxKMetric.mrr))")
+        lines.append("- nDCG@\(maxKMetric.k): \(format(maxKMetric.ndcg))")
+    }
+    if let maxKScoreSortedMetric {
+        lines.append("- Score-sorted packed Hit@\(maxKScoreSortedMetric.k): \(percent(maxKScoreSortedMetric.hitRate))")
+        lines.append("- Score-sorted packed Recall@\(maxKScoreSortedMetric.k): \(percent(maxKScoreSortedMetric.recall))")
+        lines.append("- Score-sorted packed MRR@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.mrr))")
+        lines.append("- Score-sorted packed nDCG@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.ndcg))")
+    }
+
+    if !report.notes.isEmpty {
+        lines.append("")
+        lines.append("## Notes")
+        lines.append("")
+        for note in report.notes {
+            lines.append("- \(note)")
+        }
+    }
+
+    lines.append("")
+    lines.append("## Metrics By K")
+    lines.append("")
+    lines.append("| K | Hit | Recall | MRR | nDCG |")
+    lines.append("|---:|---:|---:|---:|---:|")
+    for metric in report.metricsByK.sorted(by: { $0.k < $1.k }) {
+        lines.append("| \(metric.k) | \(percent(metric.hitRate)) | \(percent(metric.recall)) | \(format(metric.mrr)) | \(format(metric.ndcg)) |")
+    }
+
+    if !report.scoreSortedMetricsByK.isEmpty {
+        let baseByK = Dictionary(uniqueKeysWithValues: report.metricsByK.map { ($0.k, $0) })
+        lines.append("")
+        lines.append("## Score-Sorted Packed Metrics")
+        lines.append("")
+        lines.append("These metrics reorder the same packed documents by blended score before scoring. They are diagnostic only and do not change retrieval output.")
+        lines.append("")
+        lines.append("| K | Hit | Recall | MRR | nDCG | Hit Delta | Recall Delta | MRR Delta | nDCG Delta |")
+        lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for metric in report.scoreSortedMetricsByK.sorted(by: { $0.k < $1.k }) {
+            let base = baseByK[metric.k]
+            lines.append(
+                "| \(metric.k) | \(percent(metric.hitRate)) | \(percent(metric.recall)) | \(format(metric.mrr)) | \(format(metric.ndcg)) | \(percent(metric.hitRate - (base?.hitRate ?? 0))) | \(percent(metric.recall - (base?.recall ?? 0))) | \(format(metric.mrr - (base?.mrr ?? 0))) | \(format(metric.ndcg - (base?.ndcg ?? 0))) |"
+            )
+        }
+    }
+
+    if let latencyStats = report.latencyStats {
+        lines.append("")
+        lines.append("## Retrieval Latency")
+        lines.append("")
+        lines.append("| Stat | Value |")
+        lines.append("|---|---:|")
+        lines.append("| p50 | \(String(format: "%.1f", latencyStats.p50Ms)) ms |")
+        lines.append("| p95 | \(String(format: "%.1f", latencyStats.p95Ms)) ms |")
+        lines.append("| mean | \(String(format: "%.1f", latencyStats.meanMs)) ms |")
+        lines.append("| min | \(String(format: "%.1f", latencyStats.minMs)) ms |")
+        lines.append("| max | \(String(format: "%.1f", latencyStats.maxMs)) ms |")
+    }
+
+    if let stageStats = report.stageLatencyStats {
+        lines.append("")
+        lines.append("## Query Stage Latency")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean |")
+        lines.append("|---|---:|---:|---:|")
+        lines.append("| analysis | \(formatStageMs(stageStats.analysisMs)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.analysisMs, keyPath: \.meanMs)) |")
+        lines.append("| expansion | \(formatStageMs(stageStats.expansionMs)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.expansionMs, keyPath: \.meanMs)) |")
+        lines.append("| query_embedding | \(formatStageMs(stageStats.queryEmbeddingMs)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.queryEmbeddingMs, keyPath: \.meanMs)) |")
+        lines.append("| semantic_search | \(formatStageMs(stageStats.semanticSearchMs)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.semanticSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| lexical_search | \(formatStageMs(stageStats.lexicalSearchMs)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.lexicalSearchMs, keyPath: \.meanMs)) |")
+        lines.append("| fusion | \(formatStageMs(stageStats.fusionMs)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.fusionMs, keyPath: \.meanMs)) |")
+        lines.append("| rerank | \(formatStageMs(stageStats.rerankMs)) | \(formatStageMs(stageStats.rerankMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.rerankMs, keyPath: \.meanMs)) |")
+        lines.append("| total | \(formatStageMs(stageStats.totalMs)) | \(formatStageMs(stageStats.totalMs, keyPath: \.p95Ms)) | \(formatStageMs(stageStats.totalMs, keyPath: \.meanMs)) |")
+    }
+
+    if let countStats = report.candidateCountStats {
+        lines.append("")
+        lines.append("## Candidate Counts")
+        lines.append("")
+        lines.append("| Stage | p50 | p95 | mean | min | max |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        lines.append(candidateCountRow(label: "expanded_queries", stats: countStats.expandedQueries))
+        lines.append(candidateCountRow(label: "semantic_candidates", stats: countStats.semanticCandidates))
+        lines.append(candidateCountRow(label: "lexical_candidates", stats: countStats.lexicalCandidates))
+        lines.append(candidateCountRow(label: "fused_candidates", stats: countStats.fusedCandidates))
+        lines.append(candidateCountRow(label: "reranked_candidates", stats: countStats.rerankedCandidates))
+    }
+
+    let misses = report.queryResults.filter { $0.hitByK[maxK] == false }
+    if !misses.isEmpty {
+        lines.append("")
+        lines.append("## Misses (\(misses.count) at k=\(maxK))")
+        lines.append("")
+        lines.append("| Query | Difficulty | Context Tokens | First Candidate | Relevant | Candidate Relevant | Retrieved |")
+        lines.append("|---|---|---:|---:|---|---|---|")
+        for miss in misses.prefix(40) {
+            lines.append(
+                "| `\(markdownTableCell(miss.id))` | \(markdownTableCell(miss.difficulty ?? "-")) | \(miss.contextTokens) | \(miss.firstCandidateRelevantRank.map(String.init) ?? "-") | \(markdownTableCell(miss.relevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.candidateMatchedRelevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.retrievedDocumentIds.prefix(maxK).joined(separator: ", "))) |"
+            )
+        }
+    }
+
+    return lines.joined(separator: "\n")
+}
+
 private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
     let maxKMetric = report.recall.metricsByK.max(by: { $0.k < $1.k })
     var lines: [String] = [
@@ -6275,6 +7125,39 @@ private func computeNDCG(ranked: [String], relevant: Set<String>, k: Int) -> Dou
     return dcg / idcg
 }
 
+private func computePerQueryRecallMetrics(
+    rankedDocumentIDs: [String],
+    relevant: Set<String>,
+    kValues: [Int]
+) -> PerQueryRecallMetrics {
+    var hitByK: [Int: Bool] = [:]
+    var recallByK: [Int: Double] = [:]
+    var mrrByK: [Int: Double] = [:]
+    var ndcgByK: [Int: Double] = [:]
+
+    for k in kValues {
+        let top = Array(rankedDocumentIDs.prefix(k))
+        let retrievedRelevant = top.filter(relevant.contains)
+        let hit = !retrievedRelevant.isEmpty
+        let recall = Double(retrievedRelevant.count) / Double(relevant.count)
+        let firstRelevantRank = top.firstIndex(where: { relevant.contains($0) }).map { $0 + 1 }
+        let mrr = firstRelevantRank.map { 1.0 / Double($0) } ?? 0
+        let ndcg = computeNDCG(ranked: top, relevant: relevant, k: k)
+
+        hitByK[k] = hit
+        recallByK[k] = recall
+        mrrByK[k] = mrr
+        ndcgByK[k] = ndcg
+    }
+
+    return PerQueryRecallMetrics(
+        hitByK: hitByK,
+        recallByK: recallByK,
+        mrrByK: mrrByK,
+        ndcgByK: ndcgByK
+    )
+}
+
 private func firstRelevantRank(in ranked: [String], relevant: Set<String>, maxK: Int) -> Int? {
     guard maxK > 0 else { return nil }
     return ranked.prefix(maxK).firstIndex { relevant.contains($0) }.map { $0 + 1 }
@@ -6428,6 +7311,20 @@ private func resolvedOutputURL(baseRoot: URL, output: String?, profile: EvalProf
     return baseRoot
         .appendingPathComponent("runs", isDirectory: true)
         .appendingPathComponent("\(timestamp)-\(profile.rawValue).json")
+}
+
+private func resolvedRetrievalDiagnosticsOutputURL(baseRoot: URL, output: String?, profile: EvalProfile) -> URL {
+    if let output {
+        return URL(fileURLWithPath: NSString(string: output).expandingTildeInPath).standardizedFileURL
+    }
+
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    let timestamp = formatter.string(from: Date())
+        .replacingOccurrences(of: ":", with: "-")
+    return baseRoot
+        .appendingPathComponent("runs", isDirectory: true)
+        .appendingPathComponent("\(timestamp)-\(profile.rawValue).retrieval-diagnostics.json")
 }
 
 private func writeIfNeeded(_ url: URL, content: String, force: Bool) throws {

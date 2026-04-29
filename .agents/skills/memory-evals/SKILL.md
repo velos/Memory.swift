@@ -29,6 +29,11 @@ swift run memory_eval compare ./Evals/general_v2/runs/<run-a>.json ./Evals/gener
 swift run memory_eval compare --baseline ./Evals/general_v2/runs/<baseline>.json ./Evals/general_v2/runs/<candidate>.json
 ```
 
+- Retrieval-only diagnostics with context budget accounting:
+```bash
+swift run memory_eval retrieval-diagnostics --profile coreml_default --dataset-root ./Evals/longmemeval_v2 --candidate-pool-depth 40 --context-token-budget 4096 --per-document-token-budget 384 --context-packing-order rank --no-cache --no-index-cache
+```
+
 - Gate required release artifacts:
 ```bash
 swift run memory_eval gate --baseline ./Evals/baselines/current.json <memory-schema-run.json> <agent-memory-run.json> <general-run.json> <longmemeval-run.json> <query-expansion-run.json>
@@ -150,6 +155,20 @@ repo.
 - CoreML runs may print `E5RT encountered an STL exception... ANECompiler`; treat it as a warning if the eval completes and writes reports.
 
 3. Run profile(s) with `swift run memory_eval run ...`.
+
+Use `memory_eval retrieval-diagnostics` when isolating retrieval quality from
+answer-LLM behavior. It writes AMB-style retrieval-only JSON and Markdown with
+Hit/Recall/MRR/nDCG by K, score-sorted packed sidecar metrics, candidate-pool
+Hit/Recall, candidate-only miss rate, candidate-generation miss rate, average
+packed context tokens, empty retrieval rate, query latency, stage timings,
+candidate counts, and per-query retrieved IDs.
+Use `--per-document-token-budget` to test whether shorter packed snippets make
+more relevant candidates survive fixed 4k/8k context budgets.
+Use `--context-packing-order score` only as an explicit experiment; `rank` is
+the default and should remain the release-gate setting unless score-order wins
+on both recall and rank quality.
+The `memory serve` benchmark bridge accepts equivalent JSON search params:
+`contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
 
 4. For LongMemEval regressions or miss analysis:
 ```bash

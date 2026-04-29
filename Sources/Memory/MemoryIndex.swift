@@ -1311,6 +1311,11 @@ public actor MemoryIndex {
             topWindow: topWindow,
             medianSupport: medianSupport
         )
+        selected = preserveHighScoringTopAnchorSiblingContinuations(
+            selected,
+            from: pool,
+            medianSupport: medianSupport
+        )
 
         let selectedChunkIDs = Set(selected.map { $0.result.chunkID })
         var ordered = selected.map(\.result)
@@ -1368,6 +1373,7 @@ public actor MemoryIndex {
         var promoted = selected
         var selectedKeys = Set(promoted.map { normalizedComparisonKey(for: $0.result.documentPath) })
         var groupCounts = multiEvidenceSupportGroupCounts(promoted)
+        let protectedSupportGroupKeys = repeatedLeadingSupportGroupKeys(in: promoted)
         let selectedGroups = Set(groupCounts.keys)
         guard !selectedGroups.isEmpty else { return selected }
 
@@ -1396,7 +1402,8 @@ public actor MemoryIndex {
                   let replacementIndex = multiEvidenceReplacementIndex(
                     in: promoted,
                     groupCounts: groupCounts,
-                    protectedGroupKey: supportGroupKey
+                    protectedGroupKey: supportGroupKey,
+                    protectedSupportGroupKeys: protectedSupportGroupKeys
                   ) else {
                 continue
             }
@@ -1417,6 +1424,99 @@ public actor MemoryIndex {
         return promoted
     }
 
+    private func repeatedLeadingSupportGroupKeys(
+        in selected: [MultiEvidenceSupportCandidate]
+    ) -> Set<String> {
+        guard selected.count >= 2,
+              let first = selected[0].supportGroupKey,
+              first == selected[1].supportGroupKey else {
+            return []
+        }
+        return [first]
+    }
+
+    private func preserveHighScoringTopAnchorSiblingContinuations(
+        _ selected: [MultiEvidenceSupportCandidate],
+        from pool: [MultiEvidenceSupportCandidate],
+        medianSupport: Double
+    ) -> [MultiEvidenceSupportCandidate] {
+        guard selected.count >= 4,
+              pool.count > selected.count else {
+            return selected
+        }
+
+        let topAnchorGroups = Set(selected.prefix(2).compactMap(\.supportGroupKey))
+        guard !topAnchorGroups.isEmpty else { return selected }
+
+        var promoted = selected
+        var selectedKeys = Set(promoted.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        let scanLimit = min(pool.count, 30)
+        let scoreFloor = 0.30
+        let supportFloor = max(0.12, medianSupport * 0.50)
+        let replacementMargin = 0.10
+
+        let candidates = pool.prefix(scanLimit)
+            .filter { candidate in
+                guard let supportGroupKey = candidate.supportGroupKey,
+                      topAnchorGroups.contains(supportGroupKey),
+                      !selectedKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                    return false
+                }
+                return candidate.result.score.blended >= scoreFloor
+                    && candidate.supportScore >= supportFloor
+            }
+            .sorted {
+                if $0.result.score.blended == $1.result.score.blended {
+                    return compareMultiEvidenceContinuationCandidates($0, $1)
+                }
+                return $0.result.score.blended > $1.result.score.blended
+            }
+
+        var insertedGroups: Set<String> = []
+        for candidate in candidates {
+            guard let supportGroupKey = candidate.supportGroupKey,
+                  insertedGroups.insert(supportGroupKey).inserted,
+                  let replacementIndex = highScoringSiblingReplacementIndex(
+                    in: promoted,
+                    candidate: candidate,
+                    replacementMargin: replacementMargin
+                  ) else {
+                continue
+            }
+
+            let removed = promoted[replacementIndex]
+            selectedKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+            promoted[replacementIndex] = candidate
+            selectedKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+        }
+
+        return promoted
+    }
+
+    private func highScoringSiblingReplacementIndex(
+        in selected: [MultiEvidenceSupportCandidate],
+        candidate: MultiEvidenceSupportCandidate,
+        replacementMargin: Double
+    ) -> Int? {
+        let groupCounts = multiEvidenceSupportGroupCounts(selected)
+        return selected.enumerated()
+            .filter { index, existing in
+                guard index >= 2 else { return false }
+                if let supportGroupKey = existing.supportGroupKey,
+                   (groupCounts[supportGroupKey] ?? 0) > 1 {
+                    return false
+                }
+                return existing.result.score.blended + replacementMargin < candidate.result.score.blended
+            }
+            .min { lhs, rhs in
+                if lhs.element.result.score.blended == rhs.element.result.score.blended {
+                    return lhs.offset > rhs.offset
+                }
+                return lhs.element.result.score.blended < rhs.element.result.score.blended
+            }?
+            .offset
+    }
+
     private func multiEvidenceSupportGroupCounts(
         _ candidates: [MultiEvidenceSupportCandidate]
     ) -> [String: Int] {
@@ -1431,11 +1531,13 @@ public actor MemoryIndex {
     private func multiEvidenceReplacementIndex(
         in selected: [MultiEvidenceSupportCandidate],
         groupCounts: [String: Int],
-        protectedGroupKey: String
+        protectedGroupKey: String,
+        protectedSupportGroupKeys: Set<String>
     ) -> Int? {
         let candidates = selected.enumerated().filter { index, candidate in
             guard index >= 2 else { return false }
             guard let supportGroupKey = candidate.supportGroupKey else { return true }
+            guard !protectedSupportGroupKeys.contains(supportGroupKey) else { return false }
             return supportGroupKey != protectedGroupKey && (groupCounts[supportGroupKey] ?? 0) > 1
         }
 

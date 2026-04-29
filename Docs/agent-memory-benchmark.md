@@ -29,7 +29,36 @@ The native `memory_eval` CLI now covers these through:
 - `memory_eval run`
 - `memory_eval gate`
 - `memory_eval validate-datasets`
+- `memory_eval retrieval-diagnostics`
 - `memory_eval diagnose-longmemeval`
+
+Native retrieval-only smoke run:
+
+```bash
+swift run memory_eval retrieval-diagnostics \
+  --profile coreml_default \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --candidate-pool-depth 40 \
+  --context-token-budget 4096 \
+  --per-document-token-budget 384 \
+  --context-packing-order rank \
+  --query-limit 50 \
+  --no-cache \
+  --no-index-cache
+```
+
+The native report includes actual packed-context quality, score-sorted packed
+sidecar metrics, and candidate-pool coverage. When `Candidate Hit@pool` is high
+but Hit@10 is lower, focus on ranking, context packing, and source preservation.
+When candidate-pool coverage is low, focus on query expansion and candidate
+generation.
+
+The persistent `memory serve` bridge also accepts optional search params named
+`contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
+Benchmark adapters can pass `4096` plus `256` or `384` respectively to use the
+same capped context packing policy that performed best in native diagnostics.
+Keep `contextPackingOrder` at `rank` unless an experiment shows score-first
+packing improves both recall and rank quality.
 
 ## External LongMemEval Retrieval Run
 

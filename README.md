@@ -202,7 +202,7 @@ Build and run:
 swift run memory --help
 ```
 
-The CLI includes `memory serve`, a persistent JSON-lines bridge used for local benchmark adapters. It avoids repeated process startup and CoreML model loading during high-volume retrieval diagnostics.
+The CLI includes `memory serve`, a persistent JSON-lines bridge used for local benchmark adapters. It avoids repeated process startup and CoreML model loading during high-volume retrieval diagnostics, and search requests can pass `contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder` to exercise capped context packing.
 
 [qmd cli-style workflow](https://github.com/tobi/qmd#quick-start):
 
@@ -254,6 +254,22 @@ swift run memory_eval gate --baseline ./Evals/baselines/current.json <five-json-
 Useful diagnostic commands:
 
 ```bash
+swift run memory_eval retrieval-diagnostics \
+  --profile coreml_default \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --candidate-pool-depth 40 \
+  --context-token-budget 4096 \
+  --per-document-token-budget 384 \
+  --context-packing-order rank \
+  --no-cache \
+  --no-index-cache
+
+# Reports include packed-context Hit/Recall/MRR/nDCG, score-sorted packed
+# sidecar metrics, candidate-pool Hit/Recall, candidate-only miss rate, and
+# candidate-generation miss rate.
+# Use --context-packing-order score only as an opt-in experiment; rank is the
+# recall-preserving default.
+
 swift run memory_eval diagnose-longmemeval \
   --profile coreml_default \
   --dataset-root ./Evals/longmemeval_v2 \

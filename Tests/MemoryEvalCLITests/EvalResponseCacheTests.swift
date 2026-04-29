@@ -53,6 +53,21 @@ struct EvalResponseCacheTests {
         #expect(path.path.contains("notes/already.md"))
     }
 
+    @Test
+    func estimatedContextTokenCountIgnoresWhitespaceOnlyText() {
+        #expect(estimatedContextTokenCount("   \n\t  ") == 0)
+        #expect(estimatedContextTokenCount("Alpha beta, gamma.") == 3)
+    }
+
+    @Test
+    func cappedContextTokenCountRespectsDocumentAndRemainingBudgets() {
+        #expect(cappedContextTokenCount(fullTokenCount: 900, remainingBudget: 4096, perDocumentTokenBudget: 384) == 384)
+        #expect(cappedContextTokenCount(fullTokenCount: 900, remainingBudget: 256, perDocumentTokenBudget: 384) == 248)
+        #expect(cappedContextTokenCount(fullTokenCount: 120, remainingBudget: 4096, perDocumentTokenBudget: 384) == 120)
+        #expect(cappedContextTokenCount(fullTokenCount: 900, remainingBudget: 7, perDocumentTokenBudget: 384) == 0)
+        #expect(cappedContextTokenCount(fullTokenCount: 900, remainingBudget: 4096, perDocumentTokenBudget: 0) == 900)
+    }
+
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("memory-eval-tests")

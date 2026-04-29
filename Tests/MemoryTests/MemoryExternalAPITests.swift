@@ -216,6 +216,65 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func memorySearchPreservesAnchoredCountQuerySupportSiblings() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let rankedFiles = [
+            "answer_anchor.md",
+            "answer_target_1.md",
+            "answer_noisea_abs_1.md",
+            "answer_noiseb_1.md",
+            "answer_noisec_1.md",
+            "answer_noised_1.md",
+            "answer_noisea_1.md",
+            "answer_noisee_3.md",
+            "answer_noisef_2.md",
+            "answer_noiseg_2.md",
+            "answer_target_2.md",
+            "answer_noiseh_3.md",
+            "answer_noiseh_1.md",
+            "answer_noisea_2.md",
+            "answer_noisea_abs_2.md",
+        ]
+
+        for (index, file) in rankedFiles.enumerated() {
+            let detail = file.contains("target")
+                ? "I bought an h and m training top purchase number \(index)."
+                : "h and m training top purchase distractor note \(index)."
+            try writeFile(docs.appendingPathComponent(file), detail)
+        }
+
+        let desiredRank = Dictionary(uniqueKeysWithValues: rankedFiles.enumerated().map { index, file in
+            (file, 1.0 - (Double(index) * 0.01))
+        })
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                reranker: ClosureReranker(scoreForCandidate: { result in
+                    let file = URL(fileURLWithPath: result.documentPath).lastPathComponent
+                    return desiredRank[file] ?? 0
+                })
+            )
+        )
+
+        try await index.rebuildIndex(from: [docs])
+
+        let refs = try await index.memorySearch(
+            query: "How many h and m training tops have I bought so far?",
+            limit: 10,
+            features: [.lexical, .rerank],
+            includeLineRanges: false
+        )
+        let resultFiles = refs.map { URL(fileURLWithPath: $0.documentPath).lastPathComponent }
+
+        #expect(resultFiles.contains("answer_target_1.md"))
+        #expect(resultFiles.contains("answer_target_2.md"))
+    }
+
+    @Test
     func memoryGetFallsBackToIndexedContentForIngestedMemory() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

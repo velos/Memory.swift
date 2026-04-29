@@ -180,15 +180,26 @@ private final class MemoryBridgeServer {
             results = results.filter { $0.score.blended >= minScore }
         }
 
+        let contextPackingOrder = try bridgeContextPackingOrder(params?.contextPackingOrder)
+        let packaged = bridgePackSearchResults(
+            results,
+            contextTokenBudget: max(0, params?.contextTokenBudget ?? 0),
+            perDocumentTokenBudget: max(0, params?.perDocumentTokenBudget ?? 0),
+            contextPackingOrder: contextPackingOrder
+        )
+
         return BridgeSearchResponse(
-            diagnostics: diagnostics.snapshot(),
-            results: results.map { result in
-                BridgeSearchResult(
+            diagnostics: diagnostics.snapshot(contextPackaging: packaged.diagnostics),
+            results: packaged.results.map { packagedResult in
+                let result = packagedResult.result
+                return BridgeSearchResult(
                     chunkID: result.chunkID,
                     documentPath: result.documentPath,
                     title: result.title,
                     content: result.content,
                     snippet: result.snippet,
+                    contextTokens: packagedResult.contextTokens,
+                    truncated: packagedResult.truncated,
                     modifiedAt: ISO8601DateFormatter().string(from: result.modifiedAt),
                     memoryID: result.memoryID,
                     memoryKind: result.memoryKind?.rawValue,
@@ -260,6 +271,169 @@ private func bridgeParseReferenceDate(_ value: String?) -> Date? {
     return dateOnly.date(from: value)
 }
 
+private func bridgePackSearchResults(
+    _ results: [SearchResult],
+    contextTokenBudget: Int,
+    perDocumentTokenBudget: Int,
+    contextPackingOrder: BridgeContextPackingOrder
+) -> (results: [BridgePackagedSearchResult], diagnostics: BridgeContextPackagingSnapshot?) {
+    let orderedResults = bridgeOrderedSearchResults(results, order: contextPackingOrder)
+    guard contextTokenBudget > 0 || perDocumentTokenBudget > 0 else {
+        let diagnostics = contextPackingOrder == .rank ? nil : BridgeContextPackagingSnapshot(
+            contextTokenBudget: contextTokenBudget,
+            perDocumentTokenBudget: perDocumentTokenBudget,
+            contextPackingOrder: contextPackingOrder.rawValue,
+            returnedContextTokens: 0,
+            returnedResults: orderedResults.count,
+            truncatedResults: 0
+        )
+        return (
+            orderedResults.map { BridgePackagedSearchResult(result: $0, contextTokens: nil, truncated: nil) },
+            diagnostics
+        )
+    }
+
+    let separatorOverheadTokens = 8
+    var packaged: [BridgePackagedSearchResult] = []
+    packaged.reserveCapacity(results.count)
+    var usedTokens = 0
+    var truncatedCount = 0
+
+    for var result in orderedResults {
+        let fullTokenCount = bridgeEstimatedTokenCount(result.content)
+        guard fullTokenCount > 0 else { continue }
+
+        let remainingBudget = contextTokenBudget == 0 ? Int.max : contextTokenBudget - usedTokens
+        let availableTokens = bridgeCappedContextTokenCount(
+            fullTokenCount: fullTokenCount,
+            remainingBudget: remainingBudget,
+            perDocumentTokenBudget: perDocumentTokenBudget,
+            separatorOverheadTokens: separatorOverheadTokens
+        )
+        guard availableTokens > 0 else { break }
+
+        let truncated = availableTokens < fullTokenCount
+        if truncated {
+            result.content = bridgeTrimText(result.content, tokenBudget: availableTokens)
+            truncatedCount += 1
+        }
+
+        packaged.append(
+            BridgePackagedSearchResult(
+                result: result,
+                contextTokens: availableTokens,
+                truncated: truncated
+            )
+        )
+        usedTokens += availableTokens + separatorOverheadTokens
+    }
+
+    let diagnostics = BridgeContextPackagingSnapshot(
+        contextTokenBudget: contextTokenBudget,
+        perDocumentTokenBudget: perDocumentTokenBudget,
+        contextPackingOrder: contextPackingOrder.rawValue,
+        returnedContextTokens: usedTokens,
+        returnedResults: packaged.count,
+        truncatedResults: truncatedCount
+    )
+    return (packaged, diagnostics)
+}
+
+private func bridgeContextPackingOrder(_ rawValue: String?) throws -> BridgeContextPackingOrder {
+    guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !rawValue.isEmpty else {
+        return .rank
+    }
+    guard let order = BridgeContextPackingOrder(rawValue: rawValue) else {
+        throw BridgeError("Invalid contextPackingOrder '\(rawValue)'. Expected 'rank' or 'score'.")
+    }
+    return order
+}
+
+private func bridgeOrderedSearchResults(
+    _ results: [SearchResult],
+    order: BridgeContextPackingOrder
+) -> [SearchResult] {
+    switch order {
+    case .rank:
+        return results
+    case .score:
+        return results.enumerated().sorted { lhs, rhs in
+            bridgeCompareScores(
+                lhs: lhs.element.score,
+                rhs: rhs.element.score,
+                lhsRank: lhs.offset,
+                rhsRank: rhs.offset
+            )
+        }.map(\.element)
+    }
+}
+
+private func bridgeCompareScores(
+    lhs: SearchScoreBreakdown,
+    rhs: SearchScoreBreakdown,
+    lhsRank: Int,
+    rhsRank: Int
+) -> Bool {
+    if lhs.blended != rhs.blended {
+        return lhs.blended > rhs.blended
+    }
+    if lhs.fused != rhs.fused {
+        return lhs.fused > rhs.fused
+    }
+    if lhs.lexical != rhs.lexical {
+        return lhs.lexical > rhs.lexical
+    }
+    if lhs.semantic != rhs.semantic {
+        return lhs.semantic > rhs.semantic
+    }
+    return lhsRank < rhsRank
+}
+
+private func bridgeEstimatedTokenCount(_ text: String) -> Int {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return 0 }
+    return max(1, DefaultTokenizer().tokenize(trimmed).count)
+}
+
+private func bridgeCappedContextTokenCount(
+    fullTokenCount: Int,
+    remainingBudget: Int,
+    perDocumentTokenBudget: Int,
+    separatorOverheadTokens: Int = 8
+) -> Int {
+    guard fullTokenCount > 0 else { return 0 }
+    guard remainingBudget > separatorOverheadTokens else { return 0 }
+
+    let budgetLimited = min(fullTokenCount, remainingBudget - separatorOverheadTokens)
+    guard perDocumentTokenBudget > 0 else {
+        return max(0, budgetLimited)
+    }
+    return max(0, min(budgetLimited, perDocumentTokenBudget))
+}
+
+private func bridgeTrimText(_ text: String, tokenBudget: Int) -> String {
+    guard tokenBudget > 0 else { return "" }
+    let fullTokenCount = bridgeEstimatedTokenCount(text)
+    guard fullTokenCount > tokenBudget else { return text }
+
+    let ratio = max(0.01, min(1.0, Double(tokenBudget) / Double(fullTokenCount)))
+    var prefixCount = max(1, Int((Double(text.count) * ratio).rounded(.up)))
+    var trimmed = String(text.prefix(prefixCount)).trimmingCharacters(in: .whitespacesAndNewlines)
+
+    while bridgeEstimatedTokenCount(trimmed) > tokenBudget, prefixCount > 1 {
+        prefixCount = max(1, Int((Double(prefixCount) * 0.9).rounded(.down)))
+        trimmed = String(text.prefix(prefixCount)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    return trimmed
+}
+
+private enum BridgeContextPackingOrder: String {
+    case rank
+    case score
+}
+
 private struct BridgeError: Error, CustomStringConvertible {
     var description: String
 
@@ -285,6 +459,9 @@ private struct BridgeRequestParams: Decodable {
     var all: Bool?
     var minScore: Double?
     var queryTimestamp: String?
+    var contextTokenBudget: Int?
+    var perDocumentTokenBudget: Int?
+    var contextPackingOrder: String?
 }
 
 private struct BridgeSuccessResponse<T: Encodable>: Encodable {
@@ -358,7 +535,7 @@ private final class BridgeSearchDiagnostics: @unchecked Sendable {
         }
     }
 
-    func snapshot() -> BridgeSearchDiagnosticsSnapshot {
+    func snapshot(contextPackaging: BridgeContextPackagingSnapshot? = nil) -> BridgeSearchDiagnosticsSnapshot {
         lock.lock()
         defer { lock.unlock() }
 
@@ -368,7 +545,8 @@ private final class BridgeSearchDiagnostics: @unchecked Sendable {
             embeddedQueries: embeddedQueryCount,
             semanticCandidates: semanticCandidateCount,
             lexicalCandidates: lexicalCandidateCount,
-            fusedCandidates: fusedCandidateCount
+            fusedCandidates: fusedCandidateCount,
+            contextPackaging: contextPackaging
         )
     }
 }
@@ -380,6 +558,22 @@ private struct BridgeSearchDiagnosticsSnapshot: Encodable {
     var semanticCandidates: Int?
     var lexicalCandidates: Int?
     var fusedCandidates: Int?
+    var contextPackaging: BridgeContextPackagingSnapshot?
+}
+
+private struct BridgeContextPackagingSnapshot: Encodable {
+    var contextTokenBudget: Int
+    var perDocumentTokenBudget: Int
+    var contextPackingOrder: String
+    var returnedContextTokens: Int
+    var returnedResults: Int
+    var truncatedResults: Int
+}
+
+private struct BridgePackagedSearchResult {
+    var result: SearchResult
+    var contextTokens: Int?
+    var truncated: Bool?
 }
 
 private struct BridgeSearchResult: Encodable {
@@ -388,6 +582,8 @@ private struct BridgeSearchResult: Encodable {
     var title: String?
     var content: String
     var snippet: String
+    var contextTokens: Int?
+    var truncated: Bool?
     var modifiedAt: String
     var memoryID: String?
     var memoryKind: String?
