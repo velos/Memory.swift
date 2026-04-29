@@ -1366,7 +1366,14 @@ struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "memory_eval",
         abstract: "Evaluation harness for Memory.swift storage and recall quality.",
-        subcommands: [InitCommand.self, RunCommand.self, CompareCommand.self, GateCommand.self, DiagnoseLongMemEvalCommand.self],
+        subcommands: [
+            InitCommand.self,
+            RunCommand.self,
+            CompareCommand.self,
+            GateCommand.self,
+            ValidateDatasetsCommand.self,
+            DiagnoseLongMemEvalCommand.self,
+        ],
         defaultSubcommand: RunCommand.self
     )
 }
@@ -1894,6 +1901,76 @@ struct GateCommand: AsyncParsableCommand {
     }
 }
 
+struct ValidateDatasetsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "validate-datasets",
+        abstract: "Validate eval dataset roots, sidecars, and baseline manifests without running model evals."
+    )
+
+    @Argument(help: "Dataset roots to validate. Defaults to runnable immediate children under Evals/.")
+    var datasetRoots: [String] = []
+
+    @Option(name: .long, help: "Baseline manifest path to validate. May be passed multiple times. Defaults to all Evals/baselines/*.json files when present.")
+    var baseline: [String] = []
+
+    @Flag(name: .long, help: "Treat hygiene warnings as failures.")
+    var strict = false
+
+    mutating func run() async throws {
+        let roots = try resolvedValidationDatasetRoots(from: datasetRoots)
+        let baselines = try resolvedValidationBaselines(from: baseline)
+
+        guard !roots.isEmpty || !baselines.isEmpty else {
+            throw ValidationError("No eval dataset roots or baseline manifests found to validate.")
+        }
+
+        var totalWarnings = 0
+        var totalErrors = 0
+
+        for root in roots {
+            let issues = validateDatasetRoot(root)
+            let warningCount = issues.filter { $0.severity == .warning }.count
+            let errorCount = issues.filter { $0.severity == .error }.count
+            totalWarnings += warningCount
+            totalErrors += errorCount
+
+            if issues.isEmpty {
+                print("[validate-datasets] \(root.path): ok")
+            } else {
+                print("[validate-datasets] \(root.path): \(errorCount) error(s), \(warningCount) warning(s)")
+                for issue in issues {
+                    print("  [\(issue.severity.rawValue)] \(issue.message)")
+                }
+            }
+        }
+
+        for baselineURL in baselines {
+            let issues = validateBaselineManifest(baselineURL)
+            let warningCount = issues.filter { $0.severity == .warning }.count
+            let errorCount = issues.filter { $0.severity == .error }.count
+            totalWarnings += warningCount
+            totalErrors += errorCount
+
+            if issues.isEmpty {
+                print("[validate-datasets] \(baselineURL.path): ok")
+            } else {
+                print("[validate-datasets] \(baselineURL.path): \(errorCount) error(s), \(warningCount) warning(s)")
+                for issue in issues {
+                    print("  [\(issue.severity.rawValue)] \(issue.message)")
+                }
+            }
+        }
+
+        if totalErrors > 0 || (strict && totalWarnings > 0) {
+            throw ValidationError(
+                "Eval validation failed with \(totalErrors) error(s) and \(totalWarnings) warning(s)."
+            )
+        }
+
+        print("[validate-datasets] passed with \(totalWarnings) warning(s).")
+    }
+}
+
 struct DiagnoseLongMemEvalCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "diagnose-longmemeval",
@@ -2387,6 +2464,16 @@ private struct DatasetBundle {
     var agentMemoryScenarios: [AgentMemoryScenarioCase]
 }
 
+private enum DatasetValidationSeverity: String {
+    case warning
+    case error
+}
+
+private struct DatasetValidationIssue {
+    var severity: DatasetValidationSeverity
+    var message: String
+}
+
 private func loadDataset(root: URL) throws -> DatasetBundle {
     let storageURL = root.appendingPathComponent("storage_cases.jsonl")
     let recallDocumentsURL = root.appendingPathComponent("recall_documents.jsonl")
@@ -2449,6 +2536,218 @@ private func loadDataset(root: URL) throws -> DatasetBundle {
         queryExpansionCases: queryExpansionCases,
         agentMemoryScenarios: agentMemoryScenarios
     )
+}
+
+private func resolvedValidationDatasetRoots(from rawRoots: [String]) throws -> [URL] {
+    if !rawRoots.isEmpty {
+        return rawRoots.map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL
+        }
+    }
+
+    let evalsRoot = URL(fileURLWithPath: "Evals", isDirectory: true).standardizedFileURL
+    guard FileManager.default.fileExists(atPath: evalsRoot.path) else { return [] }
+
+    let excluded = Set(["_audit", "baselines", "local_nc"])
+    let children = try FileManager.default.contentsOfDirectory(
+        at: evalsRoot,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+    )
+
+    return children.filter { url in
+        guard !excluded.contains(url.lastPathComponent) else { return false }
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return false }
+        return datasetRootHasRunnableFiles(url)
+    }
+    .sorted { $0.path < $1.path }
+}
+
+private func datasetRootHasRunnableFiles(_ root: URL) -> Bool {
+    let fileManager = FileManager.default
+    return [
+        "storage_cases.jsonl",
+        "recall_documents.jsonl",
+        "recall_queries.jsonl",
+        "query_expansion_cases.jsonl",
+        "cases.jsonl",
+        "scenarios.jsonl",
+    ].contains { fileManager.fileExists(atPath: root.appendingPathComponent($0).path) }
+}
+
+private func resolvedValidationBaselines(from rawBaselines: [String]) throws -> [URL] {
+    if !rawBaselines.isEmpty {
+        return rawBaselines.map {
+            URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath).standardizedFileURL
+        }
+    }
+
+    let baselineRoot = URL(fileURLWithPath: "Evals/baselines", isDirectory: true).standardizedFileURL
+    guard FileManager.default.fileExists(atPath: baselineRoot.path) else { return [] }
+
+    return try FileManager.default.contentsOfDirectory(
+        at: baselineRoot,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    )
+    .filter { $0.pathExtension == "json" }
+    .sorted { $0.path < $1.path }
+}
+
+private func validateDatasetRoot(_ root: URL) -> [DatasetValidationIssue] {
+    var issues: [DatasetValidationIssue] = []
+
+    guard FileManager.default.fileExists(atPath: root.path) else {
+        return [.init(severity: .error, message: "dataset root does not exist")]
+    }
+
+    if !FileManager.default.fileExists(atPath: root.appendingPathComponent("manifest.json").path) {
+        issues.append(.init(severity: .warning, message: "missing manifest.json with provenance and gate intent"))
+    }
+
+    issues.append(contentsOf: validateDatasetSidecars(root))
+
+    let dataset: DatasetBundle
+    do {
+        dataset = try loadDataset(root: root)
+    } catch {
+        issues.append(.init(severity: .error, message: error.localizedDescription))
+        return issues
+    }
+
+    issues.append(contentsOf: duplicateIDIssues(label: "storage_cases", values: dataset.storageCases.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "recall_documents", values: dataset.recallDocuments.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "recall_queries", values: dataset.recallQueries.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "query_expansion_cases", values: dataset.queryExpansionCases.map(\.id)))
+    issues.append(contentsOf: duplicateIDIssues(label: "agent_memory_scenarios", values: dataset.agentMemoryScenarios.map(\.id)))
+
+    let documentIDs = Set(dataset.recallDocuments.map(\.id))
+    for query in dataset.recallQueries {
+        if query.relevantDocumentIds.isEmpty {
+            issues.append(.init(severity: .error, message: "recall query \(query.id) has empty relevant_document_ids"))
+        }
+        let missing = query.relevantDocumentIds.filter { !documentIDs.contains($0) }
+        if !missing.isEmpty {
+            issues.append(.init(severity: .error, message: "recall query \(query.id) references missing documents: \(missing.sorted().joined(separator: ", "))"))
+        }
+    }
+
+    if !documentIDs.isEmpty {
+        for queryExpansionCase in dataset.queryExpansionCases {
+            let referenced = (queryExpansionCase.relevantDocumentIds ?? []) + (queryExpansionCase.candidateDocumentIds ?? [])
+            let missing = referenced.filter { !documentIDs.contains($0) }
+            if !missing.isEmpty {
+                issues.append(.init(severity: .error, message: "query-expansion case \(queryExpansionCase.id) references missing documents: \(Set(missing).sorted().joined(separator: ", "))"))
+            }
+        }
+    }
+
+    for scenario in dataset.agentMemoryScenarios {
+        if scenario.messages.isEmpty {
+            issues.append(.init(severity: .error, message: "agent-memory scenario \(scenario.id) has no messages"))
+        }
+        if scenario.expectedWriteCount == nil, scenario.expectedMemories == nil {
+            issues.append(.init(severity: .warning, message: "agent-memory scenario \(scenario.id) has no explicit write expectation"))
+        }
+    }
+
+    return issues
+}
+
+private func validateDatasetSidecars(_ root: URL) -> [DatasetValidationIssue] {
+    let fileManager = FileManager.default
+    guard let enumerator = fileManager.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsPackageDescendants]
+    ) else {
+        return []
+    }
+
+    let scratchNames: Set<String> = [
+        "scenarios.model_drafts.jsonl",
+        "scenarios.model_review.md",
+    ]
+
+    var issues: [DatasetValidationIssue] = []
+    for case let url as URL in enumerator {
+        let name = url.lastPathComponent
+        if name == ".DS_Store" {
+            issues.append(.init(severity: .warning, message: "remove local Finder metadata: \(relativePath(url, under: root))"))
+        } else if scratchNames.contains(name) {
+            issues.append(.init(severity: .warning, message: "scratch/provenance sidecar in runnable dataset root: \(relativePath(url, under: root))"))
+        }
+    }
+    return issues
+}
+
+private func duplicateIDIssues(label: String, values: [String]) -> [DatasetValidationIssue] {
+    var counts: [String: Int] = [:]
+    for value in values {
+        counts[value, default: 0] += 1
+    }
+    return counts
+        .filter { $0.value > 1 }
+        .sorted { $0.key < $1.key }
+        .map { .init(severity: .error, message: "\(label) has duplicate id '\($0.key)'") }
+}
+
+private func validateBaselineManifest(_ url: URL) -> [DatasetValidationIssue] {
+    var issues: [DatasetValidationIssue] = []
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        return [.init(severity: .error, message: "baseline manifest does not exist")]
+    }
+
+    let manifest: EvalBaselineManifest
+    do {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        manifest = try decoder.decode(EvalBaselineManifest.self, from: Data(contentsOf: url))
+    } catch {
+        return [.init(severity: .error, message: "failed to decode baseline manifest: \(error.localizedDescription)")]
+    }
+
+    if manifest.requiredRuns.isEmpty {
+        issues.append(.init(severity: .error, message: "baseline manifest has no required_runs"))
+    }
+
+    var seenRequirements: Set<String> = []
+    for requirement in manifest.requiredRuns {
+        let key = "\(requirement.dataset)|\(requirement.profile.rawValue)|\(requirement.datasetRoot ?? "")"
+        if !seenRequirements.insert(key).inserted {
+            issues.append(.init(severity: .error, message: "duplicate baseline requirement for \(key)"))
+        }
+
+        if requirement.metrics.isEmpty {
+            issues.append(.init(severity: .warning, message: "\(requirement.dataset) / \(requirement.profile.rawValue) has no baseline metrics"))
+        }
+
+        if let datasetRoot = requirement.datasetRoot {
+            let root = URL(fileURLWithPath: datasetRoot, isDirectory: true).standardizedFileURL
+            if !FileManager.default.fileExists(atPath: root.path) {
+                issues.append(.init(severity: .error, message: "\(requirement.dataset) dataset_root does not exist: \(datasetRoot)"))
+            }
+        }
+
+        let minimumKeys = Set(requirement.minimumMetrics?.keys.map { $0 } ?? [])
+        let maximumKeys = Set(requirement.maximumMetrics?.keys.map { $0 } ?? [])
+        let overlap = minimumKeys.intersection(maximumKeys)
+        for key in overlap.sorted() {
+            issues.append(.init(severity: .warning, message: "\(requirement.dataset) metric \(key) is listed in both minimum_metrics and maximum_metrics"))
+        }
+    }
+
+    return issues
+}
+
+private func relativePath(_ url: URL, under root: URL) -> String {
+    let rootPath = root.standardizedFileURL.path
+    let path = url.standardizedFileURL.path
+    if path.hasPrefix(rootPath + "/") {
+        return String(path.dropFirst(rootPath.count + 1))
+    }
+    return path
 }
 
 private func makeResponseCacheIfEnabled(

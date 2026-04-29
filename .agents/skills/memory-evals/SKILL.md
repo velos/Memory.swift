@@ -44,6 +44,12 @@ swift run memory_eval diagnose-longmemeval \
   --wide-limit 100
 ```
 
+- Validate dataset and baseline hygiene without running evals:
+```bash
+swift run memory_eval validate-datasets
+swift run memory_eval validate-datasets --strict ./Evals/general_v2 ./Evals/longmemeval_v2
+```
+
 ## Datasets
 
 There are multiple dataset roots:
@@ -125,6 +131,17 @@ swift run memory_eval gate --baseline ./Evals/baselines/longmemeval_multievidenc
 ## Workflow
 
 1. Validate dataset files exist in the chosen dataset root.
+
+For broad cleanup or before promoting a new suite, run:
+```bash
+swift run memory_eval validate-datasets
+```
+Use `--strict` when sidecar warnings such as `.DS_Store`, `review_queue.jsonl`,
+`repair_report.*`, or model-draft scenario files should fail the check instead
+of only being reported. Keep bulky external benchmark artifacts and local
+provider wrappers in `references/agent-memory-benchmark` out of the Memory.swift
+release gate; preserve only benchmark summaries or generic diagnostics in this
+repo.
 
 2. Choose cache mode:
 - Use `--no-cache --no-index-cache` for correctness when evaluating code changes.

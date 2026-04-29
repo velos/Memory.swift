@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "memory_schema_gold_v2",
+  "purpose": "release_gate",
+  "suite_type": "storage",
+  "primary_file": "storage_cases.jsonl",
+  "description": "Canonical memory schema benchmark for kind, status, facet, entity, topic, canonical-key, and update/replacement behavior.",
+  "review_status": "curated"
+}

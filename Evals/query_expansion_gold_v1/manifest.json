@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "query_expansion_gold_v1",
+  "purpose": "release_gate",
+  "suite_type": "query_expansion",
+  "primary_file": "cases.jsonl",
+  "description": "Structured query-expansion benchmark tracking lexical/semantic/HyDE anchors, facet/entity/topic extraction, and retrieval MRR lift.",
+  "review_status": "curated"
+}

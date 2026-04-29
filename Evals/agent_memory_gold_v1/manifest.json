@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "name": "agent_memory_gold_v1",
+  "purpose": "release_gate",
+  "suite_type": "agent_memory",
+  "primary_file": "scenarios.jsonl",
+  "description": "Stable agent-memory behavior suite covering no-write cases, extraction writes, update/supersede/resolve behavior, active-state accuracy, and recall checks.",
+  "generated_by": "Scripts/generate_agent_memory_scenarios.py",
+  "review_status": "curated"
+}

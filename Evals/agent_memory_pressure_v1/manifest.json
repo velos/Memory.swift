@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "agent_memory_pressure_v1",
+  "purpose": "focused_pressure_gate",
+  "suite_type": "agent_memory",
+  "primary_file": "scenarios.jsonl",
+  "description": "Harder agent-memory pressure scenarios kept outside the default release gate until promoted.",
+  "generated_by": "Scripts/generate_agent_memory_scenarios.py",
+  "source": "Evals/agent_memory_gold_v1/scenarios.pressure.jsonl",
+  "review_status": "pressure"
+}
