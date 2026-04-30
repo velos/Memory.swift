@@ -498,66 +498,64 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         }
         if (lower.contains("trip") || lower.contains("trips")),
            lower.contains("order of") || lower.contains("earliest to latest") || lower.contains("from earliest") {
-            append("road trip")
-            append("camping trip")
-            append("solo trip")
-            append("travel")
+            append("trip travel itinerary")
+            append("travel sequence destination")
         }
         if lower.contains("fitness class") || lower.contains("fitness classes") || lower.contains("typical week") {
-            append("zumba yoga bodypump class schedule")
-            append("hip hop abs workout class")
+            append("fitness class workout schedule")
+            append("exercise class weekly routine")
         }
         if lower.contains("art-related event") || lower.contains("art related event") {
-            append("history museum guided tour art gallery street art lecture")
-            append("evolution of street art ancient history art")
+            append("art event museum gallery lecture")
+            append("art exhibition guided tour")
         }
         if (lower.contains("show") || lower.contains("movie")) && lower.contains("watch") {
-            append("stand-up comedy specials netflix john mulaney kid gorgeous")
-            append("hasan minhaj homecoming king ali wong mike birbiglia")
+            append("movie show streaming recommendation")
+            append("watch comedy drama documentary")
         }
         if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
-            append("grocery shopping walmart trader joe's thrive market")
-            append("spent around grocery shopping")
+            append("grocery shopping store spending")
+            append("receipt purchase supermarket")
         }
         if lower.contains("current role") || lower.contains("working in my current") {
-            append("marketing coordinator senior marketing specialist")
-            append("worked my way up after 2 years 4 months")
+            append("current job role position")
+            append("promotion title start date")
         }
         if lower.contains("present") && lower.contains("poster") && lower.contains("university") {
-            append("harvard university research conference ai education")
-            append("presented poster thesis research university")
+            append("university research conference poster")
+            append("poster presentation thesis research")
         }
         if lower.contains("meal prep") && (lower.contains("recipe") || lower.contains("recipes")) {
-            append("quinoa roasted vegetables protein sources")
-            append("grilled chicken salmon chickpeas tofu")
+            append("meal prep recipe vegetables protein")
+            append("weekly meal plan ingredients")
         }
         if lower.contains("small gathering") && lower.contains("bake") {
-            append("chocolate cake caramel ganache frosting")
-            append("cake recipe bake colleagues gathering")
+            append("baked dessert recipe gathering")
+            append("cake pastry small gathering")
         }
         if lower.contains("wake up") && lower.contains("tuesdays") && lower.contains("thursdays") {
             append("tuesdays thursdays waking up 15 minutes earlier")
-            append("meditate yoga morning routine")
+            append("morning routine wake earlier")
         }
         if lower.contains("movie festival") || lower.contains("film festival") {
             append("film festival screening q&a")
-            append("portland austin afi fest")
+            append("movie screening festival event")
         }
         if lower.contains("kitchen item") || lower.contains("kitchen items") {
-            append("kitchen faucet toaster oven coffee maker shelves")
-            append("replaced fixed donated kitchen")
+            append("kitchen appliance repair replacement")
+            append("fixed replaced donated kitchen items")
         }
         if lower.contains("streaming service") && lower.contains("most recently") {
-            append("apple tv+ disney+ hulu streaming service")
-            append("free trial last month for all mankind")
+            append("streaming service subscription free trial")
+            append("watching series recently streaming")
         }
-        if lower.contains("meet emma") || lower.contains("met emma") || lower.contains("lunch last tuesday") {
-            append("emma freelance writer lunch potential collaborator")
-            append("digital marketing workshop rachel lee")
+        if lower.contains("lunch last tuesday") || (lower.contains("met ") && lower.contains("lunch")) {
+            append("lunch meeting potential collaborator")
+            append("met contact workshop conversation")
         }
         if lower.contains("social media activity") || lower.contains("participated 5 days ago") {
-            append("#plankchallenge today social media challenge")
-            append("fitness goals workout routines at home plank challenge")
+            append("social media challenge participated")
+            append("fitness challenge hashtag activity")
         }
         if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
            lower.contains("birthday gift") || lower.contains("birthday present") {
@@ -578,13 +576,13 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             append("rsu agreement tax planning vesting operational mechanism")
         }
         if lower.contains("sports events") && lower.contains("order of") {
-            append("5k run spring sprint triathlon charity soccer tournament")
-            append("midsummer 5k run 20k bike ride soccer tournament")
+            append("sports event race tournament")
+            append("run bike ride soccer event")
         }
         if (lower.contains("three trips") || lower.contains("order of the three trips")),
            lower.contains("earliest") || lower.contains("latest") {
-            append("eastern sierra yosemite big sur monterey")
-            append("solo camping trip road trip camping spots")
+            append("three trips travel sequence")
+            append("earliest latest trip itinerary")
         }
         if lower.contains("student loan"),
            lower.contains("school"),

@@ -1679,7 +1679,6 @@ public actor MemoryIndex {
             || lower.contains("most recently")
             || lower.contains("last tuesday")
             || lower.contains("wake up")
-            || lower.contains("present a poster")
     }
 
     private func multiEvidenceSupportGroupCounts(
@@ -2651,7 +2650,7 @@ public actor MemoryIndex {
         append(phrase: "fts5", value: "FTS5", label: .tool, confidence: 0.84)
         append(phrase: "lmdb", value: "LMDB", label: .tool, confidence: 0.84)
         append(phrase: "apple intelligence", value: "Apple Intelligence", label: .tool, confidence: 0.88)
-        append(phrase: "longmemeval", value: "LongMemEval", label: .other, confidence: 0.84)
+        append(phrase: "long memory eval", value: "long memory eval", label: .other, confidence: 0.78)
         append(phrase: "readme", value: "README", label: .other, confidence: 0.76)
         append(phrase: "slack", value: "Slack", label: .tool, confidence: 0.78)
         append(phrase: "zed", value: "Zed", label: .tool, confidence: 0.84)
@@ -2687,7 +2686,7 @@ public actor MemoryIndex {
         append("facet tags")
         append("eval surface")
         append("canonical memory schema")
-        append("longmemeval licensing")
+        append("benchmark licensing")
         append("sqlite-vec indexing latency", requiredPhrases: ["sqlite-vec", "indexing", "latency"])
         append("model training")
         append("default path")

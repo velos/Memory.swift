@@ -298,7 +298,7 @@ struct MemoryIndexTests {
         try writeFile(
             docs.appendingPathComponent("answer_stream_2.md"),
             """
-            streaming service start using most recently. I started using Apple TV+ and finished watching For All Mankind.
+            streaming service start using most recently. I started a free StreamBox trial and finished watching a documentary series.
             """
         )
 
@@ -550,7 +550,7 @@ struct MemoryIndexTests {
             "general observations and feedback collected during the quarterly planning session"
         )
 
-        let temporalExpander = RecordingStructuredQueryExpander(lexicalQueries: ["social media challenge plankchallenge"])
+        let temporalExpander = RecordingStructuredQueryExpander(lexicalQueries: ["social media challenge fitness hashtag"])
         let temporalConfig = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
@@ -828,7 +828,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanRescueTerms() async throws {
+    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanDomainAliases() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let query = SearchQuery(
             text: "The school I attended told the lender that I was eligible for a student loan but I wasn't actually qualified, is there any way to get rid of this debt?"
@@ -847,7 +847,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsEmbroideryAliasRescueTerms() async throws {
+    func heuristicStructuredExpanderAddsEmbroideryDomainAliases() async throws {
         let expander = HeuristicStructuredQueryExpander()
 
         let birthdayExpansion = try await expander.expand(
@@ -886,7 +886,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsLongHorizonRecallRescueTerms() async throws {
+    func heuristicStructuredExpanderAddsGenericLongHorizonRecallTerms() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let completionAnalysis = QueryAnalysis(
             entities: [],
@@ -917,8 +917,8 @@ struct MemoryIndexTests {
             limit: 5
         )
         let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(tripLexical.contains("road trip"))
-        #expect(tripLexical.contains("camping trip"))
+        #expect(tripLexical.contains("trip travel itinerary"))
+        #expect(tripLexical.contains("travel sequence destination"))
 
         let groceryExpansion = try await expander.expand(
             query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
@@ -933,7 +933,7 @@ struct MemoryIndexTests {
         )
         let groceryLexical = groceryExpansion.lexicalQueries.joined(separator: " | ")
         #expect(groceryLexical.contains("grocery shopping"))
-        #expect(groceryLexical.contains("trader joe"))
+        #expect(groceryLexical.contains("receipt purchase"))
 
         let kitchenExpansion = try await expander.expand(
             query: SearchQuery(text: "How many kitchen items did I replace or fix?"),
@@ -947,8 +947,8 @@ struct MemoryIndexTests {
             limit: 5
         )
         let kitchenLexical = kitchenExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(kitchenLexical.contains("toaster oven"))
-        #expect(kitchenLexical.contains("coffee maker"))
+        #expect(kitchenLexical.contains("kitchen appliance"))
+        #expect(kitchenLexical.contains("repair replacement"))
 
         let artExpansion = try await expander.expand(
             query: SearchQuery(text: "How many different art-related events did I attend in the past month?"),
@@ -962,8 +962,8 @@ struct MemoryIndexTests {
             limit: 5
         )
         let artLexical = artExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(artLexical.contains("history museum"))
-        #expect(artLexical.contains("street art"))
+        #expect(artLexical.contains("art event"))
+        #expect(artLexical.contains("museum gallery"))
 
         let roleExpansion = try await expander.expand(
             query: SearchQuery(text: "How long have I been working in my current role?"),
@@ -977,8 +977,8 @@ struct MemoryIndexTests {
             limit: 5
         )
         let roleLexical = roleExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(roleLexical.contains("marketing coordinator"))
-        #expect(roleLexical.contains("senior marketing specialist"))
+        #expect(roleLexical.contains("current job role"))
+        #expect(roleLexical.contains("promotion title"))
 
         let socialExpansion = try await expander.expand(
             query: SearchQuery(text: "What was the social media activity I participated 5 days ago?"),
@@ -993,7 +993,7 @@ struct MemoryIndexTests {
         )
         let socialLexical = socialExpansion.lexicalQueries.joined(separator: " | ")
         #expect(socialLexical.contains("social media challenge"))
-        #expect(socialLexical.contains("plankchallenge"))
+        #expect(socialLexical.contains("fitness challenge hashtag"))
 
         let recommendationExpansion = try await expander.expand(
             query: SearchQuery(text: "Can you recommend a show or movie for me to watch tonight?"),
@@ -1007,8 +1007,8 @@ struct MemoryIndexTests {
             limit: 5
         )
         let recommendationLexical = recommendationExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(recommendationLexical.contains("stand-up comedy"))
-        #expect(recommendationLexical.contains("john mulaney"))
+        #expect(recommendationLexical.contains("movie show streaming recommendation"))
+        #expect(recommendationLexical.contains("watch comedy drama documentary"))
 
         let referenceDate = try #require(ISO8601DateFormatter().date(from: "2023-05-30T00:00:00Z"))
         let lastWeekExpansion = try await expander.expand(
