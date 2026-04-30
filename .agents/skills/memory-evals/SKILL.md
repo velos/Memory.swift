@@ -29,6 +29,11 @@ swift run memory_eval compare ./Evals/general_v2/runs/<run-a>.json ./Evals/gener
 swift run memory_eval compare --baseline ./Evals/general_v2/runs/<baseline>.json ./Evals/general_v2/runs/<candidate>.json
 ```
 
+- Retrieval-only diagnostics with context budget accounting:
+```bash
+swift run memory_eval retrieval-diagnostics --profile coreml_default --dataset-root ./Evals/longmemeval_v2 --candidate-pool-depth 40 --context-token-budget 4096 --per-document-token-budget 384 --context-packing-order rank --no-cache --no-index-cache
+```
+
 - Gate required release artifacts:
 ```bash
 swift run memory_eval gate --baseline ./Evals/baselines/current.json <memory-schema-run.json> <agent-memory-run.json> <general-run.json> <longmemeval-run.json> <query-expansion-run.json>
@@ -48,6 +53,19 @@ swift run memory_eval diagnose-longmemeval \
 ```bash
 swift run memory_eval validate-datasets
 swift run memory_eval validate-datasets --strict ./Evals/general_v2 ./Evals/longmemeval_v2
+```
+
+- Check runtime/test code for benchmark-derived answer leakage:
+```bash
+python3 Scripts/check_benchmark_leakage.py
+```
+
+- Classify retrieval-diagnostics misses and optional pre/post regressions:
+```bash
+python3 Scripts/analyze_retrieval_diagnostics.py \
+  ./Evals/longmemeval_v2/runs/<candidate>.retrieval-diagnostics.json \
+  --baseline-json ./Evals/longmemeval_v2/runs/<baseline>.retrieval-diagnostics.json \
+  --dataset-root ./Evals/longmemeval_v2
 ```
 
 ## Datasets
@@ -151,6 +169,23 @@ repo.
 
 3. Run profile(s) with `swift run memory_eval run ...`.
 
+Use `memory_eval retrieval-diagnostics` when isolating retrieval quality from
+answer-LLM behavior. It writes AMB-style retrieval-only JSON and Markdown with
+Hit/Recall/MRR/nDCG by K, score-sorted packed sidecar metrics, candidate-pool
+Hit/Recall, candidate-only miss rate, candidate-generation miss rate, average
+packed context tokens, empty retrieval rate, query latency, stage timings,
+candidate counts, and per-query retrieved IDs.
+Use `--per-document-token-budget` to test whether shorter packed snippets make
+more relevant candidates survive fixed 4k/8k context budgets.
+An explicit per-document budget is honored. When a total context budget is set
+and per-document budget is `0`, evidence-dense temporal or multi-evidence
+queries get an adaptive per-document cap so more support documents can fit.
+Use `--context-packing-order score` only as an explicit experiment; `rank` is
+the default and should remain the release-gate setting unless score-order wins
+on both recall and rank quality.
+The `memory serve` benchmark bridge accepts equivalent JSON search params:
+`contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
+
 4. For LongMemEval regressions or miss analysis:
 ```bash
 python3 Scripts/analyze_longmemeval_misses.py ./Evals/longmemeval_v2/runs/<run>.json --dataset-root ./Evals/longmemeval_v2
@@ -163,6 +198,39 @@ Focused slice gates are useful before full LongMemEval reruns:
 - `longmemeval_ranking.json` locks the current safe ranking/pool-depth wins, including q-2ce6a0f2 and q-gpt4_ab202e7f.
 - `longmemeval_multievidence.json` locks multi-evidence Hit@10 at 100% and support-document Recall@10 at or above 55%.
 - Treat dense unrepresented-group promotion as experimental until it improves focused ranking without regressing full LongMemEval Recall@10.
+
+## Benchmark Quality Guardrails
+
+Focused benchmarks are debugging tools, not product specs. Runtime changes should
+generalize across memory-like workloads before they are kept:
+
+- Prefer query-shape, score, metadata, date, entity/topic, and context-budget
+  signals over dataset names, benchmark IDs, exact answers, or named people from
+  a benchmark.
+- Domain synonyms are acceptable when they are broadly useful, such as
+  `RSU`/`equity incentive` or `Yue embroidery`/`Cantonese embroidery`; answer
+  memorization is not acceptable.
+- Do not add proper nouns, exact answer phrases, or benchmark-specific session
+  facts to `MemoryIndex` ranking logic. If a temporary lexical rescue term is
+  added to an expander, call it out and either generalize it or remove it before
+  PR review.
+- A focused-slice win must be checked against at least one broader suite before
+  treating it as an improvement. For retrieval changes, run the relevant focused
+  slice plus `general_v2` or `longmemeval_v2`; for external AMB discoveries,
+  rerun a broader AMB sample when quota/runtime permits.
+- If a change improves Hit@10 by reducing Recall@10, nDCG, or average context
+  diversity on broader suites, treat it as suspect until there is a clear agent
+  use-case reason.
+- Run `python3 Scripts/check_benchmark_leakage.py` before PR review for
+  retrieval changes touched by external benchmark analysis. The guard scans
+  runtime/library tests for exact answer phrases, benchmark IDs, and rescue
+  wording; extend the denylist when a new benchmark exploration exposes a risky
+  answer surface.
+- Use `Scripts/analyze_retrieval_diagnostics.py` after focused cleanup or
+  benchmark-derived changes. Candidate-generation misses point to query analysis
+  or indexing gaps; candidate-only misses point to ranking, fusion, or context
+  packing gaps. Prefer fixes that improve those generic surfaces without adding
+  named answer phrases.
 
 5. Report these metrics at max `k` (normally `k=10`):
 - `Storage type accuracy`

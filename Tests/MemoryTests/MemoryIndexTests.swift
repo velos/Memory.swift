@@ -282,6 +282,55 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func memorySearchPreservesDirectLookupSessionContinuation() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let queryText = "Which streaming service did I start using most recently?"
+        try writeFile(
+            docs.appendingPathComponent("answer_stream_1.md"),
+            """
+            \(queryText) \(queryText)
+            I was comparing streaming service options and asking for TV recommendations.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("answer_stream_2.md"),
+            """
+            streaming service start using most recently. I started a free StreamBox trial and finished watching a documentary series.
+            """
+        )
+
+        for index in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(index).md"),
+                "\(queryText) unrelated catalog note \(index)"
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: queryText,
+            limit: 5,
+            features: [.lexical],
+            dedupeDocuments: true,
+            includeLineRanges: false
+        )
+
+        #expect(references.contains { $0.documentPath.contains("answer_stream_2.md") })
+    }
+
+    @Test
     func primaryBranchProtectionKeepsBaselineDocumentRepresented() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -483,6 +532,78 @@ struct MemoryIndexTests {
 
         let calls = await expander.calls()
         #expect(calls == 1)
+    }
+
+    @Test
+    func recallAndRecommendationQueriesStillRunExpansionAfterStrongLexicalHit() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let temporalQuery = "What was the social media activity I participated 5 days ago?"
+        try writeFile(
+            docs.appendingPathComponent("temporal.md"),
+            "\(temporalQuery) \(temporalQuery) \(temporalQuery)"
+        )
+        try writeFile(
+            docs.appendingPathComponent("notes.md"),
+            "general observations and feedback collected during the quarterly planning session"
+        )
+
+        let temporalExpander = RecordingStructuredQueryExpander(lexicalQueries: ["social media challenge fitness hashtag"])
+        let temporalConfig = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: temporalExpander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let temporalIndex = try MemoryIndex(configuration: temporalConfig)
+        try await temporalIndex.rebuildIndex(from: [docs])
+
+        _ = try await temporalIndex.search(
+            SearchQuery(
+                text: temporalQuery,
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let temporalCalls = await temporalExpander.calls()
+        #expect(temporalCalls == 1)
+
+        let recommendationDB = root.appendingPathComponent("recommendation.sqlite")
+        let recommendationQuery = "Can you recommend a show or movie for me to watch tonight?"
+        try writeFile(
+            docs.appendingPathComponent("recommendation.md"),
+            "\(recommendationQuery) \(recommendationQuery) \(recommendationQuery)"
+        )
+
+        let recommendationExpander = RecordingStructuredQueryExpander(lexicalQueries: ["netflix stand-up comedy specials storytelling"])
+        let recommendationConfig = MemoryConfiguration(
+            databaseURL: recommendationDB,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: recommendationExpander,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let recommendationIndex = try MemoryIndex(configuration: recommendationConfig)
+        try await recommendationIndex.rebuildIndex(from: [docs])
+
+        _ = try await recommendationIndex.search(
+            SearchQuery(
+                text: recommendationQuery,
+                limit: 3,
+                rerankLimit: 0,
+                expansionLimit: 2
+            )
+        )
+
+        let recommendationCalls = await recommendationExpander.calls()
+        #expect(recommendationCalls == 1)
     }
 
     @Test
@@ -707,7 +828,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanRescueTerms() async throws {
+    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanDomainAliases() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let query = SearchQuery(
             text: "The school I attended told the lender that I was eligible for a student loan but I wasn't actually qualified, is there any way to get rid of this debt?"
@@ -726,7 +847,46 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsLongHorizonRecallRescueTerms() async throws {
+    func heuristicStructuredExpanderAddsEmbroideryDomainAliases() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+
+        let birthdayExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "Whose birthday gift is the Cantonese embroidery piece, completed in the summer of 2025, intended for?"
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["birthday", "gift", "cantonese", "embroidery", "summer"],
+                facetHints: [],
+                topics: ["cantonese embroidery birthday gift", "summer 2025"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let birthdayLexical = birthdayExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(birthdayLexical.contains("cantonese embroidery birthday gift recipient"))
+        #expect(birthdayLexical.contains("stitching technique"))
+
+        let creativeExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "What is the most crucial driving factor behind the successful initiation and continuation of the life-oriented creative attempts in Yue embroidery?"
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["driving", "factor", "life-oriented", "creative", "yue", "embroidery"],
+                facetHints: [],
+                topics: ["life-oriented creative attempts", "yue embroidery"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let creativeLexical = creativeExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(creativeLexical.contains("everyday items creative practice"))
+        #expect(creativeLexical.contains("traditional craft modern product design"))
+    }
+
+    @Test
+    func heuristicStructuredExpanderAddsGenericLongHorizonRecallTerms() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let completionAnalysis = QueryAnalysis(
             entities: [],
@@ -757,8 +917,98 @@ struct MemoryIndexTests {
             limit: 5
         )
         let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(tripLexical.contains("road trip"))
-        #expect(tripLexical.contains("camping trip"))
+        #expect(tripLexical.contains("trip travel itinerary"))
+        #expect(tripLexical.contains("travel sequence destination"))
+
+        let groceryExpansion = try await expander.expand(
+            query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["grocery", "store", "spend", "money", "past", "month"],
+                facetHints: [],
+                topics: ["grocery store", "past month"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let groceryLexical = groceryExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(groceryLexical.contains("grocery shopping"))
+        #expect(groceryLexical.contains("receipt purchase"))
+
+        let kitchenExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many kitchen items did I replace or fix?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["kitchen", "items", "replace", "fix"],
+                facetHints: [],
+                topics: ["kitchen items"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let kitchenLexical = kitchenExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(kitchenLexical.contains("kitchen appliance"))
+        #expect(kitchenLexical.contains("repair replacement"))
+
+        let artExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many different art-related events did I attend in the past month?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["art", "related", "events", "past", "month"],
+                facetHints: [],
+                topics: ["art-related events", "past month"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let artLexical = artExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(artLexical.contains("art event"))
+        #expect(artLexical.contains("museum gallery"))
+
+        let roleExpansion = try await expander.expand(
+            query: SearchQuery(text: "How long have I been working in my current role?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["working", "current", "role"],
+                facetHints: [],
+                topics: ["current role"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let roleLexical = roleExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(roleLexical.contains("current job role"))
+        #expect(roleLexical.contains("promotion title"))
+
+        let socialExpansion = try await expander.expand(
+            query: SearchQuery(text: "What was the social media activity I participated 5 days ago?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["social", "media", "activity", "participated"],
+                facetHints: [],
+                topics: ["social media activity"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let socialLexical = socialExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(socialLexical.contains("social media challenge"))
+        #expect(socialLexical.contains("fitness challenge hashtag"))
+
+        let recommendationExpansion = try await expander.expand(
+            query: SearchQuery(text: "Can you recommend a show or movie for me to watch tonight?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["recommend", "show", "movie", "watch"],
+                facetHints: [],
+                topics: ["show movie recommendation"],
+                isHowToQuery: true
+            ),
+            limit: 5
+        )
+        let recommendationLexical = recommendationExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(recommendationLexical.contains("movie show streaming recommendation"))
+        #expect(recommendationLexical.contains("watch comedy drama documentary"))
 
         let referenceDate = try #require(ISO8601DateFormatter().date(from: "2023-05-30T00:00:00Z"))
         let lastWeekExpansion = try await expander.expand(

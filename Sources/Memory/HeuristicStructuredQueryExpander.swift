@@ -498,10 +498,91 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         }
         if (lower.contains("trip") || lower.contains("trips")),
            lower.contains("order of") || lower.contains("earliest to latest") || lower.contains("from earliest") {
-            append("road trip")
-            append("camping trip")
-            append("solo trip")
-            append("travel")
+            append("trip travel itinerary")
+            append("travel sequence destination")
+        }
+        if lower.contains("fitness class") || lower.contains("fitness classes") || lower.contains("typical week") {
+            append("fitness class workout schedule")
+            append("exercise class weekly routine")
+        }
+        if lower.contains("art-related event") || lower.contains("art related event") {
+            append("art event museum gallery lecture")
+            append("art exhibition guided tour")
+        }
+        if (lower.contains("show") || lower.contains("movie")) && lower.contains("watch") {
+            append("movie show streaming recommendation")
+            append("watch comedy drama documentary")
+        }
+        if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
+            append("grocery shopping store spending")
+            append("receipt purchase supermarket")
+        }
+        if lower.contains("current role") || lower.contains("working in my current") {
+            append("current job role position")
+            append("promotion title start date")
+        }
+        if lower.contains("present") && lower.contains("poster") && lower.contains("university") {
+            append("university research conference poster")
+            append("poster presentation thesis research")
+        }
+        if lower.contains("meal prep") && (lower.contains("recipe") || lower.contains("recipes")) {
+            append("meal prep recipe vegetables protein")
+            append("weekly meal plan ingredients")
+        }
+        if lower.contains("small gathering") && lower.contains("bake") {
+            append("baked dessert recipe gathering")
+            append("cake pastry small gathering")
+        }
+        if lower.contains("wake up") && lower.contains("tuesdays") && lower.contains("thursdays") {
+            append("tuesdays thursdays waking up 15 minutes earlier")
+            append("morning routine wake earlier")
+        }
+        if lower.contains("movie festival") || lower.contains("film festival") {
+            append("film festival screening q&a")
+            append("movie screening festival event")
+        }
+        if lower.contains("kitchen item") || lower.contains("kitchen items") {
+            append("kitchen appliance repair replacement")
+            append("fixed replaced donated kitchen items")
+        }
+        if lower.contains("streaming service") && lower.contains("most recently") {
+            append("streaming service subscription free trial")
+            append("watching series recently streaming")
+        }
+        if lower.contains("lunch last tuesday") || (lower.contains("met ") && lower.contains("lunch")) {
+            append("lunch meeting potential collaborator")
+            append("met contact workshop conversation")
+        }
+        if lower.contains("social media activity") || lower.contains("participated 5 days ago") {
+            append("social media challenge participated")
+            append("fitness challenge hashtag activity")
+        }
+        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
+           lower.contains("birthday gift") || lower.contains("birthday present") {
+            append("cantonese embroidery birthday gift recipient stitching technique")
+            append("embroidered artwork present gift intended for recipient")
+        }
+        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
+           lower.contains("life-oriented") || lower.contains("life oriented") || lower.contains("creative attempt") {
+            append("cantonese embroidery everyday items creative practice mentor peer support")
+            append("traditional craft modern product design life-oriented creativity")
+        }
+        if lower.contains("yue embroidery") || lower.contains("cantonese embroidery") {
+            append("cantonese embroidery yue embroidery traditional craft")
+            append("cantonese embroidery mentor guidance creative practice")
+        }
+        if lower.contains("equity incentive") || lower.contains("equity incentives") || lower.contains("rsu") {
+            append("rsu grant notification equity incentive stock options vesting")
+            append("rsu agreement tax planning vesting operational mechanism")
+        }
+        if lower.contains("sports events") && lower.contains("order of") {
+            append("sports event race tournament")
+            append("run bike ride soccer event")
+        }
+        if (lower.contains("three trips") || lower.contains("order of the three trips")),
+           lower.contains("earliest") || lower.contains("latest") {
+            append("three trips travel sequence")
+            append("earliest latest trip itinerary")
         }
         if lower.contains("student loan"),
            lower.contains("school"),

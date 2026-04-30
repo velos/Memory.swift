@@ -183,6 +183,29 @@ baseline manifests, local `.DS_Store` files, and scratch/provenance sidecars
 that should usually live under `Evals/_audit/` or `Explorations/` instead of a
 runnable dataset root.
 
+Run retrieval-only diagnostics when you want AMB-style retrieval numbers without
+an answer LLM in the loop:
+
+```bash
+swift run memory_eval retrieval-diagnostics \
+  --profile coreml_default \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --candidate-pool-depth 40 \
+  --context-token-budget 4096 \
+  --per-document-token-budget 384 \
+  --context-packing-order rank \
+  --no-cache \
+  --no-index-cache
+```
+
+The report separates actual packed-context metrics from score-sorted packed
+sidecar metrics and candidate-pool coverage: `Candidate Hit@pool`,
+`Candidate Recall@pool`, candidate-only miss rate, and candidate-generation miss
+rate. Use those to decide whether to tune ordering/packing or query
+expansion/candidate generation. The default packing order is `rank`; use
+`--context-packing-order score` only when intentionally testing score-first
+context order.
+
 Generate datasets with MiniMax M2.5 via Anthropic-compatible API:
 
 ```bash
