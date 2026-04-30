@@ -28,17 +28,6 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         "november": 11,
         "december": 12,
     ]
-    private static let temporalCueWords: [String] = [
-        "when", "timeline", "chronology", "chronological", "date", "dates",
-        "schedule", "scheduled", "milestone", "kickoff", "kick-off",
-        "before", "after", "between", "first", "earliest", "latest",
-        "order of", "most recent", "recently", "past month", "past two months",
-        "valentine", "valentine's",
-        "jan", "january", "feb", "february", "mar", "march", "apr", "april",
-        "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept", "september",
-        "oct", "october", "nov", "november", "dec", "december",
-        "today", "yesterday", "tomorrow"
-    ]
 
     internal func order(
         _ results: [SearchResult],
@@ -72,7 +61,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
     ) -> [SearchResult] {
         guard dedupeDocuments,
               effectiveLimit > 1,
-              isMultiEvidenceSupportQuery(queryText),
+              MemorySearchHeuristics.isMultiEvidenceSupportQuery(queryText),
               results.count > 10 else {
             return results
         }
@@ -91,7 +80,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         let anchorCount = min(2, topWindow)
         let anchors = Array(pool.prefix(anchorCount))
         var selected = anchors
-        var selectedKeys = Set(anchors.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        var selectedKeys = Set(anchors.map { MemorySearchHeuristics.normalizedComparisonKey(for: $0.result.documentPath) })
 
         let originalWindow = Array(pool.prefix(topWindow))
         let medianSupport = medianSupportScore(originalWindow)
@@ -121,7 +110,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
             var promotedTemporal = 0
             var promotedTemporalBuckets = selectedTemporalBuckets
             for candidate in temporalCandidates where selected.count < topWindow && promotedTemporal < temporalPromotionLimit {
-                let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+                let documentKey = MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)
                 guard selectedKeys.insert(documentKey).inserted else { continue }
                 if let bucket = temporalEvidenceBucket(for: candidate.result) {
                     guard promotedTemporalBuckets.insert(bucket).inserted || candidate.result.score.temporal >= 0.055 else {
@@ -152,7 +141,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
                   promotedContinuationGroups.insert(supportGroupKey).inserted else {
                 continue
             }
-            let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+            let documentKey = MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)
             guard selectedKeys.insert(documentKey).inserted else { continue }
             selected.append(candidate)
         }
@@ -165,14 +154,14 @@ internal struct MultiEvidenceSupportRanker: Sendable {
             .sorted(by: compareMultiEvidenceSupportCandidates(_:_:))
 
         for candidate in supportCandidates where selected.count < topWindow {
-            let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+            let documentKey = MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)
             guard selectedKeys.insert(documentKey).inserted else { continue }
             selected.append(candidate)
         }
 
         if selected.count < topWindow {
             for candidate in pool where selected.count < topWindow {
-                let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+                let documentKey = MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)
                 guard selectedKeys.insert(documentKey).inserted else { continue }
                 selected.append(candidate)
             }
@@ -208,7 +197,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
     ) -> [SearchResult] {
         guard dedupeDocuments,
               effectiveLimit > 1,
-              isDirectContinuationLookupQuery(queryText),
+              MemorySearchHeuristics.isDirectContinuationLookupQuery(queryText),
               results.count > effectiveLimit else {
             return results
         }
@@ -315,7 +304,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         guard scoreFloor <= 0.018 else {
             return false
         }
-        guard isTemporalOrAggregateRecallQuery(queryText),
+        guard MemorySearchHeuristics.isTemporalOrAggregateRecallQuery(queryText),
               temporalEvidenceBucket(for: candidate.result) != nil else {
             return false
         }
@@ -362,7 +351,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
                 continue
             }
 
-            let documentKey = normalizedComparisonKey(for: result.documentPath)
+            let documentKey = MemorySearchHeuristics.normalizedComparisonKey(for: result.documentPath)
             guard seenDocumentKeys.insert(documentKey).inserted else { continue }
             let documentRank = candidates.count + 1
             candidates.append(
@@ -391,7 +380,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         }
 
         var promoted = selected
-        var selectedKeys = Set(promoted.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        var selectedKeys = Set(promoted.map { MemorySearchHeuristics.normalizedComparisonKey(for: $0.result.documentPath) })
         var groupCounts = multiEvidenceSupportGroupCounts(promoted)
         let protectedSupportGroupKeys = repeatedLeadingSupportGroupKeys(in: promoted)
         let selectedGroups = Set(groupCounts.keys)
@@ -405,7 +394,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
                 guard candidate.documentRank <= continuationRankWindow,
                       let supportGroupKey = candidate.supportGroupKey,
                       selectedGroups.contains(supportGroupKey),
-                      !selectedKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                      !selectedKeys.contains(MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)) else {
                     return false
                 }
                 return candidate.supportScore >= continuationFloor
@@ -429,14 +418,14 @@ internal struct MultiEvidenceSupportRanker: Sendable {
             }
 
             let removed = promoted[replacementIndex]
-            let removedKey = normalizedComparisonKey(for: removed.result.documentPath)
+            let removedKey = MemorySearchHeuristics.normalizedComparisonKey(for: removed.result.documentPath)
             selectedKeys.remove(removedKey)
             if let removedGroupKey = removed.supportGroupKey {
                 groupCounts[removedGroupKey] = max(0, (groupCounts[removedGroupKey] ?? 0) - 1)
             }
 
             promoted[replacementIndex] = candidate
-            selectedKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+            selectedKeys.insert(MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath))
             groupCounts[supportGroupKey] = (groupCounts[supportGroupKey] ?? 0) + 1
             promotionCount += 1
         }
@@ -469,7 +458,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         guard !topAnchorGroups.isEmpty else { return selected }
 
         var promoted = selected
-        var selectedKeys = Set(promoted.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        var selectedKeys = Set(promoted.map { MemorySearchHeuristics.normalizedComparisonKey(for: $0.result.documentPath) })
         let scanLimit = min(pool.count, 30)
         let scoreFloor = 0.30
         let supportFloor = max(0.12, medianSupport * 0.50)
@@ -479,7 +468,7 @@ internal struct MultiEvidenceSupportRanker: Sendable {
             .filter { candidate in
                 guard let supportGroupKey = candidate.supportGroupKey,
                       topAnchorGroups.contains(supportGroupKey),
-                      !selectedKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                      !selectedKeys.contains(MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)) else {
                     return false
                 }
                 return candidate.result.score.blended >= scoreFloor
@@ -505,9 +494,9 @@ internal struct MultiEvidenceSupportRanker: Sendable {
             }
 
             let removed = promoted[replacementIndex]
-            selectedKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+            selectedKeys.remove(MemorySearchHeuristics.normalizedComparisonKey(for: removed.result.documentPath))
             promoted[replacementIndex] = candidate
-            selectedKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+            selectedKeys.insert(MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath))
         }
 
         return promoted
@@ -541,8 +530,8 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         in selected: [SupportCandidate],
         candidate: SupportCandidate
     ) -> Int? {
-        let candidateKey = normalizedComparisonKey(for: candidate.result.documentPath)
-        guard !selected.contains(where: { normalizedComparisonKey(for: $0.result.documentPath) == candidateKey }) else {
+        let candidateKey = MemorySearchHeuristics.normalizedComparisonKey(for: candidate.result.documentPath)
+        guard !selected.contains(where: { MemorySearchHeuristics.normalizedComparisonKey(for: $0.result.documentPath) == candidateKey }) else {
             return nil
         }
 
@@ -562,29 +551,6 @@ internal struct MultiEvidenceSupportRanker: Sendable {
                 return lhs.element.supportScore < rhs.element.supportScore
             }?
             .offset
-    }
-
-    private func isDirectContinuationLookupQuery(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        if containsAny(
-            lower,
-            needles: [
-                "how many", "different", "order of", "earliest to latest",
-                "first to last", " in total "
-            ]
-        ) {
-            return false
-        }
-
-        return lower.hasPrefix("which ")
-            || lower.hasPrefix("whose ")
-            || lower.hasPrefix("who ")
-            || lower.hasPrefix("what time ")
-            || lower.hasPrefix("at which ")
-            || lower.hasPrefix("how long ")
-            || lower.contains("most recently")
-            || lower.contains("last tuesday")
-            || lower.contains("wake up")
     }
 
     private func multiEvidenceSupportGroupCounts(
@@ -748,89 +714,6 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         return directory.isEmpty ? groupedStem : "\(directory)/\(groupedStem)"
     }
 
-    private func isTemporalOrAggregateRecallQuery(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        if isTimeAnchoredQuery(queryText) {
-            return true
-        }
-
-        let recallIntentPhrases = [
-            "as of", "count", "days passed", "first", "from earliest to latest",
-            "how many", "how much", "last time", "most recently", "order of",
-            "what month", "when did", "which date"
-        ]
-        return recallIntentPhrases.contains { lower.contains($0) }
-    }
-
-    private func isMultiEvidenceSupportQuery(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        let aggregatePhrases = [
-            "average", "combined", "different", "from earliest to latest",
-            "from first to last", "how many", "how much", "in total",
-            "including", "list all", "order of", "please list", "total",
-            "typical week"
-        ]
-        if aggregatePhrases.contains(where: lower.contains) {
-            return true
-        }
-
-        let temporalSupportPhrases = [
-            "after the", "before the", "day before", "days before",
-            "earliest to latest", "first to last", "last week",
-            "past month", "past few months", "past two months",
-            "these three days"
-        ]
-        if temporalSupportPhrases.contains(where: lower.contains) {
-            return true
-        }
-
-        let broadSupportPhrases = [
-            "all activities", "conducted or planned", "creative attempts",
-            "driving factor", "in which occasions",
-            "key progress", "multi-day communication", "provide a brief description",
-            "related preparations", "specific activities", "specific occasions",
-            "systematic learning", "what activities", "what adjustments",
-            "what does this reflect", "what preparations", "which instances",
-            "which occasions"
-        ]
-        if broadSupportPhrases.contains(where: lower.contains) {
-            return true
-        }
-
-        if lower.range(of: #"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b.*\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b"#, options: .regularExpression) != nil {
-            return true
-        }
-        if lower.range(of: #"\bfrom\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\s+to\s+\d{1,2}(?:st|nd|rd|th)?\b"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        if lower.range(of: #"\b(which|what)\s+(two|three|four|five|six)\b"#, options: .regularExpression) != nil {
-            return true
-        }
-        if lower.range(of: #"\b(the|my)\s+(two|three|four|five|six)\b"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        return false
-    }
-
-    private func isTimeAnchoredQuery(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-
-        if Self.temporalCueWords.contains(where: lower.contains) {
-            return true
-        }
-
-        if lower.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) != nil {
-            return true
-        }
-        if lower.range(of: #"\b\d{1,2}:\d{2}\b"#, options: .regularExpression) != nil {
-            return true
-        }
-
-        return false
-    }
-
     private func monthDayAnchors(from text: String) -> Set<MonthDayAnchor> {
         let lower = text.lowercased()
         var anchors: Set<MonthDayAnchor> = []
@@ -899,14 +782,4 @@ internal struct MultiEvidenceSupportRanker: Sendable {
         }
     }
 
-    private func containsAny(_ text: String, needles: [String]) -> Bool {
-        needles.contains(where: text.contains)
-    }
-
-    private func normalizedComparisonKey(for text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .lowercased()
-            .split { !$0.isLetter && !$0.isNumber }
-            .joined(separator: " ")
-    }
 }
