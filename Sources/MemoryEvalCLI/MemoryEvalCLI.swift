@@ -5392,6 +5392,7 @@ private func runRetrievalDiagnostics(
         let packed = try await packRetrievalDiagnosticContext(
             references: references,
             index: index,
+            queryText: queryCase.query,
             documentIDByPath: documentIDByPath,
             tokenBudget: contextTokenBudget,
             perDocumentTokenBudget: perDocumentTokenBudget,
@@ -5579,6 +5580,7 @@ private func computeRecallCandidateCountStats(retrievalDiagnosticResults: [Retri
 private func packRetrievalDiagnosticContext(
     references: [MemorySearchReference],
     index: MemoryIndex,
+    queryText: String,
     documentIDByPath: [String: String],
     tokenBudget: Int,
     perDocumentTokenBudget: Int,
@@ -5589,6 +5591,12 @@ private func packRetrievalDiagnosticContext(
     let unlimited = tokenBudget == 0
     let separatorOverheadTokens = 8
     let orderedReferences = orderedRetrievalDiagnosticReferences(references, order: contextPackingOrder)
+    let effectivePerDocumentTokenBudget = adaptiveContextPerDocumentTokenBudget(
+        queryText: queryText,
+        contextTokenBudget: tokenBudget,
+        perDocumentTokenBudget: perDocumentTokenBudget,
+        separatorOverheadTokens: separatorOverheadTokens
+    )
 
     for reference in orderedReferences {
         guard let documentID = documentIDByPath[reference.documentPath] else { continue }
@@ -5600,7 +5608,7 @@ private func packRetrievalDiagnosticContext(
         let availableTokens = cappedContextTokenCount(
             fullTokenCount: fullTokenCount,
             remainingBudget: remainingBudget,
-            perDocumentTokenBudget: perDocumentTokenBudget,
+            perDocumentTokenBudget: effectivePerDocumentTokenBudget,
             separatorOverheadTokens: separatorOverheadTokens
         )
         guard availableTokens > 0 else { continue }
@@ -5691,6 +5699,55 @@ func cappedContextTokenCount(
         return max(0, budgetLimited)
     }
     return max(0, min(budgetLimited, perDocumentTokenBudget))
+}
+
+func adaptiveContextPerDocumentTokenBudget(
+    queryText: String,
+    contextTokenBudget: Int,
+    perDocumentTokenBudget: Int,
+    separatorOverheadTokens: Int = 8
+) -> Int {
+    guard perDocumentTokenBudget == 0,
+          contextTokenBudget > 0,
+          evidenceDenseContextQuery(queryText) else {
+        return perDocumentTokenBudget
+    }
+
+    let lower = queryText.lowercased()
+    let targetDocuments: Int
+    if lower.contains("list all")
+        || lower.contains("all activities")
+        || lower.contains("how many")
+        || lower.contains("what specific")
+        || lower.contains("provide a brief")
+        || lower.range(of: #"\b(?:may|june|july|august|september|october|november|december|january|february|march|april)\s+\d{1,2}\b.*\b(?:may|june|july|august|september|october|november|december|january|february|march|april)\s+\d{1,2}\b"#, options: .regularExpression) != nil {
+        targetDocuments = 24
+    } else {
+        targetDocuments = 18
+    }
+
+    let targetBudget = max(96, (contextTokenBudget / targetDocuments) - separatorOverheadTokens)
+    return targetBudget
+}
+
+private func evidenceDenseContextQuery(_ queryText: String) -> Bool {
+    let lower = queryText.lowercased()
+    let densePhrases = [
+        "all activities", "all the", "combined", "different", "from earliest to latest",
+        "how many", "in august", "in february", "in january", "in june", "in march",
+        "in may", "in november", "in october", "in september", "list all",
+        "multi-day", "over these", "please list", "provide a brief", "related preparations",
+        "so far this year", "specific occasions", "specific preparations",
+        "systematic learning", "what activities", "what preparations"
+    ]
+    if densePhrases.contains(where: lower.contains) {
+        return true
+    }
+    if lower.range(of: #"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b"#, options: .regularExpression) != nil,
+       lower.range(of: #"\b(?:what|which|how|list|describe|provide)\b"#, options: .regularExpression) != nil {
+        return true
+    }
+    return false
 }
 
 private func retrievalDiagnosticContextText(

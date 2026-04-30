@@ -183,6 +183,7 @@ private final class MemoryBridgeServer {
         let contextPackingOrder = try bridgeContextPackingOrder(params?.contextPackingOrder)
         let packaged = bridgePackSearchResults(
             results,
+            queryText: queryText,
             contextTokenBudget: max(0, params?.contextTokenBudget ?? 0),
             perDocumentTokenBudget: max(0, params?.perDocumentTokenBudget ?? 0),
             contextPackingOrder: contextPackingOrder
@@ -273,6 +274,7 @@ private func bridgeParseReferenceDate(_ value: String?) -> Date? {
 
 private func bridgePackSearchResults(
     _ results: [SearchResult],
+    queryText: String,
     contextTokenBudget: Int,
     perDocumentTokenBudget: Int,
     contextPackingOrder: BridgeContextPackingOrder
@@ -298,6 +300,12 @@ private func bridgePackSearchResults(
     packaged.reserveCapacity(results.count)
     var usedTokens = 0
     var truncatedCount = 0
+    let effectivePerDocumentTokenBudget = bridgeAdaptiveContextPerDocumentTokenBudget(
+        queryText: queryText,
+        contextTokenBudget: contextTokenBudget,
+        perDocumentTokenBudget: perDocumentTokenBudget,
+        separatorOverheadTokens: separatorOverheadTokens
+    )
 
     for var result in orderedResults {
         let fullTokenCount = bridgeEstimatedTokenCount(result.content)
@@ -307,7 +315,7 @@ private func bridgePackSearchResults(
         let availableTokens = bridgeCappedContextTokenCount(
             fullTokenCount: fullTokenCount,
             remainingBudget: remainingBudget,
-            perDocumentTokenBudget: perDocumentTokenBudget,
+            perDocumentTokenBudget: effectivePerDocumentTokenBudget,
             separatorOverheadTokens: separatorOverheadTokens
         )
         guard availableTokens > 0 else { break }
@@ -410,6 +418,55 @@ private func bridgeCappedContextTokenCount(
         return max(0, budgetLimited)
     }
     return max(0, min(budgetLimited, perDocumentTokenBudget))
+}
+
+private func bridgeAdaptiveContextPerDocumentTokenBudget(
+    queryText: String,
+    contextTokenBudget: Int,
+    perDocumentTokenBudget: Int,
+    separatorOverheadTokens: Int = 8
+) -> Int {
+    guard perDocumentTokenBudget == 0,
+          contextTokenBudget > 0,
+          bridgeEvidenceDenseContextQuery(queryText) else {
+        return perDocumentTokenBudget
+    }
+
+    let lower = queryText.lowercased()
+    let targetDocuments: Int
+    if lower.contains("list all")
+        || lower.contains("all activities")
+        || lower.contains("how many")
+        || lower.contains("what specific")
+        || lower.contains("provide a brief")
+        || lower.range(of: #"\b(?:may|june|july|august|september|october|november|december|january|february|march|april)\s+\d{1,2}\b.*\b(?:may|june|july|august|september|october|november|december|january|february|march|april)\s+\d{1,2}\b"#, options: .regularExpression) != nil {
+        targetDocuments = 24
+    } else {
+        targetDocuments = 18
+    }
+
+    let targetBudget = max(96, (contextTokenBudget / targetDocuments) - separatorOverheadTokens)
+    return targetBudget
+}
+
+private func bridgeEvidenceDenseContextQuery(_ queryText: String) -> Bool {
+    let lower = queryText.lowercased()
+    let densePhrases = [
+        "all activities", "all the", "combined", "different", "from earliest to latest",
+        "how many", "in august", "in february", "in january", "in june", "in march",
+        "in may", "in november", "in october", "in september", "list all",
+        "multi-day", "over these", "please list", "provide a brief", "related preparations",
+        "so far this year", "specific occasions", "specific preparations",
+        "systematic learning", "what activities", "what preparations"
+    ]
+    if densePhrases.contains(where: lower.contains) {
+        return true
+    }
+    if lower.range(of: #"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b"#, options: .regularExpression) != nil,
+       lower.range(of: #"\b(?:what|which|how|list|describe|provide)\b"#, options: .regularExpression) != nil {
+        return true
+    }
+    return false
 }
 
 private func bridgeTrimText(_ text: String, tokenBudget: Int) -> String {

@@ -55,6 +55,19 @@ swift run memory_eval validate-datasets
 swift run memory_eval validate-datasets --strict ./Evals/general_v2 ./Evals/longmemeval_v2
 ```
 
+- Check runtime/test code for benchmark-derived answer leakage:
+```bash
+python3 Scripts/check_benchmark_leakage.py
+```
+
+- Classify retrieval-diagnostics misses and optional pre/post regressions:
+```bash
+python3 Scripts/analyze_retrieval_diagnostics.py \
+  ./Evals/longmemeval_v2/runs/<candidate>.retrieval-diagnostics.json \
+  --baseline-json ./Evals/longmemeval_v2/runs/<baseline>.retrieval-diagnostics.json \
+  --dataset-root ./Evals/longmemeval_v2
+```
+
 ## Datasets
 
 There are multiple dataset roots:
@@ -164,6 +177,9 @@ packed context tokens, empty retrieval rate, query latency, stage timings,
 candidate counts, and per-query retrieved IDs.
 Use `--per-document-token-budget` to test whether shorter packed snippets make
 more relevant candidates survive fixed 4k/8k context budgets.
+An explicit per-document budget is honored. When a total context budget is set
+and per-document budget is `0`, evidence-dense temporal or multi-evidence
+queries get an adaptive per-document cap so more support documents can fit.
 Use `--context-packing-order score` only as an explicit experiment; `rank` is
 the default and should remain the release-gate setting unless score-order wins
 on both recall and rank quality.
@@ -205,6 +221,16 @@ generalize across memory-like workloads before they are kept:
 - If a change improves Hit@10 by reducing Recall@10, nDCG, or average context
   diversity on broader suites, treat it as suspect until there is a clear agent
   use-case reason.
+- Run `python3 Scripts/check_benchmark_leakage.py` before PR review for
+  retrieval changes touched by external benchmark analysis. The guard scans
+  runtime/library tests for exact answer phrases, benchmark IDs, and rescue
+  wording; extend the denylist when a new benchmark exploration exposes a risky
+  answer surface.
+- Use `Scripts/analyze_retrieval_diagnostics.py` after focused cleanup or
+  benchmark-derived changes. Candidate-generation misses point to query analysis
+  or indexing gaps; candidate-only misses point to ranking, fusion, or context
+  packing gaps. Prefer fixes that improve those generic surfaces without adding
+  named answer phrases.
 
 5. Report these metrics at max `k` (normally `k=10`):
 - `Storage type accuracy`

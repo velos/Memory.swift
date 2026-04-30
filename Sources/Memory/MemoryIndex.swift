@@ -1291,25 +1291,33 @@ public actor MemoryIndex {
         let continuationFloor = max(0.06, medianSupport * 0.12)
         let originalSupportGroups = Set(originalWindow.compactMap(\.supportGroupKey))
         let continuationLimit = min(3, max(1, topWindow - anchorCount))
-        let temporalPromotionLimit = monthDayAnchors(from: queryText).count >= 2 ? min(4, topWindow - anchorCount) : 0
+        let temporalPromotionLimit = temporalEvidencePromotionLimit(
+            queryText: queryText,
+            topWindow: topWindow,
+            anchorCount: anchorCount
+        )
 
         if temporalPromotionLimit > 0 {
-            let temporalCandidates = pool
-                .dropFirst(anchorCount)
-                .filter { candidate in
-                    candidate.documentRank <= 40 && candidate.result.score.temporal >= 0.055
-                }
-                .sorted {
-                    if $0.result.score.temporal == $1.result.score.temporal {
-                        return compareMultiEvidenceSupportCandidates($0, $1)
-                    }
-                    return $0.result.score.temporal > $1.result.score.temporal
-                }
+            let temporalScoreFloor = temporalEvidencePromotionScoreFloor(queryText: queryText)
+            let selectedTemporalBuckets = Set(selected.compactMap { temporalEvidenceBucket(for: $0.result) })
+            let temporalCandidates = temporalEvidencePromotionCandidates(
+                from: pool,
+                droppingFirst: anchorCount,
+                queryText: queryText,
+                scoreFloor: temporalScoreFloor,
+                selectedTemporalBuckets: selectedTemporalBuckets
+            )
 
             var promotedTemporal = 0
+            var promotedTemporalBuckets = selectedTemporalBuckets
             for candidate in temporalCandidates where selected.count < topWindow && promotedTemporal < temporalPromotionLimit {
                 let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
                 guard selectedKeys.insert(documentKey).inserted else { continue }
+                if let bucket = temporalEvidenceBucket(for: candidate.result) {
+                    guard promotedTemporalBuckets.insert(bucket).inserted || candidate.result.score.temporal >= 0.055 else {
+                        continue
+                    }
+                }
                 selected.append(candidate)
                 promotedTemporal += 1
             }
@@ -1438,6 +1446,94 @@ public actor MemoryIndex {
             ordered.append(result)
         }
         return ordered
+    }
+
+    private func temporalEvidencePromotionLimit(
+        queryText: String,
+        topWindow: Int,
+        anchorCount: Int
+    ) -> Int {
+        let available = max(0, topWindow - anchorCount)
+        guard available > 0 else { return 0 }
+
+        let dayAnchorCount = monthDayAnchors(from: queryText).count
+        let monthAnchorCount = monthAnchors(from: queryText).count
+        if dayAnchorCount >= 2 {
+            return min(5, available)
+        }
+        if dayAnchorCount > 0 || monthAnchorCount > 0 {
+            return min(4, available)
+        }
+        return 0
+    }
+
+    private func temporalEvidencePromotionScoreFloor(queryText: String) -> Double {
+        monthDayAnchors(from: queryText).count >= 2 ? 0.055 : 0.018
+    }
+
+    private func temporalEvidencePromotionCandidates(
+        from pool: [MultiEvidenceSupportCandidate],
+        droppingFirst anchorCount: Int,
+        queryText: String,
+        scoreFloor: Double,
+        selectedTemporalBuckets: Set<String>
+    ) -> [MultiEvidenceSupportCandidate] {
+        let rankWindow = min(60, pool.count)
+        return pool
+            .dropFirst(anchorCount)
+            .filter { candidate in
+                guard candidate.documentRank <= rankWindow else { return false }
+                return temporalEvidenceCandidate(candidate, queryText: queryText, scoreFloor: scoreFloor)
+            }
+            .sorted {
+                compareTemporalEvidenceCandidates(
+                    $0,
+                    $1,
+                    selectedTemporalBuckets: selectedTemporalBuckets
+                )
+            }
+    }
+
+    private func temporalEvidenceCandidate(
+        _ candidate: MultiEvidenceSupportCandidate,
+        queryText: String,
+        scoreFloor: Double
+    ) -> Bool {
+        if candidate.result.score.temporal >= scoreFloor {
+            return true
+        }
+        guard scoreFloor <= 0.018 else {
+            return false
+        }
+        guard isTemporalOrAggregateRecallQuery(queryText),
+              temporalEvidenceBucket(for: candidate.result) != nil else {
+            return false
+        }
+        return candidate.supportScore >= 0.025
+    }
+
+    private func compareTemporalEvidenceCandidates(
+        _ lhs: MultiEvidenceSupportCandidate,
+        _ rhs: MultiEvidenceSupportCandidate,
+        selectedTemporalBuckets: Set<String>
+    ) -> Bool {
+        let lhsBucket = temporalEvidenceBucket(for: lhs.result)
+        let rhsBucket = temporalEvidenceBucket(for: rhs.result)
+        let lhsIsNewBucket = lhsBucket.map { !selectedTemporalBuckets.contains($0) } ?? false
+        let rhsIsNewBucket = rhsBucket.map { !selectedTemporalBuckets.contains($0) } ?? false
+        if lhsIsNewBucket != rhsIsNewBucket {
+            return lhsIsNewBucket
+        }
+        if lhs.result.score.temporal != rhs.result.score.temporal {
+            return lhs.result.score.temporal > rhs.result.score.temporal
+        }
+        if lhs.supportScore != rhs.supportScore {
+            return lhs.supportScore > rhs.supportScore
+        }
+        if lhs.documentRank != rhs.documentRank {
+            return lhs.documentRank < rhs.documentRank
+        }
+        return lhs.originalIndex < rhs.originalIndex
     }
 
     private func multiEvidenceSupportCandidates(
@@ -1758,6 +1854,56 @@ public actor MemoryIndex {
         let metadataSupport = score.temporal + score.schema + score.tag + score.status
         let rankPrior = 0.02 / sqrt(Double(max(1, documentRank)))
         return strongestBranch + (0.45 * branchAgreement) + metadataSupport + rankPrior
+    }
+
+    private func temporalEvidenceBucket(for result: SearchResult) -> String? {
+        let searchable = (
+            result.documentPath + " " + (result.title ?? "") + " " + String(result.content.prefix(900))
+        )
+        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        .lowercased()
+
+        let numericPatterns = [
+            #"\b((?:19|20)\d{2})[-_/](\d{1,2})[-_/](\d{1,2})\b"#,
+            #"\b(\d{1,2})[-_/](\d{1,2})[-_/]((?:19|20)\d{2})\b"#,
+        ]
+        for pattern in numericPatterns {
+            for match in regexCaptureGroups(pattern: pattern, text: searchable) {
+                if match[0].count == 4,
+                   let year = Int(match[0]),
+                   let month = Int(match[1]),
+                   let day = Int(match[2]),
+                   (1...12).contains(month),
+                   (1...31).contains(day) {
+                    return String(format: "%04d-%02d-%02d", year, month, day)
+                }
+                if match[2].count == 4,
+                   let month = Int(match[0]),
+                   let day = Int(match[1]),
+                   let year = Int(match[2]),
+                   (1...12).contains(month),
+                   (1...31).contains(day) {
+                    return String(format: "%04d-%02d-%02d", year, month, day)
+                }
+            }
+        }
+
+        let monthAlternation = Self.monthNameToNumber.keys.sorted().joined(separator: "|")
+        let monthDayPattern = #"\b("# + monthAlternation + #")\s+(\d{1,2})(?:st|nd|rd|th)?\b"#
+        for match in regexCaptureGroups(pattern: monthDayPattern, text: searchable) {
+            guard match.count >= 2,
+                  let month = Self.monthNameToNumber[match[0]],
+                  let day = Int(match[1]),
+                  (1...31).contains(day) else {
+                continue
+            }
+            return String(format: "month-%02d-day-%02d", month, day)
+        }
+
+        for (name, month) in Self.monthNameToNumber where searchable.range(of: #"\b\#(name)\b"#, options: .regularExpression) != nil {
+            return String(format: "month-%02d", month)
+        }
+        return nil
     }
 
     private func multiEvidenceSupportGroupKey(for documentPath: String) -> String? {

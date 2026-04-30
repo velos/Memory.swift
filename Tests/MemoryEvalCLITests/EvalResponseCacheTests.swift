@@ -68,6 +68,30 @@ struct EvalResponseCacheTests {
         #expect(cappedContextTokenCount(fullTokenCount: 900, remainingBudget: 4096, perDocumentTokenBudget: 0) == 900)
     }
 
+    @Test
+    func adaptiveContextBudgetPacksMoreEvidenceForDenseQueries() {
+        let dense = adaptiveContextPerDocumentTokenBudget(
+            queryText: "What activities did I conduct in August? Please list all activities.",
+            contextTokenBudget: 4096,
+            perDocumentTokenBudget: 384
+        )
+        let sparse = adaptiveContextPerDocumentTokenBudget(
+            queryText: "Which document mentions the alpha project?",
+            contextTokenBudget: 4096,
+            perDocumentTokenBudget: 384
+        )
+        let unlimitedDense = adaptiveContextPerDocumentTokenBudget(
+            queryText: "How many training sessions did I complete in May?",
+            contextTokenBudget: 4096,
+            perDocumentTokenBudget: 0
+        )
+
+        #expect(dense == 384)
+        #expect(sparse == 384)
+        #expect(unlimitedDense > 0)
+        #expect(unlimitedDense < 384)
+    }
+
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("memory-eval-tests")
