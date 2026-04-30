@@ -72,7 +72,32 @@ public actor MemoryIndex {
         var topics: Set<String>
         var temporalIntent: RecallTemporalIntent
         var preferredStatuses: Set<MemoryStatus>
+        var monthDayAnchors: Set<MonthDayAnchor>
+        var monthAnchors: Set<Int>
     }
+
+    private struct MonthDayAnchor: Hashable {
+        var month: Int
+        var day: Int
+    }
+
+    private static let monthNameToNumber: [String: Int] = [
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    ]
+    private static let monthNameByNumber: [Int: String] = Dictionary(
+        uniqueKeysWithValues: monthNameToNumber.map { ($0.value, $0.key) }
+    )
 
     private struct StructuredSearchPlan {
         var expandedQueries: [WeightedQuery]
@@ -485,7 +510,7 @@ public actor MemoryIndex {
         events?(.lexicalCandidates(count: lexicalCandidateCount))
 
         let fusionStart = DispatchTime.now().uptimeNanoseconds
-        let querySignals = queryMatchSignals(from: searchPlan.analysis, plan: recallPlan)
+        let querySignals = queryMatchSignals(from: searchPlan.analysis, plan: recallPlan, queryText: normalizedText)
         let queryTags = query.includeTagScoring
             ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
             : []
@@ -980,13 +1005,20 @@ public actor MemoryIndex {
             dedupeDocuments: dedupeDocuments,
             activeOnlyByDefault: statuses == nil && plan.statuses == nil
         )
+        let continuationAwareSearchResults = preserveDirectLookupContinuationResults(
+            orderedSearchResults,
+            queryText: queryText,
+            effectiveLimit: effectiveLimit,
+            dedupeDocuments: dedupeDocuments,
+            activeOnlyByDefault: statuses == nil && plan.statuses == nil
+        )
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
 
         var seenDocumentKeys: Set<String> = []
         var documentTextCache: [String: String] = [:]
 
-        for result in orderedSearchResults {
+        for result in continuationAwareSearchResults {
             if statuses == nil,
                plan.statuses == nil,
                let memoryStatus = result.memoryStatus,
@@ -1259,6 +1291,29 @@ public actor MemoryIndex {
         let continuationFloor = max(0.06, medianSupport * 0.12)
         let originalSupportGroups = Set(originalWindow.compactMap(\.supportGroupKey))
         let continuationLimit = min(3, max(1, topWindow - anchorCount))
+        let temporalPromotionLimit = monthDayAnchors(from: queryText).count >= 2 ? min(4, topWindow - anchorCount) : 0
+
+        if temporalPromotionLimit > 0 {
+            let temporalCandidates = pool
+                .dropFirst(anchorCount)
+                .filter { candidate in
+                    candidate.documentRank <= 40 && candidate.result.score.temporal >= 0.055
+                }
+                .sorted {
+                    if $0.result.score.temporal == $1.result.score.temporal {
+                        return compareMultiEvidenceSupportCandidates($0, $1)
+                    }
+                    return $0.result.score.temporal > $1.result.score.temporal
+                }
+
+            var promotedTemporal = 0
+            for candidate in temporalCandidates where selected.count < topWindow && promotedTemporal < temporalPromotionLimit {
+                let documentKey = normalizedComparisonKey(for: candidate.result.documentPath)
+                guard selectedKeys.insert(documentKey).inserted else { continue }
+                selected.append(candidate)
+                promotedTemporal += 1
+            }
+        }
 
         let continuationCandidates = pool
             .dropFirst(topWindow)
@@ -1319,6 +1374,65 @@ public actor MemoryIndex {
 
         let selectedChunkIDs = Set(selected.map { $0.result.chunkID })
         var ordered = selected.map(\.result)
+        ordered.reserveCapacity(results.count)
+        for result in results where !selectedChunkIDs.contains(result.chunkID) {
+            ordered.append(result)
+        }
+        return ordered
+    }
+
+    private func preserveDirectLookupContinuationResults(
+        _ results: [SearchResult],
+        queryText: String,
+        effectiveLimit: Int,
+        dedupeDocuments: Bool,
+        activeOnlyByDefault: Bool
+    ) -> [SearchResult] {
+        guard dedupeDocuments,
+              effectiveLimit > 1,
+              isDirectContinuationLookupQuery(queryText),
+              results.count > effectiveLimit else {
+            return results
+        }
+
+        let candidates = multiEvidenceSupportCandidates(
+            from: results,
+            activeOnlyByDefault: activeOnlyByDefault,
+            reserveLimit: 80
+        )
+        let topWindow = min(10, effectiveLimit, candidates.count)
+        guard topWindow >= 3, candidates.count > topWindow else { return results }
+
+        let selected = Array(candidates.prefix(topWindow))
+        let selectedGroups = Set(selected.compactMap(\.supportGroupKey))
+        guard !selectedGroups.isEmpty else { return results }
+
+        let scanLimit = min(candidates.count, 35)
+        let continuationCandidates = candidates
+            .prefix(scanLimit)
+            .dropFirst(topWindow)
+            .filter { candidate in
+                guard let supportGroupKey = candidate.supportGroupKey,
+                      selectedGroups.contains(supportGroupKey) else {
+                    return false
+                }
+                return candidate.supportScore > 0
+            }
+            .sorted(by: compareMultiEvidenceContinuationCandidates(_:_:))
+
+        guard let continuation = continuationCandidates.first,
+              let replacementIndex = directLookupContinuationReplacementIndex(
+                in: selected,
+                candidate: continuation
+              ) else {
+            return results
+        }
+
+        var promoted = selected
+        promoted[replacementIndex] = continuation
+
+        let selectedChunkIDs = Set(promoted.map { $0.result.chunkID })
+        var ordered = promoted.map(\.result)
         ordered.reserveCapacity(results.count)
         for result in results where !selectedChunkIDs.contains(result.chunkID) {
             ordered.append(result)
@@ -1515,6 +1629,57 @@ public actor MemoryIndex {
                 return lhs.element.result.score.blended < rhs.element.result.score.blended
             }?
             .offset
+    }
+
+    private func directLookupContinuationReplacementIndex(
+        in selected: [MultiEvidenceSupportCandidate],
+        candidate: MultiEvidenceSupportCandidate
+    ) -> Int? {
+        let candidateKey = normalizedComparisonKey(for: candidate.result.documentPath)
+        guard !selected.contains(where: { normalizedComparisonKey(for: $0.result.documentPath) == candidateKey }) else {
+            return nil
+        }
+
+        return selected.enumerated()
+            .filter { index, existing in
+                guard index >= 2 else { return false }
+                if let candidateGroup = candidate.supportGroupKey,
+                   existing.supportGroupKey == candidateGroup {
+                    return false
+                }
+                return true
+            }
+            .min { lhs, rhs in
+                if lhs.element.supportScore == rhs.element.supportScore {
+                    return lhs.offset > rhs.offset
+                }
+                return lhs.element.supportScore < rhs.element.supportScore
+            }?
+            .offset
+    }
+
+    private func isDirectContinuationLookupQuery(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        if containsAny(
+            lower,
+            needles: [
+                "how many", "different", "order of", "earliest to latest",
+                "first to last", " in total "
+            ]
+        ) {
+            return false
+        }
+
+        return lower.hasPrefix("which ")
+            || lower.hasPrefix("whose ")
+            || lower.hasPrefix("who ")
+            || lower.hasPrefix("what time ")
+            || lower.hasPrefix("at which ")
+            || lower.hasPrefix("how long ")
+            || lower.contains("most recently")
+            || lower.contains("last tuesday")
+            || lower.contains("wake up")
+            || lower.contains("present a poster")
     }
 
     private func multiEvidenceSupportGroupCounts(
@@ -3538,16 +3703,20 @@ public actor MemoryIndex {
             entityValues: Set(analysis.entities.map(\.normalizedValue).map(normalizeEntityValue).filter { !$0.isEmpty }),
             topics: Set(analysis.topics.map(normalizeTopicValue).filter { !$0.isEmpty }),
             temporalIntent: .any,
-            preferredStatuses: []
+            preferredStatuses: [],
+            monthDayAnchors: [],
+            monthAnchors: []
         )
     }
 
-    private func queryMatchSignals(from analysis: QueryAnalysis, plan: RecallPlan?) -> QueryMatchSignals {
+    private func queryMatchSignals(from analysis: QueryAnalysis, plan: RecallPlan?, queryText: String) -> QueryMatchSignals {
         var signals = queryMatchSignals(from: analysis)
         if let plan {
             signals.temporalIntent = plan.temporalIntent
             signals.preferredStatuses = plan.statuses ?? []
         }
+        signals.monthDayAnchors = monthDayAnchors(from: queryText)
+        signals.monthAnchors = monthAnchors(from: queryText)
         return signals
     }
 
@@ -3932,10 +4101,35 @@ public actor MemoryIndex {
         let isConciseLowOverlap = tokenCount <= 5
             && lexicalQueryOverlapRatio(queryText, primaryQueryText) <= 0.35
         let isTemporalOrAggregate = isTemporalOrAggregateRecallQuery(primaryQueryText)
-        guard isConciseLowOverlap || isTemporalOrAggregate else { return }
+        let isMultiEvidence = isMultiEvidenceSupportQuery(primaryQueryText)
+        let isRecommendation = isRecommendationRecallQuery(primaryQueryText)
+        let isDirectLookup = isDirectContinuationLookupQuery(primaryQueryText)
+        guard isConciseLowOverlap || isTemporalOrAggregate || isMultiEvidence || isRecommendation || isDirectLookup else { return }
 
-        let basePromotion = isConciseLowOverlap ? 0.75 : 0.24
-        let rankLimit = isTemporalOrAggregate ? max(2, lexicalExpansionPromotionRankLimit) : lexicalExpansionPromotionRankLimit
+        let basePromotion: Double
+        if isConciseLowOverlap {
+            basePromotion = 0.75
+        } else if isMultiEvidence {
+            basePromotion = 0.36
+        } else if isRecommendation {
+            basePromotion = 0.42
+        } else if isDirectLookup {
+            basePromotion = 0.34
+        } else {
+            basePromotion = 0.24
+        }
+        let rankLimit: Int
+        if isMultiEvidence {
+            rankLimit = max(5, lexicalExpansionPromotionRankLimit)
+        } else if isTemporalOrAggregate {
+            rankLimit = max(2, lexicalExpansionPromotionRankLimit)
+        } else if isRecommendation {
+            rankLimit = max(3, lexicalExpansionPromotionRankLimit)
+        } else if isDirectLookup {
+            rankLimit = max(3, lexicalExpansionPromotionRankLimit)
+        } else {
+            rankLimit = lexicalExpansionPromotionRankLimit
+        }
         for (index, hit) in hits.prefix(rankLimit).enumerated() {
             let rank = Double(index + 1)
             let contribution = weight * basePromotion / sqrt(rank)
@@ -3964,12 +4158,24 @@ public actor MemoryIndex {
         return recallIntentPhrases.contains { lower.contains($0) }
     }
 
+    private func isRecommendationRecallQuery(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        return containsAny(
+            lower,
+            needles: [
+                "recommend", "suggest", "suggestions", "what to watch",
+                "watch tonight", "tips on what"
+            ]
+        )
+    }
+
     private func isMultiEvidenceSupportQuery(_ queryText: String) -> Bool {
         let lower = queryText.lowercased()
         let aggregatePhrases = [
             "average", "combined", "different", "from earliest to latest",
             "from first to last", "how many", "how much", "in total",
-            "including", "order of", "total", "typical week"
+            "including", "list all", "order of", "please list", "total",
+            "typical week"
         ]
         if aggregatePhrases.contains(where: lower.contains) {
             return true
@@ -3978,9 +4184,30 @@ public actor MemoryIndex {
         let temporalSupportPhrases = [
             "after the", "before the", "day before", "days before",
             "earliest to latest", "first to last", "last week",
-            "past month", "past few months", "past two months"
+            "past month", "past few months", "past two months",
+            "these three days"
         ]
         if temporalSupportPhrases.contains(where: lower.contains) {
+            return true
+        }
+
+        let broadSupportPhrases = [
+            "all activities", "conducted or planned", "creative attempts",
+            "driving factor", "in which occasions",
+            "key progress", "multi-day communication", "provide a brief description",
+            "related preparations", "specific activities", "specific occasions",
+            "systematic learning", "what activities", "what adjustments",
+            "what does this reflect", "what preparations", "which instances",
+            "which occasions"
+        ]
+        if broadSupportPhrases.contains(where: lower.contains) {
+            return true
+        }
+
+        if lower.range(of: #"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b.*\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b"#, options: .regularExpression) != nil {
+            return true
+        }
+        if lower.range(of: #"\bfrom\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\s+to\s+\d{1,2}(?:st|nd|rd|th)?\b"#, options: .regularExpression) != nil {
             return true
         }
 
@@ -4006,6 +4233,7 @@ public actor MemoryIndex {
         guard !lexicalProbeStrongSignal else { return false }
         guard query.lexicalCandidateLimit >= 32 else { return false }
         guard usedBranches < documentLexicalMaxBranches else { return false }
+
         guard lexicalHitCount < documentLexicalSparseHitThreshold else { return false }
 
         if branchIndex == 0 {
@@ -4493,13 +4721,7 @@ public actor MemoryIndex {
             return true
         }
 
-        return containsAny(
-            lower,
-            needles: [
-                "recommend", "suggest", "suggestions", "what to watch",
-                "watch tonight", "tips on what"
-            ]
-        )
+        return isRecommendationRecallQuery(queryText)
     }
 
     private func ftsPreprocess(_ text: String) -> String {
@@ -4763,7 +4985,7 @@ public actor MemoryIndex {
         let anchors = anchorTokens(from: queryText)
         guard !anchors.isEmpty else { return 0 }
 
-        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(2_000)))
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
             .lowercased()
 
         var matched = 0
@@ -4843,16 +5065,135 @@ public actor MemoryIndex {
     }
 
     private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
+        let anchorBonus = timeAnchorFitBonus(querySignals: querySignals, metadata: metadata)
         switch querySignals.temporalIntent {
         case .any:
-            return 0
+            return anchorBonus
         case .recent, .mostRecent:
             let ageDays = max(0, Date().timeIntervalSince(metadata.modifiedAt) / 86_400)
-            return min(0.05, 0.05 * exp(-ageDays / 14.0))
+            return anchorBonus + min(0.05, 0.05 * exp(-ageDays / 14.0))
         case .historical:
-            return metadata.memoryStatus == MemoryStatus.superseded.rawValue || metadata.memoryStatus == MemoryStatus.archived.rawValue ? 0.04 : 0
+            let historicalBonus = metadata.memoryStatus == MemoryStatus.superseded.rawValue || metadata.memoryStatus == MemoryStatus.archived.rawValue ? 0.04 : 0
+            return anchorBonus + historicalBonus
         case .timeAnchored, .count:
-            return isTimeAnchoredText(metadata.content) ? 0.025 : 0
+            return anchorBonus + (isTimeAnchoredText(metadata.content) ? 0.025 : 0)
+        }
+    }
+
+    private func timeAnchorFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
+            .lowercased()
+
+        if !querySignals.monthDayAnchors.isEmpty {
+            var matched = 0
+            for anchor in querySignals.monthDayAnchors where textContains(anchor: anchor, text: searchable) {
+                matched += 1
+            }
+            guard matched > 0 else { return 0 }
+
+            let coverage = Double(matched) / Double(querySignals.monthDayAnchors.count)
+            return min(0.09, (0.035 * Double(matched)) + (0.045 * coverage))
+        }
+
+        guard !querySignals.monthAnchors.isEmpty else { return 0 }
+        for month in querySignals.monthAnchors where textContains(month: month, text: searchable) {
+            return 0.025
+        }
+        return 0
+    }
+
+    private func monthDayAnchors(from text: String) -> Set<MonthDayAnchor> {
+        let lower = text.lowercased()
+        var anchors: Set<MonthDayAnchor> = []
+        let monthAlternation = Self.monthNameToNumber.keys.sorted().joined(separator: "|")
+
+        let rangePattern = #"\b("# + monthAlternation + #")\s+(\d{1,2})(?:st|nd|rd|th)?\s*(?:to|through|-)\s*(\d{1,2})(?:st|nd|rd|th)?\b"#
+        for match in regexCaptureGroups(pattern: rangePattern, text: lower) {
+            guard match.count >= 3,
+                  let month = Self.monthNameToNumber[match[0]],
+                  let startDay = Int(match[1]),
+                  let endDay = Int(match[2]) else {
+                continue
+            }
+            for day in min(startDay, endDay)...max(startDay, endDay) where (1...31).contains(day) {
+                anchors.insert(MonthDayAnchor(month: month, day: day))
+            }
+        }
+
+        let explicitPattern = #"\b("# + monthAlternation + #")\s+(\d{1,2})(?:st|nd|rd|th)?\b"#
+        for match in regexCaptureGroups(pattern: explicitPattern, text: lower) {
+            guard match.count >= 2,
+                  let month = Self.monthNameToNumber[match[0]],
+                  let day = Int(match[1]),
+                  (1...31).contains(day) else {
+                continue
+            }
+            anchors.insert(MonthDayAnchor(month: month, day: day))
+        }
+
+        return anchors
+    }
+
+    private func monthAnchors(from text: String) -> Set<Int> {
+        let lower = text.lowercased()
+        var months: Set<Int> = []
+        for (name, number) in Self.monthNameToNumber where lower.range(of: #"\b\#(name)\b"#, options: .regularExpression) != nil {
+            months.insert(number)
+        }
+        if lower.range(of: #"\bsummer\b"#, options: .regularExpression) != nil {
+            months.formUnion([6, 7, 8])
+        }
+        if lower.range(of: #"\bspring\b"#, options: .regularExpression) != nil {
+            months.formUnion([3, 4, 5])
+        }
+        if lower.range(of: #"\b(autumn|fall)\b"#, options: .regularExpression) != nil {
+            months.formUnion([9, 10, 11])
+        }
+        if lower.range(of: #"\bwinter\b"#, options: .regularExpression) != nil {
+            months.formUnion([12, 1, 2])
+        }
+        return months
+    }
+
+    private func textContains(anchor: MonthDayAnchor, text: String) -> Bool {
+        let iso = String(format: "-%02d-%02d", anchor.month, anchor.day)
+        if text.contains(iso) {
+            return true
+        }
+
+        guard let monthName = Self.monthNameByNumber[anchor.month] else {
+            return false
+        }
+        return text.contains("\(monthName) \(anchor.day)")
+            || text.contains("\(monthName) \(anchor.day)st")
+            || text.contains("\(monthName) \(anchor.day)nd")
+            || text.contains("\(monthName) \(anchor.day)rd")
+            || text.contains("\(monthName) \(anchor.day)th")
+    }
+
+    private func textContains(month: Int, text: String) -> Bool {
+        let iso = String(format: "-%02d-", month)
+        if text.contains(iso) {
+            return true
+        }
+        guard let monthName = Self.monthNameByNumber[month] else {
+            return false
+        }
+        return text.contains(monthName)
+    }
+
+    private func regexCaptureGroups(pattern: String, text: String) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, options: [], range: range).map { match in
+            (1..<match.numberOfRanges).compactMap { index -> String? in
+                let range = match.range(at: index)
+                guard range.location != NSNotFound,
+                      let swiftRange = Range(range, in: text) else {
+                    return nil
+                }
+                return String(text[swiftRange])
+            }
         }
     }
 

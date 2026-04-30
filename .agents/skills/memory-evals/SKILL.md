@@ -183,6 +183,29 @@ Focused slice gates are useful before full LongMemEval reruns:
 - `longmemeval_multievidence.json` locks multi-evidence Hit@10 at 100% and support-document Recall@10 at or above 55%.
 - Treat dense unrepresented-group promotion as experimental until it improves focused ranking without regressing full LongMemEval Recall@10.
 
+## Benchmark Quality Guardrails
+
+Focused benchmarks are debugging tools, not product specs. Runtime changes should
+generalize across memory-like workloads before they are kept:
+
+- Prefer query-shape, score, metadata, date, entity/topic, and context-budget
+  signals over dataset names, benchmark IDs, exact answers, or named people from
+  a benchmark.
+- Domain synonyms are acceptable when they are broadly useful, such as
+  `RSU`/`equity incentive` or `Yue embroidery`/`Cantonese embroidery`; answer
+  memorization is not acceptable.
+- Do not add proper nouns, exact answer phrases, or benchmark-specific session
+  facts to `MemoryIndex` ranking logic. If a temporary lexical rescue term is
+  added to an expander, call it out and either generalize it or remove it before
+  PR review.
+- A focused-slice win must be checked against at least one broader suite before
+  treating it as an improvement. For retrieval changes, run the relevant focused
+  slice plus `general_v2` or `longmemeval_v2`; for external AMB discoveries,
+  rerun a broader AMB sample when quota/runtime permits.
+- If a change improves Hit@10 by reducing Recall@10, nDCG, or average context
+  diversity on broader suites, treat it as suspect until there is a clear agent
+  use-case reason.
+
 5. Report these metrics at max `k` (normally `k=10`):
 - `Storage type accuracy`
 - `Storage macro F1`

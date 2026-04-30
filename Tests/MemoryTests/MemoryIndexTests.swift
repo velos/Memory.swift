@@ -282,6 +282,55 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func memorySearchPreservesDirectLookupSessionContinuation() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let queryText = "Which streaming service did I start using most recently?"
+        try writeFile(
+            docs.appendingPathComponent("answer_stream_1.md"),
+            """
+            \(queryText) \(queryText)
+            I was comparing streaming service options and asking for TV recommendations.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("answer_stream_2.md"),
+            """
+            streaming service start using most recently. I started using Apple TV+ and finished watching For All Mankind.
+            """
+        )
+
+        for index in 0..<8 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(index).md"),
+                "\(queryText) unrelated catalog note \(index)"
+            )
+        }
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: queryText,
+            limit: 5,
+            features: [.lexical],
+            dedupeDocuments: true,
+            includeLineRanges: false
+        )
+
+        #expect(references.contains { $0.documentPath.contains("answer_stream_2.md") })
+    }
+
+    @Test
     func primaryBranchProtectionKeepsBaselineDocumentRepresented() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -795,6 +844,45 @@ struct MemoryIndexTests {
         let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
 
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("false certification discharge") }))
+    }
+
+    @Test
+    func heuristicStructuredExpanderAddsEmbroideryAliasRescueTerms() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+
+        let birthdayExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "Whose birthday gift is the Cantonese embroidery piece, completed in the summer of 2025, intended for?"
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["birthday", "gift", "cantonese", "embroidery", "summer"],
+                facetHints: [],
+                topics: ["cantonese embroidery birthday gift", "summer 2025"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let birthdayLexical = birthdayExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(birthdayLexical.contains("cantonese embroidery birthday gift recipient"))
+        #expect(birthdayLexical.contains("stitching technique"))
+
+        let creativeExpansion = try await expander.expand(
+            query: SearchQuery(
+                text: "What is the most crucial driving factor behind the successful initiation and continuation of the life-oriented creative attempts in Yue embroidery?"
+            ),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["driving", "factor", "life-oriented", "creative", "yue", "embroidery"],
+                facetHints: [],
+                topics: ["life-oriented creative attempts", "yue embroidery"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let creativeLexical = creativeExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(creativeLexical.contains("everyday items creative practice"))
+        #expect(creativeLexical.contains("traditional craft modern product design"))
     }
 
     @Test

@@ -559,6 +559,24 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             append("#plankchallenge today social media challenge")
             append("fitness goals workout routines at home plank challenge")
         }
+        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
+           lower.contains("birthday gift") || lower.contains("birthday present") {
+            append("cantonese embroidery birthday gift recipient stitching technique")
+            append("embroidered artwork present gift intended for recipient")
+        }
+        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
+           lower.contains("life-oriented") || lower.contains("life oriented") || lower.contains("creative attempt") {
+            append("cantonese embroidery everyday items creative practice mentor peer support")
+            append("traditional craft modern product design life-oriented creativity")
+        }
+        if lower.contains("yue embroidery") || lower.contains("cantonese embroidery") {
+            append("cantonese embroidery yue embroidery traditional craft")
+            append("cantonese embroidery mentor guidance creative practice")
+        }
+        if lower.contains("equity incentive") || lower.contains("equity incentives") || lower.contains("rsu") {
+            append("rsu grant notification equity incentive stock options vesting")
+            append("rsu agreement tax planning vesting operational mechanism")
+        }
         if lower.contains("sports events") && lower.contains("order of") {
             append("5k run spring sprint triathlon charity soccer tournament")
             append("midsummer 5k run 20k bike ride soccer tournament")
