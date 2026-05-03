@@ -2562,7 +2562,7 @@ private func recallDiagnosticTaxonomy(
     let temporalNeedles = [
         "how many", "what time", "when", "which day", "date", "day", "week",
         "month", "year", "before", "after", "since", "during", "past", "last",
-        "currently", "now", "typical week"
+        "currently", "now"
     ]
     if normalizedTypes.contains("temporal") || temporalNeedles.contains(where: lower.contains) {
         labels.append("temporal/count")

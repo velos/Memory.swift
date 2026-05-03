@@ -1,23 +1,16 @@
 {
   "schema_version": 1,
-  "created_at": "2026-04-27T03:43:15Z",
+  "created_at": "2026-05-03T03:20:00Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
   "notes": [
     "Reduced regression baseline for the shipped coreml_default path.",
-    "Minimum metrics are accuracy gates for storage, update, agent-memory behavior, and recall-rescue signals.",
-    "general_v2 and longmemeval_v2 were refreshed after candidate preselection and broad memorySearch pool capping.",
-    "longmemeval_v2 now tracks the shipped coreml_default path directly instead of the historical LEAF-IR predecessor profile.",
-    "query_expansion_gold_v1 currently tracks retrieval MRR lift explicitly; the present dataset still has 0 hit-rate lift because baseline and expanded retrieval both hit all cases.",
-    "longmemeval_v2 was refreshed after contextual-status filtering and temporal/count primary-branch preservation improvements.",
-    "query_expansion_gold_v1 was refreshed after the same fusion changes improved expanded retrieval MRR.",
-    "general_v2, longmemeval_v2, query_expansion_gold_v1, and agent_memory_gold_v1 were refreshed after multi-evidence sibling continuation preservation.",
-    "longmemeval_v2 now locks the multi-evidence recall gain at Recall@10 78.75% and nDCG@10 0.5912; the slight MRR tradeoff is tracked as the new regression baseline.",
-    "memory_schema_gold_v2 was refreshed after canonical entity/topic extraction and replacement behavior improvements; entity recall and update behavior are now locked at 100%, with topic recall at 93.88%.",
-    "memory_schema_gold_v2 was refreshed after phrase-boundary and entity-aware facet extraction; facet micro F1 is now locked at 95.18%, with entity/topic/update behavior at 100%.",
-    "longmemeval_v2 was refreshed after tightening resolved-status recall cues and adding completion/trip expansion aliases; Recall@10 is now locked at 80.22% and nDCG@10 at 0.6061.",
-    "general_v2 was refreshed after the same recall changes; Hit@10 is now locked at 95.07% with MRR@10 at 0.7364."
+    "Minimum metrics are accuracy gates for storage, update, agent-memory behavior, broad recall, and query-expansion no-harm behavior.",
+    "Refreshed after removing benchmark-derived query aliases, query intent content bonuses, primary-branch protection, and post-fusion multi-evidence rank surgery.",
+    "query_expansion_gold_v1 now tracks coverage plus retrieval no-harm instead of requiring positive mined MRR lift.",
+    "general_v2 and longmemeval_v2 are the broad recall checkpoints for future retrieval improvements.",
+    "agent_memory_gold_v1 remains locked at the current 100% behavior baseline; rerun before release when agent-memory code changes."
   ],
   "required_runs": [
     {
@@ -45,7 +38,7 @@
       "dataset": "agent_memory_gold_v1",
       "dataset_root": "Evals/agent_memory_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 6094.958066940308,
+      "latency_p95_ms": 5887.569069862366,
       "metrics": {
         "agent_memory.false_write_rate": 0,
         "agent_memory.expected_write_recall": 1,
@@ -69,12 +62,12 @@
       "dataset": "general_v2",
       "dataset_root": "Evals/general_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 544.9939966201782,
+      "latency_p95_ms": 474.84898567199707,
       "metrics": {
-        "recall.hit_at_10": 0.9507042253521126,
-        "recall.recall_at_10": 0.9471830985915493,
-        "recall.mrr_at_10": 0.7364171137938743,
-        "recall.ndcg_at_10": 0.7876528580744594
+        "recall.hit_at_10": 0.954225352112676,
+        "recall.recall_at_10": 0.954225352112676,
+        "recall.mrr_at_10": 0.7541415157612342,
+        "recall.ndcg_at_10": 0.8032431819116223
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.93,
@@ -87,12 +80,12 @@
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 714.2230272293091,
+      "latency_p95_ms": 630.1679611206055,
       "metrics": {
-        "recall.hit_at_10": 0.8895027624309392,
-        "recall.recall_at_10": 0.8022099447513813,
-        "recall.mrr_at_10": 0.5909563272822941,
-        "recall.ndcg_at_10": 0.6060838773124243
+        "recall.hit_at_10": 0.8839779005524862,
+        "recall.recall_at_10": 0.7850828729281771,
+        "recall.mrr_at_10": 0.5985793212312549,
+        "recall.ndcg_at_10": 0.6060567831942332
       },
       "minimum_metrics": {
         "recall.hit_at_10": 0.83,
@@ -105,9 +98,9 @@
       "dataset": "query_expansion_gold_v1",
       "dataset_root": "Evals/query_expansion_gold_v1",
       "profile": "coreml_default",
-      "latency_p95_ms": 194.72801685333252,
+      "latency_p95_ms": 159.5839262008667,
       "metrics": {
-        "query_expansion.lexical_coverage_recall": 0.4895833333333333,
+        "query_expansion.lexical_coverage_recall": 0.5208333333333333,
         "query_expansion.semantic_coverage_recall": 0,
         "query_expansion.hyde_anchor_recall": 0.0625,
         "query_expansion.entity_recall": 0.2,
@@ -115,16 +108,16 @@
         "query_expansion.retrieval_baseline_hit_rate": 1,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_baseline_mrr": 0.5355902777777777,
-        "query_expansion.retrieval_expanded_mrr": 0.6402777777777777,
-        "query_expansion.retrieval_mrr_delta": 0.10468750000000004
+        "query_expansion.retrieval_baseline_mrr": 0.5524305555555555,
+        "query_expansion.retrieval_expanded_mrr": 0.5479166666666666,
+        "query_expansion.retrieval_mrr_delta": -0.004513888888888928
       },
       "minimum_metrics": {
         "query_expansion.lexical_coverage_recall": 0.45,
         "query_expansion.entity_recall": 0.18,
         "query_expansion.retrieval_expanded_hit_rate": 1,
         "query_expansion.retrieval_lift": 0,
-        "query_expansion.retrieval_mrr_delta": 0.10
+        "query_expansion.retrieval_mrr_delta": -0.02
       }
     }
   ]

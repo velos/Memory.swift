@@ -39,7 +39,6 @@ public struct SearchQuery: Sendable {
     public var expansionLimit: Int
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
-    public var primaryBranchProtectionLimit: Int?
     public var referenceDate: Date?
     public var documentPathPrefix: String?
     public var contextID: ContextID?
@@ -54,7 +53,6 @@ public struct SearchQuery: Sendable {
         expansionLimit: Int = 5,
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
-        primaryBranchProtectionLimit: Int? = nil,
         referenceDate: Date? = nil,
         documentPathPrefix: String? = nil,
         contextID: ContextID? = nil,
@@ -68,7 +66,6 @@ public struct SearchQuery: Sendable {
         self.expansionLimit = max(0, expansionLimit)
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
-        self.primaryBranchProtectionLimit = primaryBranchProtectionLimit.map { max(0, $0) }
         self.referenceDate = referenceDate
         let trimmedDocumentPathPrefix = documentPathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.documentPathPrefix = trimmedDocumentPathPrefix?.isEmpty == false ? trimmedDocumentPathPrefix : nil

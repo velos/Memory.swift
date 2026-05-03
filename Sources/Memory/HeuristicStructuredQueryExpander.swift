@@ -94,11 +94,9 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var queries: [String] = []
         var seen: Set<String> = [comparisonKey(for: original)]
 
-        let prioritizedEntities = entities.prefix(2).map(\.value)
-        let derivedPhrases = derivedSalientTerms(from: original)
-            .filter { $0.split(separator: " ").count >= 2 }
         let tokenTerms = tokenLexicalTerms(from: original, entities: entities)
-        let salientTerms = Array(OrderedSet(tokenTerms + derivedPhrases))
+        let prioritizedEntities = entities.prefix(2).map(\.value)
+        let salientTerms = tokenTerms
         let prioritizedTopics = selectSalientTopics(
             from: topics,
             salientTerms: salientTerms
@@ -116,11 +114,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             prioritizedEntities + Array(tokenTerms.prefix(8)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
-
-        let derivedRewrite = compactJoined(
-            prioritizedEntities + Array(derivedPhrases.prefix(3)) + Array(tokenTerms.prefix(6)) + Array(temporalAnchors.prefix(6))
-        )
-        appendCandidate(derivedRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
             prioritizedEntities + Array(compactTopics.prefix(2)) + Array(temporalAnchors.prefix(6))
@@ -198,7 +191,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
-        guard analysis.isHowToQuery || entities.isEmpty == false || isExplicitTemporalOrAggregateRecall(original) else { return [] }
+        guard analysis.isHowToQuery || entities.isEmpty == false else { return [] }
         guard shouldEmitNarrativeExpansions(
             original: original,
             analysis: analysis,
@@ -228,7 +221,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     }
 
     private func salientLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
-        Array(OrderedSet(derivedSalientTerms(from: original) + tokenLexicalTerms(from: original, entities: entities)))
+        tokenLexicalTerms(from: original, entities: entities)
     }
 
     private func tokenLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
@@ -433,7 +426,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         let explicitTemporalOrAggregateRecall = isExplicitTemporalOrAggregateRecall(original)
         return analysis.isHowToQuery
             || entities.isEmpty == false
-            || explicitTemporalOrAggregateRecall
+            || (explicitTemporalOrAggregateRecall && !isPersonalFactLookup(analysis))
             || (!isPersonalFactLookup(analysis) && topics.contains { topic in topic.split(separator: " ").count >= 3 })
     }
 
@@ -457,157 +450,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             "which date", "when did", "as of", "past month", "past two months",
         ]
         return phrases.contains { lower.contains($0) }
-    }
-
-    private func derivedSalientTerms(from query: String) -> [String] {
-        let lower = query.lowercased()
-        var terms: [String] = []
-        func append(_ term: String) {
-            guard !terms.contains(term) else { return }
-            terms.append(term)
-        }
-
-        if lower.contains("up to date") || lower.contains("out of date") {
-            append("update")
-        }
-        if lower.contains("license plates") || lower.contains("license plate") {
-            append("plates")
-        }
-        if lower.contains("turn in") || lower.contains("deliver") {
-            append("return")
-        }
-        if lower.contains("completed") || lower.contains("finished") {
-            append("finished")
-            if lower.contains("project") {
-                append("finished project")
-            }
-            if lower.contains("video") {
-                append("completed videos")
-            }
-            if lower.contains("writing") || lower.contains("poem") || lower.contains("short stor") {
-                append("writing progress")
-            }
-        }
-        if lower.contains("since starting") || lower.contains("since i started") || lower.contains("started writing") {
-            append("started")
-            append("progress so far")
-        }
-        if lower.contains("painting class") || lower.contains("painting classes") {
-            append("painting project")
-        }
-        if (lower.contains("trip") || lower.contains("trips")),
-           lower.contains("order of") || lower.contains("earliest to latest") || lower.contains("from earliest") {
-            append("trip travel itinerary")
-            append("travel sequence destination")
-        }
-        if lower.contains("fitness class") || lower.contains("fitness classes") || lower.contains("typical week") {
-            append("fitness class workout schedule")
-            append("exercise class weekly routine")
-        }
-        if lower.contains("art-related event") || lower.contains("art related event") {
-            append("art event museum gallery lecture")
-            append("art exhibition guided tour")
-        }
-        if (lower.contains("show") || lower.contains("movie")) && lower.contains("watch") {
-            append("movie show streaming recommendation")
-            append("watch comedy drama documentary")
-        }
-        if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
-            append("grocery shopping store spending")
-            append("receipt purchase supermarket")
-        }
-        if lower.contains("pay off") || lower.contains("entire debt") || lower.contains("full balance") {
-            append("pay full balance amount owed assessment")
-            append("remaining balance statement payment")
-        }
-        if lower.contains("days before") || lower.contains("days after") || lower.contains("between") {
-            append("days between events")
-            append("time gap event dates")
-        }
-        if lower.contains("arrive") || lower.contains("arrived") || lower.contains("delivery") {
-            if lower.contains("bought") || lower.contains("purchase") || lower.contains("after") {
-                append("delivery time purchase arrival")
-                append("arrived bought purchase date")
-            }
-        }
-        if lower.contains("current role") || lower.contains("working in my current") {
-            append("current job role position")
-            append("promotion title start date")
-        }
-        if lower.contains("present") && lower.contains("poster") && lower.contains("university") {
-            append("university research conference poster")
-            append("poster presentation thesis research")
-        }
-        if lower.contains("meal prep") && (lower.contains("recipe") || lower.contains("recipes")) {
-            append("meal prep recipe vegetables protein")
-            append("weekly meal plan ingredients")
-        }
-        if lower.contains("small gathering") && lower.contains("bake") {
-            append("baked dessert recipe gathering")
-            append("cake pastry small gathering")
-        }
-        if lower.contains("wake up") && lower.contains("tuesdays") && lower.contains("thursdays") {
-            append("tuesdays thursdays waking up 15 minutes earlier")
-            append("morning routine wake earlier")
-        }
-        if lower.contains("movie festival") || lower.contains("film festival") {
-            append("film festival screening q&a")
-            append("movie screening festival event")
-        }
-        if lower.contains("kitchen item") || lower.contains("kitchen items") {
-            append("kitchen appliance repair replacement")
-            append("fixed replaced donated kitchen items")
-        }
-        if lower.contains("streaming service") && lower.contains("most recently") {
-            append("streaming service subscription free trial")
-            append("watching series recently streaming")
-        }
-        if lower.contains("lunch last tuesday") || (lower.contains("met ") && lower.contains("lunch")) {
-            append("lunch meeting potential collaborator")
-            append("met contact workshop conversation")
-        }
-        if lower.contains("social media activity") || lower.contains("participated 5 days ago") {
-            append("social media challenge participated")
-            append("fitness challenge hashtag activity")
-        }
-        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
-           lower.contains("birthday gift") || lower.contains("birthday present") {
-            append("cantonese embroidery birthday gift recipient stitching technique")
-            append("embroidered artwork present gift intended for recipient")
-        }
-        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
-           lower.contains("life-oriented") || lower.contains("life oriented") || lower.contains("creative attempt") {
-            append("cantonese embroidery everyday items creative practice mentor peer support")
-            append("traditional craft modern product design life-oriented creativity")
-        }
-        if lower.contains("yue embroidery") || lower.contains("cantonese embroidery") {
-            append("cantonese embroidery yue embroidery traditional craft")
-            append("cantonese embroidery mentor guidance creative practice")
-        }
-        if lower.contains("equity incentive") || lower.contains("equity incentives") || lower.contains("rsu") {
-            append("rsu grant notification equity incentive stock options vesting")
-            append("rsu agreement tax planning vesting operational mechanism")
-        }
-        if lower.contains("sports events") && lower.contains("order of") {
-            append("sports event race tournament")
-            append("run bike ride soccer event")
-        }
-        if (lower.contains("three trips") || lower.contains("order of the three trips")),
-           lower.contains("earliest") || lower.contains("latest") {
-            append("three trips travel sequence")
-            append("earliest latest trip itinerary")
-        }
-        if lower.contains("student loan"),
-           lower.contains("school"),
-           (lower.contains("not qualified")
-            || lower.contains("wasn't actually qualified")
-            || lower.contains("wasn’t actually qualified")
-            || lower.contains("wasn t actually qualified")
-            || lower.contains("eligible")) {
-            append("false certification discharge")
-            append("loan discharge")
-        }
-        return terms
     }
 
     private func heuristicallyInferredFacetHints(from query: String) -> [FacetHint] {

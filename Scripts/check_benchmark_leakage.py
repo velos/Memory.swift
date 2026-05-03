@@ -3,8 +3,9 @@
 
 This guard is intentionally conservative: it looks for exact benchmark answer
 surfaces, benchmark IDs/names in runtime code, and rescue-oriented wording that
-usually means a focused slice leaked into product behavior. Broad domain aliases
-such as RSU/equity incentive or Cantonese/Yue embroidery are not flagged.
+usually means a focused slice leaked into product behavior. Domain aliases
+discovered from benchmark misses are flagged unless they are product-owned
+vocabulary with a non-benchmark source.
 """
 
 import argparse
@@ -96,6 +97,19 @@ RULES: list[Rule] = [
     phrase_rule("personamem", rationale="benchmark identifier in scanned code"),
     phrase_rule("agent-memory-benchmark", rationale="benchmark identifier in scanned code"),
     phrase_rule("present a poster", rationale="benchmark-specific query trigger"),
+    phrase_rule("false certification discharge", rationale="benchmark-derived domain alias"),
+    phrase_rule("loan discharge", rationale="benchmark-derived domain alias"),
+    phrase_rule("cantonese embroidery", rationale="benchmark-derived domain alias"),
+    phrase_rule("yue embroidery", rationale="benchmark-derived domain alias"),
+    phrase_rule("life-oriented creative attempts", rationale="benchmark-derived domain alias"),
+    phrase_rule("rsu grant notification", rationale="benchmark-derived domain alias"),
+    phrase_rule("fitness class workout schedule", rationale="benchmark-derived query rewrite"),
+    phrase_rule("grocery shopping store spending", rationale="benchmark-derived query rewrite"),
+    phrase_rule("receipt purchase supermarket", rationale="benchmark-derived query rewrite"),
+    phrase_rule("pay full balance amount owed assessment", rationale="benchmark-derived query rewrite"),
+    phrase_rule("days between events", rationale="benchmark-derived query rewrite"),
+    phrase_rule("delivery time purchase arrival", rationale="benchmark-derived query rewrite"),
+    phrase_rule("social media challenge participated", rationale="benchmark-derived query rewrite"),
     Rule(
         name="longmemeval runtime mention",
         pattern=re.compile(r"(?<![A-Za-z0-9_])longmemeval(?![A-Za-z0-9_])", re.IGNORECASE),

@@ -51,9 +51,6 @@ public actor MemoryIndex {
     private let strongLexicalMinScore = 0.10
     private let strongLexicalMinGap = 0.05
     private let strongLexicalMaxExpansionSkipTokenCount = 12
-    private let lexicalExpansionPromotionRankLimit = 1
-    private let primarySemanticPreservationRankLimit = 10
-    private let primaryLexicalPreservationRankLimit = 10
     private let documentLexicalMaxBranches = 2
     private let documentLexicalSparseHitThreshold = 12
     private let documentLexicalPrimaryWeight = 0.45
@@ -74,8 +71,6 @@ public actor MemoryIndex {
         var preferredStatuses: Set<MemoryStatus>
         var monthDayAnchors: Set<MonthDayAnchor>
         var monthAnchors: Set<Int>
-        var payoffIntent: Bool
-        var deliveryTimingIntent: Bool
     }
 
     private struct MonthDayAnchor: Hashable {
@@ -351,16 +346,9 @@ public actor MemoryIndex {
 
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
-        var lexicalExpansionPromotionRRF: [Int64: Double] = [:]
-        var primarySemanticPreservationRRF: [Int64: Double] = [:]
-        var primaryLexicalPreservationRRF: [Int64: Double] = [:]
         var semanticCandidateCount = 0
         var lexicalCandidateCount = 0
         var semanticSearchDurationMs = 0.0
-        let hasExpandedBranches = searchPlan.expandedQueries.count > 1
-        let isTemporalOrAggregateQuery = isTemporalOrAggregateRecallQuery(normalizedText)
-        let shouldPreservePrimaryBranch = hasExpandedBranches || isTemporalOrAggregateQuery
-        let primaryPreservationBase = primaryBranchPreservationBase(for: normalizedText)
         var documentLexicalBranchCount = 0
 
         for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
@@ -382,15 +370,6 @@ public actor MemoryIndex {
                 semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
                 semanticCandidateCount += semanticHits.count
                 accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
-                if index == 0, shouldPreservePrimaryBranch {
-                    accumulatePrimaryBranchPreservation(
-                        for: semanticHits,
-                        rankLimit: primarySemanticPreservationRankLimit,
-                        baseContribution: primaryPreservationBase.semantic,
-                        weight: expandedQuery.weight,
-                        into: &primarySemanticPreservationRRF
-                    )
-                }
             }
 
             if !skipLexical, query.lexicalCandidateLimit > 0 {
@@ -409,24 +388,6 @@ public actor MemoryIndex {
                 }
                 lexicalCandidateCount += lexicalHits.count
                 accumulateRRF(for: lexicalHits, weight: expandedQuery.weight, into: &lexicalRRF)
-                if index == 0, shouldPreservePrimaryBranch {
-                    accumulatePrimaryBranchPreservation(
-                        for: lexicalHits,
-                        rankLimit: primaryLexicalPreservationRankLimit,
-                        baseContribution: primaryPreservationBase.lexical,
-                        weight: expandedQuery.weight,
-                        into: &primaryLexicalPreservationRRF
-                    )
-                }
-                if index > 0, expandedQuery.expansionType == .lexical {
-                    accumulateLexicalExpansionPromotion(
-                        for: lexicalHits,
-                        queryText: expandedQuery.text,
-                        primaryQueryText: normalizedText,
-                        weight: expandedQuery.weight,
-                        into: &lexicalExpansionPromotionRRF
-                    )
-                }
                 if shouldRunDocumentLexicalSearch(
                     query: query,
                     queryText: expandedQuery.text,
@@ -519,9 +480,6 @@ public actor MemoryIndex {
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
-            lexicalExpansionPromotionRRF: lexicalExpansionPromotionRRF,
-            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
-            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF,
             query: query,
             primaryQueryText: normalizedText,
             queryTags: queryTags,
@@ -567,14 +525,7 @@ public actor MemoryIndex {
             }
         }
 
-        let final = applyPrimaryBranchFinalProtection(
-            to: fused,
-            query: query,
-            primaryQueryText: normalizedText,
-            hasExpandedBranches: hasExpandedBranches,
-            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
-            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF
-        )
+        let final = Array(fused.sorted(by: sortByBlendedScore(_:_:)).prefix(query.limit))
         events?(.stageTiming(stage: .total, durationMs: elapsedMilliseconds(since: queryStart)))
         events?(.completed(count: final.count))
         return final
@@ -1000,20 +951,13 @@ public actor MemoryIndex {
             allowedChunkIDsOverride: allowedChunkIDs,
             recallPlan: plan
         )
-        let orderedSearchResults = MultiEvidenceSupportRanker().order(
-            searchResults,
-            queryText: queryText,
-            effectiveLimit: effectiveLimit,
-            dedupeDocuments: dedupeDocuments,
-            activeOnlyByDefault: statuses == nil && plan.statuses == nil
-        )
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
 
         var seenDocumentKeys: Set<String> = []
         var documentTextCache: [String: String] = [:]
 
-        for result in orderedSearchResults {
+        for result in searchResults {
             if statuses == nil,
                plan.statuses == nil,
                let memoryStatus = result.memoryStatus,
@@ -2370,9 +2314,7 @@ public actor MemoryIndex {
             temporalIntent: .any,
             preferredStatuses: [],
             monthDayAnchors: [],
-            monthAnchors: [],
-            payoffIntent: false,
-            deliveryTimingIntent: false
+            monthAnchors: []
         )
     }
 
@@ -2384,8 +2326,6 @@ public actor MemoryIndex {
         }
         signals.monthDayAnchors = monthDayAnchors(from: queryText)
         signals.monthAnchors = monthAnchors(from: queryText)
-        signals.payoffIntent = isPayoffIntent(queryText)
-        signals.deliveryTimingIntent = isDeliveryTimingIntent(queryText)
         return signals
     }
 
@@ -2469,11 +2409,9 @@ public actor MemoryIndex {
             temporalIntent = .any
         }
 
-        let lexicalQueries = heuristicRecallLexicalQueries(query: query, analysis: analysis)
-
         return RecallPlan(
             query: query,
-            lexicalQueries: lexicalQueries,
+            lexicalQueries: analysis.keyTerms.isEmpty ? [] : [analysis.keyTerms.joined(separator: " ")],
             statuses: statuses,
             facets: nil,
             entityValues: [],
@@ -2483,31 +2421,6 @@ public actor MemoryIndex {
             lexicalCandidateLimit: temporalIntent == .count ? configuration.lexicalCandidateLimit + 150 : nil,
             rerankLimit: temporalIntent == .count || temporalIntent == .timeAnchored ? 60 : nil
         )
-    }
-
-    private func heuristicRecallLexicalQueries(query: String, analysis: QueryAnalysis) -> [String] {
-        var queries: [String] = []
-        var seen: Set<String> = []
-
-        func append(_ query: String) {
-            let normalized = normalizedComparisonKey(for: query)
-            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return }
-            queries.append(query)
-        }
-
-        if !analysis.keyTerms.isEmpty {
-            append(analysis.keyTerms.joined(separator: " "))
-        }
-
-        let lower = query.lowercased()
-        let hasDebtCue = containsAny(lower, needles: ["debt", "owe", "owed", "balance", "assessment", "fine", "fee"])
-        let hasPayoffCue = containsAny(lower, needles: ["pay off", "pay full", "pay the full", "entire", "full balance", "pay all"])
-        if hasDebtCue && hasPayoffCue {
-            append("pay full balance amount owed assessment")
-            append("pay total balance remaining fee")
-        }
-
-        return queries
     }
 
     private func hasResolvedStatusRecallCue(_ lowercasedQuery: String) -> Bool {
@@ -2763,83 +2676,6 @@ public actor MemoryIndex {
         }
     }
 
-    private func accumulatePrimaryBranchPreservation(
-        for hits: [LexicalHit],
-        rankLimit: Int,
-        baseContribution: Double,
-        weight: Double,
-        into scores: inout [Int64: Double]
-    ) {
-        guard rankLimit > 0, weight > 0, baseContribution > 0 else { return }
-        for (index, hit) in hits.prefix(rankLimit).enumerated() {
-            let rank = Double(index + 1)
-            let contribution = weight * baseContribution / sqrt(rank)
-            scores[hit.chunkID] = max(scores[hit.chunkID] ?? 0, contribution)
-        }
-    }
-
-    private func primaryBranchPreservationBase(for queryText: String) -> (semantic: Double, lexical: Double) {
-        if isTemporalOrAggregateRecallQuery(queryText) {
-            return (semantic: 0.24, lexical: 0.36)
-        }
-        return (semantic: 0.08, lexical: 0.05)
-    }
-
-    private func accumulateLexicalExpansionPromotion(
-        for hits: [LexicalHit],
-        queryText: String,
-        primaryQueryText: String,
-        weight: Double,
-        into scores: inout [Int64: Double]
-    ) {
-        guard weight > 0 else { return }
-        let tokenCount = normalizedComparisonKey(for: queryText).split(separator: " ").count
-        let isConciseLowOverlap = tokenCount <= 5
-            && lexicalQueryOverlapRatio(queryText, primaryQueryText) <= 0.35
-        let isTemporalOrAggregate = isTemporalOrAggregateRecallQuery(primaryQueryText)
-        let isMultiEvidence = isMultiEvidenceSupportQuery(primaryQueryText)
-        let isRecommendation = isRecommendationRecallQuery(primaryQueryText)
-        let isDirectLookup = isDirectContinuationLookupQuery(primaryQueryText)
-        guard isConciseLowOverlap || isTemporalOrAggregate || isMultiEvidence || isRecommendation || isDirectLookup else { return }
-
-        let basePromotion: Double
-        if isConciseLowOverlap {
-            basePromotion = 0.75
-        } else if isMultiEvidence {
-            basePromotion = 0.36
-        } else if isRecommendation {
-            basePromotion = 0.42
-        } else if isDirectLookup {
-            basePromotion = 0.34
-        } else {
-            basePromotion = 0.24
-        }
-        let rankLimit: Int
-        if isMultiEvidence {
-            rankLimit = max(5, lexicalExpansionPromotionRankLimit)
-        } else if isTemporalOrAggregate {
-            rankLimit = max(2, lexicalExpansionPromotionRankLimit)
-        } else if isRecommendation {
-            rankLimit = max(3, lexicalExpansionPromotionRankLimit)
-        } else if isDirectLookup {
-            rankLimit = max(3, lexicalExpansionPromotionRankLimit)
-        } else {
-            rankLimit = lexicalExpansionPromotionRankLimit
-        }
-        for (index, hit) in hits.prefix(rankLimit).enumerated() {
-            let rank = Double(index + 1)
-            let contribution = weight * basePromotion / sqrt(rank)
-            scores[hit.chunkID] = max(scores[hit.chunkID] ?? 0, contribution)
-        }
-    }
-
-    private func lexicalQueryOverlapRatio(_ lhs: String, _ rhs: String) -> Double {
-        let left = Set(normalizedComparisonKey(for: lhs).split(separator: " ").map(String.init))
-        let right = Set(normalizedComparisonKey(for: rhs).split(separator: " ").map(String.init))
-        guard !left.isEmpty else { return 1 }
-        return Double(left.intersection(right).count) / Double(left.count)
-    }
-
     private func isTemporalOrAggregateRecallQuery(_ queryText: String) -> Bool {
         MemorySearchHeuristics.isTemporalOrAggregateRecallQuery(queryText)
     }
@@ -2853,14 +2689,6 @@ public actor MemoryIndex {
                 "watch tonight", "tips on what"
             ]
         )
-    }
-
-    private func isDirectContinuationLookupQuery(_ queryText: String) -> Bool {
-        MemorySearchHeuristics.isDirectContinuationLookupQuery(queryText)
-    }
-
-    private func isMultiEvidenceSupportQuery(_ queryText: String) -> Bool {
-        MemorySearchHeuristics.isMultiEvidenceSupportQuery(queryText)
     }
 
     private func shouldRunDocumentLexicalSearch(
@@ -2916,9 +2744,6 @@ public actor MemoryIndex {
     private func fuseCandidates(
         semanticRRF: [Int64: Double],
         lexicalRRF: [Int64: Double],
-        lexicalExpansionPromotionRRF: [Int64: Double],
-        primarySemanticPreservationRRF: [Int64: Double],
-        primaryLexicalPreservationRRF: [Int64: Double],
         query: SearchQuery,
         primaryQueryText: String,
         queryTags: [ContentTag],
@@ -2933,9 +2758,6 @@ public actor MemoryIndex {
         let candidateIDs = preselectCandidateIDs(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
-            lexicalExpansionPromotionRRF: lexicalExpansionPromotionRRF,
-            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
-            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF,
             query: query,
             primaryQueryText: primaryQueryText,
             candidatePoolLimit: candidatePoolLimit
@@ -2953,16 +2775,13 @@ public actor MemoryIndex {
         for chunkID in candidateIDs {
             guard let metadata = metadataMap[chunkID] else { continue }
 
-            let semantic = (semanticRRF[chunkID] ?? 0) + (primarySemanticPreservationRRF[chunkID] ?? 0)
-            let lexical = (lexicalRRF[chunkID] ?? 0)
-                + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
-                + (primaryLexicalPreservationRRF[chunkID] ?? 0)
+            let semantic = semanticRRF[chunkID] ?? 0
+            let lexical = lexicalRRF[chunkID] ?? 0
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
             let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
             let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
-                + queryIntentContentBonus(querySignals: querySignals, metadata: metadata)
             let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
             let fused = (weights.semantic * semantic)
@@ -3005,9 +2824,6 @@ public actor MemoryIndex {
     private func preselectCandidateIDs(
         semanticRRF: [Int64: Double],
         lexicalRRF: [Int64: Double],
-        lexicalExpansionPromotionRRF: [Int64: Double],
-        primarySemanticPreservationRRF: [Int64: Double],
-        primaryLexicalPreservationRRF: [Int64: Double],
         query: SearchQuery,
         primaryQueryText: String,
         candidatePoolLimit: Int
@@ -3024,10 +2840,8 @@ public actor MemoryIndex {
         var preliminaryScores: [Int64: Double] = [:]
         preliminaryScores.reserveCapacity(allCandidateIDs.count)
         for chunkID in allCandidateIDs {
-            let semantic = (semanticRRF[chunkID] ?? 0) + (primarySemanticPreservationRRF[chunkID] ?? 0)
-            let lexical = (lexicalRRF[chunkID] ?? 0)
-                + (lexicalExpansionPromotionRRF[chunkID] ?? 0)
-                + (primaryLexicalPreservationRRF[chunkID] ?? 0)
+            let semantic = semanticRRF[chunkID] ?? 0
+            let lexical = lexicalRRF[chunkID] ?? 0
             preliminaryScores[chunkID] = (weights.semantic * semantic) + (weights.lexical * lexical)
         }
 
@@ -3036,9 +2850,6 @@ public actor MemoryIndex {
         let protectedPerSignal = candidateProtectionLimit(for: query, hydrationLimit: hydrationLimit)
         protectTopCandidates(from: semanticRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
         protectTopCandidates(from: lexicalRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
-        protectTopCandidates(from: lexicalExpansionPromotionRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
-        protectTopCandidates(from: primarySemanticPreservationRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
-        protectTopCandidates(from: primaryLexicalPreservationRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
 
         for entry in preliminaryScores.sorted(by: sortCandidateScore(_:_:)) where selected.count < hydrationLimit {
             selected.insert(entry.key)
@@ -3443,144 +3254,6 @@ public actor MemoryIndex {
         return (reranked + untouched).sorted(by: sortByBlendedScore(_:_:))
     }
 
-    private func applyPrimaryBranchFinalProtection(
-        to results: [SearchResult],
-        query: SearchQuery,
-        primaryQueryText: String,
-        hasExpandedBranches: Bool,
-        primarySemanticPreservationRRF: [Int64: Double],
-        primaryLexicalPreservationRRF: [Int64: Double]
-    ) -> [SearchResult] {
-        let sorted = results.sorted(by: sortByBlendedScore(_:_:))
-        guard hasExpandedBranches else {
-            return Array(sorted.prefix(query.limit))
-        }
-
-        let protectionLimit = primaryBranchFinalProtectionLimit(for: query)
-        guard protectionLimit > 0, query.limit > 0 else {
-            return Array(sorted.prefix(query.limit))
-        }
-
-        let protectedCandidates = primaryBranchProtectionCandidates(
-            from: sorted,
-            limit: protectionLimit,
-            primarySemanticPreservationRRF: primarySemanticPreservationRRF,
-            primaryLexicalPreservationRRF: primaryLexicalPreservationRRF
-        )
-        guard !protectedCandidates.isEmpty else {
-            return Array(sorted.prefix(query.limit))
-        }
-
-        var final = Array(sorted.prefix(query.limit))
-        var finalDocumentPaths = Set(final.map(\.documentPath))
-        var protectedDocumentPaths = Set(protectedCandidates.map(\.documentPath))
-
-        for candidate in protectedCandidates where !finalDocumentPaths.contains(candidate.documentPath) {
-            guard let replacementIndex = replacementIndexForPrimaryBranchProtection(
-                in: final,
-                candidate: candidate,
-                protectedDocumentPaths: protectedDocumentPaths,
-                primaryQueryText: primaryQueryText,
-                explicitProtection: query.primaryBranchProtectionLimit != nil
-            ) else {
-                continue
-            }
-
-            let replaced = final[replacementIndex]
-            final[replacementIndex] = candidate
-            finalDocumentPaths.remove(replaced.documentPath)
-            finalDocumentPaths.insert(candidate.documentPath)
-            protectedDocumentPaths.insert(candidate.documentPath)
-        }
-
-        return final.sorted(by: sortByBlendedScore(_:_:))
-    }
-
-    private func primaryBranchFinalProtectionLimit(for query: SearchQuery) -> Int {
-        if let explicit = query.primaryBranchProtectionLimit {
-            return min(query.limit, explicit)
-        }
-        guard query.expansionLimit > 0, query.limit > 1 else { return 0 }
-        return min(query.limit, min(5, max(1, query.limit / 2)))
-    }
-
-    private func primaryBranchProtectionCandidates(
-        from results: [SearchResult],
-        limit: Int,
-        primarySemanticPreservationRRF: [Int64: Double],
-        primaryLexicalPreservationRRF: [Int64: Double]
-    ) -> [SearchResult] {
-        guard limit > 0 else { return [] }
-
-        struct Candidate {
-            var result: SearchResult
-            var primaryScore: Double
-        }
-
-        var bestByDocument: [String: Candidate] = [:]
-        for result in results {
-            let primaryScore = (primarySemanticPreservationRRF[result.chunkID] ?? 0)
-                + (primaryLexicalPreservationRRF[result.chunkID] ?? 0)
-            guard primaryScore > 0 else { continue }
-
-            if let existing = bestByDocument[result.documentPath] {
-                if primaryScore > existing.primaryScore
-                    || (primaryScore == existing.primaryScore && sortByBlendedScore(result, existing.result)) {
-                    bestByDocument[result.documentPath] = Candidate(result: result, primaryScore: primaryScore)
-                }
-            } else {
-                bestByDocument[result.documentPath] = Candidate(result: result, primaryScore: primaryScore)
-            }
-        }
-
-        return bestByDocument.values
-            .sorted { lhs, rhs in
-                if lhs.primaryScore == rhs.primaryScore {
-                    return sortByBlendedScore(lhs.result, rhs.result)
-                }
-                return lhs.primaryScore > rhs.primaryScore
-            }
-            .prefix(limit)
-            .map(\.result)
-    }
-
-    private func replacementIndexForPrimaryBranchProtection(
-        in results: [SearchResult],
-        candidate: SearchResult,
-        protectedDocumentPaths: Set<String>,
-        primaryQueryText: String,
-        explicitProtection: Bool
-    ) -> Int? {
-        guard !results.isEmpty else { return nil }
-
-        for index in results.indices.reversed() {
-            let replacement = results[index]
-            guard replacement.documentPath != candidate.documentPath else { return nil }
-            guard !protectedDocumentPaths.contains(replacement.documentPath) else { continue }
-            guard explicitProtection || primaryBranchProtectionCandidate(candidate, canReplace: replacement, primaryQueryText: primaryQueryText) else {
-                continue
-            }
-            return index
-        }
-
-        return nil
-    }
-
-    private func primaryBranchProtectionCandidate(
-        _ candidate: SearchResult,
-        canReplace replacement: SearchResult,
-        primaryQueryText: String
-    ) -> Bool {
-        let ratio = isTemporalOrAggregateRecallQuery(primaryQueryText) ? 0.55 : 0.75
-        if replacement.score.blended <= 0 {
-            return true
-        }
-        if candidate.score.blended >= replacement.score.blended * ratio {
-            return true
-        }
-        return candidate.score.fused >= replacement.score.fused * ratio
-    }
-
     private func candidatePoolLimit(for query: SearchQuery) -> Int {
         let requested = max(query.limit, query.rerankLimit)
         if query.rerankLimit == 0 {
@@ -3706,35 +3379,6 @@ public actor MemoryIndex {
         let facetBonus = min(Double(matchedFacets) * 0.015, 0.06)
         let topicBonus = min(Double(matchedTopics) * 0.01, 0.04)
         return entityBonus + facetBonus + topicBonus
-    }
-
-    private func queryIntentContentBonus(
-        querySignals: QueryMatchSignals,
-        metadata: StoredChunkMetadata
-    ) -> Double {
-        guard querySignals.payoffIntent || querySignals.deliveryTimingIntent else { return 0 }
-
-        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_200)))
-            .lowercased()
-        var bonus: Double = 0
-
-        if querySignals.payoffIntent,
-           containsAny(
-            searchable,
-            needles: [
-                "pay the full", "full assessment", "total balance",
-                "balance of assessments", "amount you owe", "remaining balance"
-            ]
-           ) {
-            bonus += 0.04
-        }
-
-        if querySignals.deliveryTimingIntent,
-           containsAny(searchable, needles: ["arrived on", "delivered on", "delivery date"]) {
-            bonus += 0.025
-        }
-
-        return min(0.05, bonus)
     }
 
     private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
@@ -3921,19 +3565,6 @@ public actor MemoryIndex {
             .filter { phrase in
                 phrase.split(separator: " ").count >= 2 && seen.insert(phrase).inserted
             }
-    }
-
-    private func isPayoffIntent(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        let hasDebtCue = containsAny(lower, needles: ["debt", "owe", "owed", "balance", "assessment", "fine", "fee"])
-        let hasPayoffCue = containsAny(lower, needles: ["pay off", "pay full", "pay the full", "entire", "full balance", "pay all"])
-        return hasDebtCue && hasPayoffCue
-    }
-
-    private func isDeliveryTimingIntent(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        return containsAny(lower, needles: ["arrive", "arrived", "delivery", "delivered"])
-            && containsAny(lower, needles: ["bought", "purchase", "ordered", "after", "take"])
     }
 
     private func sortByBlendedScore(_ lhs: SearchResult, _ rhs: SearchResult) -> Bool {
