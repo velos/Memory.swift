@@ -75,7 +75,8 @@ swift run memory_eval retrieval-diagnostics \
 Use `Scripts/analyze_retrieval_diagnostics.py` on diagnostics JSON to separate
 candidate-generation misses from ranking/packing misses. The optional
 `--grounded-expansion` flag is eval-only grounded pseudo-relevance feedback;
-keep production defaults unchanged unless reports show broad no-harm gains.
+its default diagnostic mode is guarded phrase/entity feedback. Keep production
+defaults unchanged unless reports show broad no-harm gains.
 
 ## External Benchmarks
 

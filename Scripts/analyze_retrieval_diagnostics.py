@@ -198,6 +198,14 @@ def grounded_terms(row: dict[str, Any]) -> list[str]:
     return terms
 
 
+def grounded_term_kinds(row: dict[str, Any]) -> list[str]:
+    kinds: list[str] = []
+    for item in row.get("groundedExpansionTerms") or []:
+        if isinstance(item, dict) and isinstance(item.get("kind"), str):
+            kinds.append(item["kind"])
+    return kinds
+
+
 def result_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {row.get("id"): row for row in report.get("queryResults", []) if isinstance(row.get("id"), str)}
 
@@ -249,6 +257,9 @@ def summarize_rows(rows: list[dict[str, Any]], max_k: int, queries: dict[str, di
                 "groundedRetrievedDocumentIds": row.get("groundedRetrievedDocumentIds") or [],
                 "groundedExpansionQueries": row.get("groundedExpansionQueries") or [],
                 "groundedExpansionTerms": grounded_terms(row),
+                "groundedExpansionTermKinds": grounded_term_kinds(row),
+                "groundedExpansionApplied": row.get("groundedExpansionApplied"),
+                "groundedExpansionSkipReason": row.get("groundedExpansionSkipReason"),
             }
         )
     return summaries
@@ -308,6 +319,11 @@ def write_reports(
     grounded_surface_counts = Counter(str(row["groundedSurface"]) for row in grounded_rows)
     grounded_delta_counts = Counter(str(row.get("groundedDeltaLabel") or "unchanged") for row in grounded_rows)
     grounded_term_counts = Counter(term for row in grounded_rows for term in row.get("groundedExpansionTerms") or [])
+    grounded_kind_counts = Counter(kind for row in grounded_rows for kind in row.get("groundedExpansionTermKinds") or [])
+    grounded_application_counts = Counter(
+        "applied" if row.get("groundedExpansionApplied") else f"skipped:{row.get('groundedExpansionSkipReason') or 'unknown'}"
+        for row in grounded_rows
+    )
     grounded_candidate_generation_improvements = [
         row
         for row in grounded_rows
@@ -374,6 +390,7 @@ def write_reports(
     if grounded_rows:
         summary_rows.extend(
             [
+                ["grounded applications", grounded_application_counts.get("applied", 0)],
                 ["grounded candidate-generation surface improvements", len(grounded_candidate_generation_improvements)],
                 ["grounded candidate-generation hit fixes", len(grounded_candidate_generation_fixed)],
                 ["grounded ranking/packing costs", len(grounded_ranking_costs)],
@@ -408,10 +425,18 @@ def write_reports(
 
     if grounded_rows:
         lines.append("## Grounded Feedback Summary")
+        lines.append("")
+        lines.append(f"- Policy: `{report.get('groundedExpansionPolicy', 'unknown')}`")
+        lines.append(f"- Term mode: `{report.get('groundedExpansionTermMode', 'unknown')}`")
+        lines.append("")
         lines.extend(
             table(
                 ["Question", "Result"],
                 [
+                    [
+                        "Applications",
+                        str(grounded_application_counts.get("applied", 0)),
+                    ],
                     [
                         "Candidate-generation misses improved",
                         str(len(grounded_candidate_generation_improvements)),
@@ -435,9 +460,16 @@ def write_reports(
         lines.append("## Grounded Delta Labels")
         lines.extend(table(["Delta", "Count"], top_counter_rows(grounded_delta_counts)))
         lines.append("")
+        lines.append("## Grounded Application Decisions")
+        lines.extend(table(["Decision", "Count"], top_counter_rows(grounded_application_counts)))
+        lines.append("")
         lines.append("## Grounded Failure Surfaces")
         lines.extend(table(["Surface", "Count"], top_counter_rows(grounded_surface_counts)))
         lines.append("")
+        if grounded_kind_counts:
+            lines.append("## Grounded Term Kinds")
+            lines.extend(table(["Kind", "Count"], top_counter_rows(grounded_kind_counts)))
+            lines.append("")
         if grounded_term_counts:
             lines.append("## Top Grounded Terms")
             lines.extend(table(["Term", "Count"], top_counter_rows(grounded_term_counts)[:40]))
@@ -463,10 +495,16 @@ def write_reports(
                 )
             if row.get("groundedSurface") is not None:
                 terms = ", ".join(row.get("groundedExpansionTerms") or []) or "none"
+                application = (
+                    "applied"
+                    if row.get("groundedExpansionApplied")
+                    else f"skipped:{row.get('groundedExpansionSkipReason') or 'unknown'}"
+                )
                 lines.append(
                     f"- Grounded: {row.get('groundedDeltaLabel') or 'unchanged'}, "
                     f"surface={row.get('groundedSurface')}, "
                     f"firstRelevantRank={row.get('groundedFirstRelevantRank')}, "
+                    f"application={application}, "
                     f"terms={terms}"
                 )
             lines.append(
@@ -519,6 +557,8 @@ def write_reports(
         "groundedSurfaceCounts": dict(grounded_surface_counts),
         "groundedDeltaCounts": dict(grounded_delta_counts),
         "groundedTermCounts": dict(grounded_term_counts),
+        "groundedTermKindCounts": dict(grounded_kind_counts),
+        "groundedApplicationCounts": dict(grounded_application_counts),
         "groundedCandidateGenerationSurfaceImprovements": grounded_candidate_generation_improvements,
         "groundedCandidateGenerationHitFixes": grounded_candidate_generation_fixed,
         "groundedRankingPackingCosts": grounded_ranking_costs,

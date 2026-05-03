@@ -1,4 +1,5 @@
 import Foundation
+import Memory
 import Testing
 @testable import memory_eval
 
@@ -198,6 +199,157 @@ struct EvalResponseCacheTests {
             "term1 term2 term3 term4",
             "term5 term6 term7 term8",
         ])
+    }
+
+    @Test
+    func groundedExpansionSingleTokenModeOmitsPhrases() {
+        let terms = groundedExpansionTerms(
+            query: "archive chats",
+            documents: [
+                GroundedFeedbackDocument(
+                    rank: 1,
+                    title: "iCloud backup",
+                    filenameStem: "",
+                    snippet: "The conversation history transcript backup is ready.",
+                    leadingContent: ""
+                ),
+            ],
+            termMode: .singleToken
+        ).map(\.text)
+
+        #expect(terms.contains("backup"))
+        #expect(terms.contains("icloud"))
+        #expect(!terms.contains("conversation history"))
+    }
+
+    @Test
+    func groundedExpansionPhraseEntityModeOmitsPlainSingleTokens() {
+        let terms = groundedExpansionTerms(
+            query: "archive chats",
+            documents: [
+                GroundedFeedbackDocument(
+                    rank: 1,
+                    title: "iCloud backup",
+                    filenameStem: "",
+                    snippet: "The conversation history transcript backup is ready.",
+                    leadingContent: ""
+                ),
+                GroundedFeedbackDocument(
+                    rank: 2,
+                    title: "Garden plan",
+                    filenameStem: "",
+                    snippet: "Seedling notes and watering schedule.",
+                    leadingContent: ""
+                ),
+                GroundedFeedbackDocument(
+                    rank: 3,
+                    title: "Dinner list",
+                    filenameStem: "",
+                    snippet: "Reservation notes and grocery list.",
+                    leadingContent: ""
+                ),
+            ],
+            termMode: .phraseEntity
+        ).map(\.text)
+
+        #expect(terms.contains("icloud"))
+        #expect(terms.contains("conversation history"))
+        #expect(!terms.contains("backup"))
+    }
+
+    @Test
+    func groundedExpansionGuardSkipsStrongRankOne() {
+        let terms = [
+            GroundedExpansionTerm(text: "conversation history", score: 1.6, documentFrequency: 1, topEvidenceRank: 1, kind: .phrase),
+            GroundedExpansionTerm(text: "transcript", score: 1.3, documentFrequency: 2, topEvidenceRank: 2),
+        ]
+        let decision = groundedExpansionDecision(
+            baselineScores: [
+                SearchScoreBreakdown(
+                    semantic: 0.05,
+                    lexical: 0.05,
+                    recency: 0,
+                    fused: 0.13,
+                    blended: 0.13
+                ),
+                SearchScoreBreakdown(
+                    semantic: 0.035,
+                    lexical: 0.03,
+                    recency: 0,
+                    fused: 0.09,
+                    blended: 0.09
+                ),
+            ],
+            terms: terms,
+            policy: .guarded
+        )
+
+        #expect(!decision.shouldApply)
+        #expect(decision.reason == "strong_rank1")
+    }
+
+    @Test
+    func groundedExpansionGuardSkipsHighScoreTightTopCluster() {
+        let terms = [
+            GroundedExpansionTerm(text: "deployment notes", score: 1.6, documentFrequency: 2, topEvidenceRank: 1, kind: .phrase),
+            GroundedExpansionTerm(text: "release checklist", score: 1.3, documentFrequency: 2, topEvidenceRank: 2, kind: .phrase),
+        ]
+        let decision = groundedExpansionDecision(
+            baselineScores: [
+                SearchScoreBreakdown(
+                    semantic: 0.039,
+                    lexical: 0.075,
+                    recency: 0,
+                    temporal: 0.025,
+                    fused: 0.124,
+                    blended: 0.124
+                ),
+                SearchScoreBreakdown(
+                    semantic: 0.029,
+                    lexical: 0.077,
+                    recency: 0,
+                    temporal: 0.025,
+                    fused: 0.121,
+                    blended: 0.121
+                ),
+            ],
+            terms: terms,
+            policy: .guarded
+        )
+
+        #expect(!decision.shouldApply)
+        #expect(decision.reason == "strong_rank1")
+    }
+
+    @Test
+    func groundedExpansionGuardAppliesForLowConfidenceWithEvidence() {
+        let terms = [
+            GroundedExpansionTerm(text: "conversation history", score: 1.6, documentFrequency: 1, topEvidenceRank: 1, kind: .phrase),
+            GroundedExpansionTerm(text: "transcript", score: 1.3, documentFrequency: 2, topEvidenceRank: 2),
+        ]
+        let decision = groundedExpansionDecision(
+            baselineScores: [
+                SearchScoreBreakdown(
+                    semantic: 0.04,
+                    lexical: 0.035,
+                    recency: 0,
+                    fused: 0.10,
+                    blended: 0.10
+                ),
+                SearchScoreBreakdown(
+                    semantic: 0.039,
+                    lexical: 0.034,
+                    recency: 0,
+                    fused: 0.094,
+                    blended: 0.094
+                ),
+            ],
+            terms: terms,
+            policy: .guarded
+        )
+
+        #expect(decision.shouldApply)
+        #expect(decision.reason == "applied_guarded")
     }
 
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {

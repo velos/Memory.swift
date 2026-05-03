@@ -84,6 +84,23 @@ enum ContextPackingOrder: String, Codable, ExpressibleByArgument {
     case score
 }
 
+enum GroundedExpansionApplicationPolicy: String, Codable, ExpressibleByArgument {
+    case always
+    case guarded
+}
+
+enum GroundedExpansionTermMode: String, Codable, ExpressibleByArgument {
+    case all
+    case singleToken = "single-token"
+    case phraseEntity = "phrase-entity"
+}
+
+enum GroundedExpansionTermKind: String, Codable, Hashable {
+    case single
+    case phrase
+    case entity
+}
+
 private enum EvalError: LocalizedError {
     case invalidDataset(String)
 
@@ -547,6 +564,9 @@ private struct RetrievalDiagnosticsReport: Codable {
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
     var groundedMetricsByK: [RecallPerKMetric]?
+    var groundedExpansionPolicy: GroundedExpansionApplicationPolicy?
+    var groundedExpansionTermMode: GroundedExpansionTermMode?
+    var groundedApplicationCounts: [String: Int]?
     var groundedDiagnosticSurfaceCounts: [String: Int]?
     var groundedDeltaCounts: [String: Int]?
     var groundedTermCounts: [String: Int]?
@@ -580,6 +600,8 @@ private struct RetrievalDiagnosticQueryResult: Codable {
     var scoreSortedNDCGByK: [Int: Double]
     var groundedExpansionTerms: [GroundedExpansionTerm]
     var groundedExpansionQueries: [String]
+    var groundedExpansionApplied: Bool
+    var groundedExpansionSkipReason: String?
     var groundedRetrievedDocumentIds: [String]
     var groundedMatchedRelevantDocumentIds: [String]
     var groundedFirstRelevantRank: Int?
@@ -613,6 +635,21 @@ struct GroundedExpansionTerm: Codable, Hashable {
     var score: Double
     var documentFrequency: Int
     var topEvidenceRank: Int
+    var kind: GroundedExpansionTermKind
+
+    init(
+        text: String,
+        score: Double,
+        documentFrequency: Int,
+        topEvidenceRank: Int,
+        kind: GroundedExpansionTermKind = .single
+    ) {
+        self.text = text
+        self.score = score
+        self.documentFrequency = documentFrequency
+        self.topEvidenceRank = topEvidenceRank
+        self.kind = kind
+    }
 }
 
 struct GroundedFeedbackDocument {
@@ -628,6 +665,11 @@ private struct PerQueryRecallMetrics {
     var recallByK: [Int: Double]
     var mrrByK: [Int: Double]
     var ndcgByK: [Int: Double]
+}
+
+struct GroundedExpansionDecision {
+    var shouldApply: Bool
+    var reason: String
 }
 
 private struct QueryExpansionCaseResult: Codable {
@@ -1860,6 +1902,12 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Run eval-only grounded pseudo-relevance feedback after baseline retrieval.")
     var groundedExpansion = false
 
+    @Option(name: .long, help: "Grounded PRF application policy: always or guarded.")
+    var groundedExpansionPolicy: GroundedExpansionApplicationPolicy = .guarded
+
+    @Option(name: .long, help: "Grounded PRF candidate mode: all, single-token, or phrase-entity.")
+    var groundedExpansionTermMode: GroundedExpansionTermMode = .phraseEntity
+
     mutating func run() async throws {
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
@@ -1904,6 +1952,8 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
             indexCacheEnabled: indexCache,
             verbose: verbose,
             groundedExpansion: groundedExpansion,
+            groundedExpansionPolicy: groundedExpansionPolicy,
+            groundedExpansionTermMode: groundedExpansionTermMode,
             responseCache: responseCache
         )
 
@@ -5295,6 +5345,8 @@ private func runRetrievalDiagnostics(
     indexCacheEnabled: Bool,
     verbose: Bool,
     groundedExpansion: Bool,
+    groundedExpansionPolicy: GroundedExpansionApplicationPolicy,
+    groundedExpansionTermMode: GroundedExpansionTermMode,
     responseCache: EvalResponseCache?
 ) async throws -> RetrievalDiagnosticsReport {
     let indexSeed = recallIndexCacheSeed(profile: profile, documents: documents)
@@ -5356,6 +5408,7 @@ private func runRetrievalDiagnostics(
     }
     if groundedExpansion {
         notes.append("Grounded pseudo-relevance feedback is eval-only: expansion terms are mined from baseline top results and rerun as weak lexical branches.")
+        notes.append("Grounded PRF policy: \(groundedExpansionPolicy.rawValue); term mode: \(groundedExpansionTermMode.rawValue).")
     }
     if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
         profile: profile,
@@ -5515,6 +5568,8 @@ private func runRetrievalDiagnostics(
 
         var groundedTerms: [GroundedExpansionTerm] = []
         var groundedQueries: [String] = []
+        var groundedApplied = false
+        var groundedSkipReason: String?
         var groundedRetrievedDocumentIDs: [String] = []
         var groundedMatchedRelevant: [String] = []
         var groundedFirstRank: Int?
@@ -5529,11 +5584,20 @@ private func runRetrievalDiagnostics(
             )
             groundedTerms = groundedExpansionTerms(
                 query: queryCase.query,
-                documents: groundedFeedbackDocuments
+                documents: groundedFeedbackDocuments,
+                termMode: groundedExpansionTermMode
             )
             groundedQueries = groundedExpansionQueries(from: groundedTerms)
 
-            if groundedQueries.isEmpty {
+            let groundedDecision = groundedExpansionDecision(
+                baselineScores: references.map(\.score),
+                terms: groundedTerms,
+                policy: groundedExpansionPolicy
+            )
+            groundedApplied = groundedDecision.shouldApply
+            groundedSkipReason = groundedApplied ? nil : groundedDecision.reason
+
+            if groundedQueries.isEmpty || !groundedApplied {
                 groundedRetrievedDocumentIDs = retrievedDocumentIDs
                 groundedMatchedRelevant = matchedRelevant
                 groundedFirstRank = firstRank
@@ -5635,6 +5699,8 @@ private func runRetrievalDiagnostics(
                 scoreSortedNDCGByK: scoreSortedMetrics.ndcgByK,
                 groundedExpansionTerms: groundedTerms,
                 groundedExpansionQueries: groundedQueries,
+                groundedExpansionApplied: groundedApplied,
+                groundedExpansionSkipReason: groundedSkipReason,
                 groundedRetrievedDocumentIds: Array(groundedRetrievedDocumentIDs.prefix(maxK)),
                 groundedMatchedRelevantDocumentIds: groundedMatchedRelevant,
                 groundedFirstRelevantRank: groundedFirstRank,
@@ -5705,6 +5771,13 @@ private func runRetrievalDiagnostics(
             ndcg: totalQueries == 0 ? 0 : sums.ndcg / Double(totalQueries)
         )
     } : nil
+    let groundedApplicationCounts = groundedExpansion
+        ? countStrings(queryResults.map { result in
+            result.groundedExpansionApplied
+                ? "applied"
+                : "skipped:\(result.groundedExpansionSkipReason ?? "unknown")"
+        })
+        : nil
     let totalContextTokens = queryResults.map(\.contextTokens).reduce(0, +)
     let totalPackedDocuments = queryResults.map(\.retrieved.count).reduce(0, +)
     let emptyRetrievalCount = queryResults.filter { $0.retrievedDocumentIds.isEmpty }.count
@@ -5736,7 +5809,7 @@ private func runRetrievalDiagnostics(
         : nil
 
     return RetrievalDiagnosticsReport(
-        schemaVersion: 4,
+        schemaVersion: 5,
         createdAt: Date(),
         profile: profile,
         datasetRoot: datasetRoot.path,
@@ -5762,6 +5835,9 @@ private func runRetrievalDiagnostics(
         stageLatencyStats: computeRecallStageLatencyStats(retrievalDiagnosticResults: queryResults),
         candidateCountStats: computeRecallCandidateCountStats(retrievalDiagnosticResults: queryResults),
         groundedMetricsByK: groundedMetricsByK,
+        groundedExpansionPolicy: groundedExpansion ? groundedExpansionPolicy : nil,
+        groundedExpansionTermMode: groundedExpansion ? groundedExpansionTermMode : nil,
+        groundedApplicationCounts: groundedApplicationCounts,
         groundedDiagnosticSurfaceCounts: groundedDiagnosticSurfaceCounts,
         groundedDeltaCounts: groundedDeltaCounts,
         groundedTermCounts: groundedTermCounts,
@@ -6087,7 +6163,8 @@ private func groundedExpansionFeedbackContent(from content: String) -> String {
 func groundedExpansionTerms(
     query: String,
     documents: [GroundedFeedbackDocument],
-    maxTerms: Int = 8
+    maxTerms: Int = 8,
+    termMode: GroundedExpansionTermMode = .all
 ) -> [GroundedExpansionTerm] {
     guard maxTerms > 0, !documents.isEmpty else { return [] }
     guard !isShortAmbiguousGroundedExpansionQuery(query) else { return [] }
@@ -6097,6 +6174,7 @@ func groundedExpansionTerms(
     var scores: [String: Double] = [:]
     var documentFrequency: [String: Set<Int>] = [:]
     var topEvidenceRank: [String: Int] = [:]
+    var kindByTerm: [String: GroundedExpansionTermKind] = [:]
     var appearsInTopTitleOrFilename: Set<String> = []
 
     for document in documents {
@@ -6109,15 +6187,20 @@ func groundedExpansionTerms(
         ]
 
         for section in sectionCandidates {
-            let candidates = groundedExpansionCandidateTexts(
+            let candidates = groundedExpansionCandidates(
                 section.text,
-                originalTerms: originalTerms
+                originalTerms: originalTerms,
+                termMode: termMode
             )
             guard !candidates.isEmpty else { continue }
-            for candidate in candidates {
+            for (candidate, kind) in candidates {
                 scores[candidate, default: 0] += section.weight * rankWeight
                 documentFrequency[candidate, default: []].insert(document.rank)
                 topEvidenceRank[candidate] = min(topEvidenceRank[candidate] ?? document.rank, document.rank)
+                kindByTerm[candidate] = mergedGroundedExpansionTermKind(
+                    kindByTerm[candidate],
+                    kind
+                )
                 if section.topTitleOrFilename {
                     appearsInTopTitleOrFilename.insert(candidate)
                 }
@@ -6136,7 +6219,8 @@ func groundedExpansionTerms(
             text: term,
             score: score,
             documentFrequency: frequency,
-            topEvidenceRank: topEvidenceRank[term] ?? Int.max
+            topEvidenceRank: topEvidenceRank[term] ?? Int.max,
+            kind: kindByTerm[term] ?? .single
         )
     }
     .sorted { lhs, rhs in
@@ -6155,6 +6239,61 @@ func groundedExpansionTerms(
     .map { $0 }
 }
 
+func groundedExpansionDecision(
+    baselineScores: [SearchScoreBreakdown],
+    terms: [GroundedExpansionTerm],
+    policy: GroundedExpansionApplicationPolicy
+) -> GroundedExpansionDecision {
+    guard !terms.isEmpty else {
+        return GroundedExpansionDecision(shouldApply: false, reason: "no_terms")
+    }
+    switch policy {
+    case .always:
+        return GroundedExpansionDecision(shouldApply: true, reason: "applied")
+    case .guarded:
+        if groundedExpansionHasStrongRankOneConfidence(baselineScores) {
+            return GroundedExpansionDecision(shouldApply: false, reason: "strong_rank1")
+        }
+        guard groundedExpansionHasFeedbackEvidence(terms) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "insufficient_feedback_evidence")
+        }
+        return GroundedExpansionDecision(shouldApply: true, reason: "applied_guarded")
+    }
+}
+
+private func groundedExpansionHasStrongRankOneConfidence(_ scores: [SearchScoreBreakdown]) -> Bool {
+    guard let top = scores.first else { return false }
+    guard groundedExpansionHasMultipleSignals(top) else { return false }
+    if top.blended >= 0.12 {
+        return true
+    }
+    guard scores.count > 1 else {
+        return false
+    }
+    let second = scores[1]
+    let margin = top.blended - second.blended
+    let relativeMargin = margin / max(abs(top.blended), 0.0001)
+    return top.blended >= 0.105
+        && relativeMargin >= 0.18
+}
+
+private func groundedExpansionHasMultipleSignals(_ score: SearchScoreBreakdown) -> Bool {
+    if score.semantic >= 0.02, score.lexical >= 0.02 {
+        return true
+    }
+    return score.tag + score.schema + score.temporal + score.status >= 0.03
+}
+
+private func groundedExpansionHasFeedbackEvidence(_ terms: [GroundedExpansionTerm]) -> Bool {
+    let topEvidenceTerms = terms.filter { term in
+        term.topEvidenceRank <= 5 && term.score >= 1.0
+    }
+    guard topEvidenceTerms.count >= 2 else { return false }
+    return topEvidenceTerms.contains { term in
+        term.kind != .single || term.documentFrequency >= 2 || term.topEvidenceRank <= 2
+    }
+}
+
 func groundedExpansionQueries(from terms: [GroundedExpansionTerm]) -> [String] {
     let chunks = stride(from: 0, to: min(8, terms.count), by: 4).compactMap { start -> String? in
         let end = min(start + 4, terms.count)
@@ -6165,41 +6304,98 @@ func groundedExpansionQueries(from terms: [GroundedExpansionTerm]) -> [String] {
     return Array(chunks.prefix(2))
 }
 
-private func groundedExpansionCandidateTexts(
+private func groundedExpansionCandidates(
     _ text: String,
-    originalTerms: Set<String>
-) -> Set<String> {
-    let tokens = normalizedGroundedExpansionTokens(text)
-    var candidates: Set<String> = []
+    originalTerms: Set<String>,
+    termMode: GroundedExpansionTermMode
+) -> [String: GroundedExpansionTermKind] {
+    let tokens = groundedExpansionTokenMatches(text)
+    var candidates: [String: GroundedExpansionTermKind] = [:]
 
-    for token in tokens where shouldKeepGroundedExpansionToken(token, originalTerms: originalTerms) {
-        candidates.insert(token)
+    for token in tokens where shouldKeepGroundedExpansionToken(token.normalized, originalTerms: originalTerms) {
+        let kind: GroundedExpansionTermKind = isEntityLikeGroundedExpansionToken(token.raw) ? .entity : .single
+        guard groundedExpansionTermMode(termMode, allows: kind) else { continue }
+        candidates[token.normalized] = mergedGroundedExpansionTermKind(candidates[token.normalized], kind)
     }
 
     for length in 2...3 where tokens.count >= length {
         for start in 0...(tokens.count - length) {
             let phraseTokens = Array(tokens[start..<(start + length)])
-            guard phraseTokens.allSatisfy({ shouldKeepGroundedExpansionToken($0, originalTerms: originalTerms) }) else {
+            guard phraseTokens.allSatisfy({ shouldKeepGroundedExpansionToken($0.normalized, originalTerms: originalTerms) }) else {
                 continue
             }
-            candidates.insert(phraseTokens.joined(separator: " "))
+            guard groundedExpansionTermMode(termMode, allows: .phrase) else { continue }
+            let phrase = phraseTokens.map(\.normalized).joined(separator: " ")
+            candidates[phrase] = mergedGroundedExpansionTermKind(candidates[phrase], .phrase)
         }
     }
 
     return candidates
 }
 
+private struct GroundedExpansionTokenMatch {
+    var raw: String
+    var normalized: String
+}
+
+private func groundedExpansionTermMode(
+    _ mode: GroundedExpansionTermMode,
+    allows kind: GroundedExpansionTermKind
+) -> Bool {
+    switch mode {
+    case .all:
+        return true
+    case .singleToken:
+        return kind == .single || kind == .entity
+    case .phraseEntity:
+        return kind == .phrase || kind == .entity
+    }
+}
+
+private func mergedGroundedExpansionTermKind(
+    _ current: GroundedExpansionTermKind?,
+    _ candidate: GroundedExpansionTermKind
+) -> GroundedExpansionTermKind {
+    guard let current else { return candidate }
+    let priority: [GroundedExpansionTermKind: Int] = [
+        .single: 0,
+        .entity: 1,
+        .phrase: 2,
+    ]
+    return (priority[candidate] ?? 0) > (priority[current] ?? 0) ? candidate : current
+}
+
 private func normalizedGroundedExpansionTokens(_ text: String) -> [String] {
+    groundedExpansionTokenMatches(text).map(\.normalized)
+}
+
+private func groundedExpansionTokenMatches(_ text: String) -> [GroundedExpansionTokenMatch] {
     let pattern = #"[A-Za-z][A-Za-z0-9'-]*|\d+"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     return regex.matches(in: text, range: range).compactMap { match in
         guard let tokenRange = Range(match.range, in: text) else { return nil }
-        let token = text[tokenRange]
+        let raw = String(text[tokenRange])
+        let token = raw
             .lowercased()
             .trimmingCharacters(in: CharacterSet(charactersIn: "_'-"))
-        return token.isEmpty ? nil : token
+        return token.isEmpty ? nil : GroundedExpansionTokenMatch(raw: raw, normalized: token)
     }
+}
+
+private func isEntityLikeGroundedExpansionToken(_ raw: String) -> Bool {
+    let scalars = Array(raw.unicodeScalars)
+    guard scalars.count > 1 else { return false }
+    let uppercase = CharacterSet.uppercaseLetters
+    let lowercase = CharacterSet.lowercaseLetters
+    let hasUppercase = scalars.contains { uppercase.contains($0) }
+    guard hasUppercase else { return false }
+
+    let first = scalars[0]
+    let hasInternalUppercase = scalars.dropFirst().contains { uppercase.contains($0) }
+    let hasLowercase = scalars.contains { lowercase.contains($0) }
+    let allCaps = !hasLowercase && scalars.filter { uppercase.contains($0) }.count >= 2
+    return hasInternalUppercase || allCaps || (uppercase.contains(first) && raw.contains("-"))
 }
 
 private func shouldKeepGroundedExpansionToken(
@@ -7234,10 +7430,18 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("- Score-sorted packed nDCG@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.ndcg))")
     }
     if let groundedMetric = report.groundedMetricsByK?.max(by: { $0.k < $1.k }) {
+        if let policy = report.groundedExpansionPolicy,
+           let termMode = report.groundedExpansionTermMode {
+            lines.append("- Grounded policy: `\(policy.rawValue)`")
+            lines.append("- Grounded term mode: `\(termMode.rawValue)`")
+        }
         lines.append("- Grounded Hit@\(groundedMetric.k): \(percent(groundedMetric.hitRate))")
         lines.append("- Grounded Recall@\(groundedMetric.k): \(percent(groundedMetric.recall))")
         lines.append("- Grounded MRR@\(groundedMetric.k): \(format(groundedMetric.mrr))")
         lines.append("- Grounded nDCG@\(groundedMetric.k): \(format(groundedMetric.ndcg))")
+    }
+    if let groundedApplicationCounts = report.groundedApplicationCounts {
+        lines.append("- Grounded applications: \(compactCountSummary(groundedApplicationCounts))")
     }
     if let groundedDeltaCounts = report.groundedDeltaCounts {
         lines.append("- Grounded deltas: \(compactCountSummary(groundedDeltaCounts))")
@@ -7350,6 +7554,17 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("|---|---:|")
         for (label, count) in sortedCountPairs(groundedDeltaCounts) {
             lines.append("| `\(label)` | \(count) |")
+        }
+    }
+
+    if let groundedApplicationCounts = report.groundedApplicationCounts, !groundedApplicationCounts.isEmpty {
+        lines.append("")
+        lines.append("## Grounded Application Decisions")
+        lines.append("")
+        lines.append("| Decision | Queries |")
+        lines.append("|---|---:|")
+        for (decision, count) in sortedCountPairs(groundedApplicationCounts) {
+            lines.append("| `\(markdownTableCell(decision))` | \(count) |")
         }
     }
 
