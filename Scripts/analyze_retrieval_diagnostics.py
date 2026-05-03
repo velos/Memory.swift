@@ -188,6 +188,16 @@ def classify_surface(row: dict[str, Any], max_k: int) -> str:
     return "covered"
 
 
+def grounded_terms(row: dict[str, Any]) -> list[str]:
+    terms: list[str] = []
+    for item in row.get("groundedExpansionTerms") or []:
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            terms.append(item["text"])
+        elif isinstance(item, str):
+            terms.append(item)
+    return terms
+
+
 def result_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {row.get("id"): row for row in report.get("queryResults", []) if isinstance(row.get("id"), str)}
 
@@ -200,6 +210,17 @@ def summarize_rows(rows: list[dict[str, Any]], max_k: int, queries: dict[str, di
         relevant = row.get("relevantDocumentIds") or []
         hit = bool(by_k(row.get("hitByK"), max_k, False))
         recall = float(by_k(row.get("recallByK"), max_k, 0) or 0)
+        has_grounded = (
+            row.get("groundedDeltaLabel") is not None
+            or row.get("groundedDiagnosticSurface") is not None
+            or row.get("groundedHitByK") is not None
+        )
+        grounded_hit = bool(by_k(row.get("groundedHitByK"), max_k, False)) if has_grounded else None
+        grounded_recall = (
+            float(by_k(row.get("groundedRecallByK"), max_k, 0) or 0)
+            if has_grounded
+            else None
+        )
         summaries.append(
             {
                 "id": query_id,
@@ -217,6 +238,17 @@ def summarize_rows(rows: list[dict[str, Any]], max_k: int, queries: dict[str, di
                 "retrievedDocumentIds": row.get("retrievedDocumentIds") or [],
                 "candidateDocumentIds": row.get("candidateDocumentIds") or [],
                 "latencyMs": row.get("latencyMs"),
+                "groundedHit": grounded_hit,
+                "groundedRecall": grounded_recall,
+                "groundedMRR": float(by_k(row.get("groundedMRRByK"), max_k, 0) or 0)
+                if has_grounded
+                else None,
+                "groundedSurface": row.get("groundedDiagnosticSurface"),
+                "groundedDeltaLabel": row.get("groundedDeltaLabel"),
+                "groundedFirstRelevantRank": row.get("groundedFirstRelevantRank"),
+                "groundedRetrievedDocumentIds": row.get("groundedRetrievedDocumentIds") or [],
+                "groundedExpansionQueries": row.get("groundedExpansionQueries") or [],
+                "groundedExpansionTerms": grounded_terms(row),
             }
         )
     return summaries
@@ -272,6 +304,32 @@ def write_reports(
     miss_taxonomy = Counter(label for row in misses for label in row["taxonomy"])
     candidate_only_taxonomy = Counter(label for row in candidate_only for label in row["taxonomy"])
     regression_taxonomy = Counter(label for row in regressions for label in row["taxonomy"])
+    grounded_rows = [row for row in summaries if row.get("groundedSurface") is not None]
+    grounded_surface_counts = Counter(str(row["groundedSurface"]) for row in grounded_rows)
+    grounded_delta_counts = Counter(str(row.get("groundedDeltaLabel") or "unchanged") for row in grounded_rows)
+    grounded_term_counts = Counter(term for row in grounded_rows for term in row.get("groundedExpansionTerms") or [])
+    grounded_candidate_generation_improvements = [
+        row
+        for row in grounded_rows
+        if row["surface"] in {"candidate_generation_miss", "candidate-generation-miss"}
+        and row.get("groundedSurface") not in {"candidate_generation_miss", "candidate-generation-miss"}
+    ]
+    grounded_candidate_generation_fixed = [
+        row
+        for row in grounded_candidate_generation_improvements
+        if row.get("groundedHit") is True
+    ]
+    grounded_ranking_costs = [
+        row
+        for row in grounded_rows
+        if row["surface"] not in {"ranking_or_packing_miss", "candidate-only-miss"}
+        and row.get("groundedSurface") in {"ranking_or_packing_miss", "candidate-only-miss"}
+    ]
+    grounded_hit_regressions = [
+        row
+        for row in grounded_rows
+        if row["hit"] and row.get("groundedHit") is False
+    ]
 
     latency_by_surface: dict[str, list[float]] = defaultdict(list)
     for row in summaries:
@@ -313,6 +371,15 @@ def write_reports(
     ]
     if baseline_report is not None:
         summary_rows.extend([["hit regressions", len(regressions)], ["hit improvements", len(improvements)]])
+    if grounded_rows:
+        summary_rows.extend(
+            [
+                ["grounded candidate-generation surface improvements", len(grounded_candidate_generation_improvements)],
+                ["grounded candidate-generation hit fixes", len(grounded_candidate_generation_fixed)],
+                ["grounded ranking/packing costs", len(grounded_ranking_costs)],
+                ["grounded hit regressions", len(grounded_hit_regressions)],
+            ]
+        )
     lines.extend(table(["Bucket", "Count"], summary_rows))
     lines.append("")
 
@@ -339,6 +406,43 @@ def write_reports(
         lines.extend(table(["Taxonomy", "Count"], top_counter_rows(regression_taxonomy)))
         lines.append("")
 
+    if grounded_rows:
+        lines.append("## Grounded Feedback Summary")
+        lines.extend(
+            table(
+                ["Question", "Result"],
+                [
+                    [
+                        "Candidate-generation misses improved",
+                        str(len(grounded_candidate_generation_improvements)),
+                    ],
+                    [
+                        "Candidate-generation misses fixed to hits",
+                        str(len(grounded_candidate_generation_fixed)),
+                    ],
+                    [
+                        "Ranking/packing miss costs",
+                        str(len(grounded_ranking_costs)),
+                    ],
+                    [
+                        "Hit regressions",
+                        str(len(grounded_hit_regressions)),
+                    ],
+                ],
+            )
+        )
+        lines.append("")
+        lines.append("## Grounded Delta Labels")
+        lines.extend(table(["Delta", "Count"], top_counter_rows(grounded_delta_counts)))
+        lines.append("")
+        lines.append("## Grounded Failure Surfaces")
+        lines.extend(table(["Surface", "Count"], top_counter_rows(grounded_surface_counts)))
+        lines.append("")
+        if grounded_term_counts:
+            lines.append("## Top Grounded Terms")
+            lines.extend(table(["Term", "Count"], top_counter_rows(grounded_term_counts)[:40]))
+            lines.append("")
+
     def detail_section(title: str, rows: list[dict[str, Any]]) -> None:
         if not rows:
             return
@@ -356,6 +460,14 @@ def write_reports(
             if "baselineSurface" in row:
                 lines.append(
                     f"- Baseline: {row['baselineSurface']}, firstRelevantRank={row.get('baselineFirstRelevantRank')}"
+                )
+            if row.get("groundedSurface") is not None:
+                terms = ", ".join(row.get("groundedExpansionTerms") or []) or "none"
+                lines.append(
+                    f"- Grounded: {row.get('groundedDeltaLabel') or 'unchanged'}, "
+                    f"surface={row.get('groundedSurface')}, "
+                    f"firstRelevantRank={row.get('groundedFirstRelevantRank')}, "
+                    f"terms={terms}"
                 )
             lines.append(
                 f"- Candidate ranks: firstRelevantRank={row.get('firstRelevantRank')}, "
@@ -376,6 +488,8 @@ def write_reports(
     detail_section("Candidate-Only Misses", candidate_only)
     detail_section("Candidate-Generation Misses", candidate_generation)
     detail_section("Partial Multi-Evidence Hits", partials)
+    detail_section("Grounded Ranking/Packing Costs", grounded_ranking_costs)
+    detail_section("Grounded Hit Regressions", grounded_hit_regressions)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
@@ -402,6 +516,13 @@ def write_reports(
         "missTaxonomy": dict(miss_taxonomy),
         "candidateOnlyTaxonomy": dict(candidate_only_taxonomy),
         "regressionTaxonomy": dict(regression_taxonomy),
+        "groundedSurfaceCounts": dict(grounded_surface_counts),
+        "groundedDeltaCounts": dict(grounded_delta_counts),
+        "groundedTermCounts": dict(grounded_term_counts),
+        "groundedCandidateGenerationSurfaceImprovements": grounded_candidate_generation_improvements,
+        "groundedCandidateGenerationHitFixes": grounded_candidate_generation_fixed,
+        "groundedRankingPackingCosts": grounded_ranking_costs,
+        "groundedHitRegressions": grounded_hit_regressions,
         "hitRegressions": regressions,
         "candidateOnlyMisses": candidate_only,
         "candidateGenerationMisses": candidate_generation,

@@ -886,6 +886,8 @@ public actor MemoryIndex {
         topics: [String]? = nil,
         dedupeDocuments: Bool = true,
         includeLineRanges: Bool = true,
+        additionalLexicalQueries: [String] = [],
+        additionalLexicalQueryWeight: Double = 0.35,
         events: SearchEventHandler? = nil
     ) async throws -> [MemorySearchReference] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -946,6 +948,8 @@ public actor MemoryIndex {
                 lexicalCandidateLimit: lexicalLimit,
                 rerankLimit: rerankLimit,
                 expansionLimit: expansionLimit,
+                additionalLexicalQueries: additionalLexicalQueries,
+                additionalLexicalQueryWeight: additionalLexicalQueryWeight,
                 includeTagScoring: features.contains(.tags)
             ),
             events: events,
@@ -2942,6 +2946,15 @@ public actor MemoryIndex {
                 into: &expandedQueries
             )
         }
+
+        appendExpandedQueries(
+            texts: query.additionalLexicalQueries,
+            type: .lexical,
+            weight: query.additionalLexicalQueryWeight,
+            budget: &remainingBudget,
+            seen: &seen,
+            into: &expandedQueries
+        )
 
         guard !skipExpansion,
               query.expansionLimit > 0,

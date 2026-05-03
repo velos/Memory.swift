@@ -35,6 +35,156 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func additionalLexicalQueriesCanLiftRelevantDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("export.md"),
+            "Backup transcript export instructions for conversation history."
+        )
+        try writeFile(
+            docs.appendingPathComponent("garden.md"),
+            "Tomatoes need sunlight and healthy soil."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let baseline = try await index.search(
+            SearchQuery(
+                text: "archive chats",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let expanded = try await index.search(
+            SearchQuery(
+                text: "archive chats",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                additionalLexicalQueries: ["backup transcript export"],
+                additionalLexicalQueryWeight: 0.35,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(!baseline.contains { $0.documentPath.hasSuffix("export.md") })
+        #expect(expanded.first?.documentPath.hasSuffix("export.md") == true)
+    }
+
+    @Test
+    func additionalLexicalQueryWeightStaysBelowOriginalQueryWeight() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("original.md"),
+            "Alpha project launch notes and status."
+        )
+        try writeFile(
+            docs.appendingPathComponent("additional.md"),
+            "Backup transcript export instructions."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha project",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                originalQueryWeight: 2.0,
+                additionalLexicalQueries: ["backup transcript"],
+                additionalLexicalQueryWeight: 0.1,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.count >= 2)
+        #expect(results.first?.documentPath.hasSuffix("original.md") == true)
+    }
+
+    @Test
+    func emptyAdditionalLexicalQueriesPreserveCurrentBehavior() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("alpha.md"),
+            "Alpha project launch notes."
+        )
+        try writeFile(
+            docs.appendingPathComponent("bravo.md"),
+            "Bravo project launch notes."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let baseline = try await index.search(
+            SearchQuery(
+                text: "project launch",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let emptyAdditional = try await index.search(
+            SearchQuery(
+                text: "project launch",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                additionalLexicalQueries: [],
+                includeTagScoring: false
+            )
+        )
+
+        #expect(emptyAdditional.map(\.documentPath) == baseline.map(\.documentPath))
+    }
+
+    @Test
     func searchCanConstrainCandidatesToDocumentPathPrefix() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

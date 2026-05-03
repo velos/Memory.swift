@@ -92,6 +92,114 @@ struct EvalResponseCacheTests {
         #expect(unlimitedDense < 384)
     }
 
+    @Test
+    func groundedExpansionExcludesOriginalTermsAndStopwords() {
+        let terms = groundedExpansionTerms(
+            query: "archive old chats",
+            documents: [
+                GroundedFeedbackDocument(
+                    rank: 1,
+                    title: "Archive export backup",
+                    filenameStem: "old_chats_backup",
+                    snippet: "The backup transcript export is ready.",
+                    leadingContent: "Archive the old chats into a transcript backup."
+                ),
+                GroundedFeedbackDocument(
+                    rank: 2,
+                    title: "Garden schedule",
+                    filenameStem: "garden_schedule",
+                    snippet: "Tomato watering notes.",
+                    leadingContent: "General garden maintenance."
+                ),
+                GroundedFeedbackDocument(
+                    rank: 3,
+                    title: "Weekend plan",
+                    filenameStem: "weekend_plan",
+                    snippet: "Dinner reservation details.",
+                    leadingContent: "General weekend notes."
+                ),
+            ]
+        ).map(\.text)
+
+        #expect(!terms.contains("archive"))
+        #expect(!terms.contains("old"))
+        #expect(!terms.contains("chats"))
+        #expect(!terms.contains("the"))
+        #expect(terms.contains("backup"))
+        #expect(terms.contains("export"))
+    }
+
+    @Test
+    func groundedExpansionSuppressesShortAmbiguousEllipsis() {
+        let terms = groundedExpansionTerms(
+            query: "What are the costs?",
+            documents: [
+                GroundedFeedbackDocument(
+                    rank: 1,
+                    title: "Conference Budget",
+                    filenameStem: "conference_budget",
+                    snippet: "Registration and hotel totals were discussed.",
+                    leadingContent: "Registration, hotel, travel, and dinner costs were updated."
+                ),
+            ]
+        )
+
+        #expect(terms.isEmpty)
+    }
+
+    @Test
+    func groundedExpansionRanksStrongSectionsAboveLowRankBodyOnlyTerms() {
+        let terms = groundedExpansionTerms(
+            query: "launch notes",
+            documents: [
+                GroundedFeedbackDocument(
+                    rank: 1,
+                    title: "Alpha release",
+                    filenameStem: "alpha_release",
+                    snippet: "",
+                    leadingContent: ""
+                ),
+                GroundedFeedbackDocument(
+                    rank: 2,
+                    title: nil,
+                    filenameStem: "meeting",
+                    snippet: "Bravo checklist was reviewed.",
+                    leadingContent: ""
+                ),
+                GroundedFeedbackDocument(
+                    rank: 12,
+                    title: nil,
+                    filenameStem: "misc",
+                    snippet: "",
+                    leadingContent: "Zebra appendix and body-only detail."
+                ),
+            ]
+        )
+        let scoreByTerm = Dictionary(uniqueKeysWithValues: terms.map { ($0.text, $0.score) })
+
+        #expect((scoreByTerm["alpha"] ?? 0) > (scoreByTerm["zebra"] ?? 0))
+        #expect((scoreByTerm["bravo"] ?? 0) > (scoreByTerm["zebra"] ?? 0))
+    }
+
+    @Test
+    func groundedExpansionGroupsTopTermsIntoAtMostTwoQueries() {
+        let terms = (1...10).map {
+            GroundedExpansionTerm(
+                text: "term\($0)",
+                score: Double(20 - $0),
+                documentFrequency: 1,
+                topEvidenceRank: 1
+            )
+        }
+
+        let queries = groundedExpansionQueries(from: terms)
+
+        #expect(queries == [
+            "term1 term2 term3 term4",
+            "term5 term6 term7 term8",
+        ])
+    }
+
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("memory-eval-tests")
