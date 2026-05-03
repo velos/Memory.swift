@@ -163,6 +163,10 @@ def classify_query_shape(query: str, relevant_count: int, query_row: dict[str, A
 
 
 def classify_surface(row: dict[str, Any], max_k: int) -> str:
+    supplied = row.get("diagnosticSurface")
+    if isinstance(supplied, str) and supplied:
+        return supplied
+
     retrieved = row.get("retrievedDocumentIds") or []
     candidate_recall = float(row.get("candidateRecall") or 0)
     hit = bool(by_k(row.get("hitByK"), max_k, False))
@@ -174,13 +178,13 @@ def classify_surface(row: dict[str, Any], max_k: int) -> str:
     if not retrieved:
         return "empty-retrieval"
     if not hit and candidate_recall <= 0 and first_candidate_rank is None:
-        return "candidate-generation-miss"
+        return "candidate_generation_miss"
     if not hit and (candidate_recall > 0 or first_candidate_rank is not None):
-        return "candidate-only-miss"
+        return "ranking_or_packing_miss"
     if hit and relevant_count > 1 and recall < 1:
-        return "partial-multi-evidence"
+        return "partial_multi_evidence"
     if hit and isinstance(first_rank, int) and first_rank > 1:
-        return "rank-headroom"
+        return "rank_headroom"
     return "covered"
 
 
@@ -204,7 +208,8 @@ def summarize_rows(rows: list[dict[str, Any]], max_k: int, queries: dict[str, di
                 "recall": recall,
                 "mrr": float(by_k(row.get("mrrByK"), max_k, 0) or 0),
                 "surface": classify_surface(row, max_k),
-                "taxonomy": classify_query_shape(row.get("query") or query_row.get("query") or "", len(relevant), query_row),
+                "taxonomy": row.get("queryShape")
+                or classify_query_shape(row.get("query") or query_row.get("query") or "", len(relevant), query_row),
                 "firstRelevantRank": row.get("firstRelevantRank"),
                 "firstCandidateRelevantRank": row.get("firstCandidateRelevantRank"),
                 "candidateRecall": float(row.get("candidateRecall") or 0),
@@ -246,10 +251,10 @@ def write_reports(
 ) -> None:
     max_k, metric = metric_for_k(report, max_k)
     misses = [row for row in summaries if not row["hit"]]
-    candidate_only = [row for row in misses if row["surface"] == "candidate-only-miss"]
-    candidate_generation = [row for row in misses if row["surface"] == "candidate-generation-miss"]
-    partials = [row for row in summaries if row["surface"] == "partial-multi-evidence"]
-    rank_headroom = [row for row in summaries if row["surface"] == "rank-headroom"]
+    candidate_only = [row for row in misses if row["surface"] in {"ranking_or_packing_miss", "candidate-only-miss"}]
+    candidate_generation = [row for row in misses if row["surface"] in {"candidate_generation_miss", "candidate-generation-miss"}]
+    partials = [row for row in summaries if row["surface"] in {"partial_multi_evidence", "partial-multi-evidence"}]
+    rank_headroom = [row for row in summaries if row["surface"] in {"rank_headroom", "rank-headroom"}]
 
     regressions: list[dict[str, Any]] = []
     improvements: list[dict[str, Any]] = []

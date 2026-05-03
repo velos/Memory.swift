@@ -782,6 +782,140 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func genericStructuredExpanderUsesShapeBasedRewrites() async throws {
+        let expander = GenericStructuredQueryExpander()
+        let expansion = try await expander.expand(
+            query: SearchQuery(text: "Where should I mail the signed form?"),
+            analysis: QueryAnalysis(
+                keyTerms: ["mail", "signed", "form"],
+                topics: ["mail submission"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+
+        let lexical = expansion.lexicalQueries.joined(separator: " ")
+        #expect(expander.identifier == "generic-structured-query-expander")
+        #expect(lexical.contains("mail"))
+        #expect(lexical.contains("postal") || lexical.contains("send"))
+        #expect(lexical.contains("instructions") == false)
+        #expect(lexical.contains("requirements") == false)
+        #expect(lexical.contains("dmv") == false)
+
+        let ellipticalExpansion = try await expander.expand(
+            query: SearchQuery(text: "What are the costs?"),
+            analysis: QueryAnalysis(
+                keyTerms: ["costs"],
+                topics: ["costs"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let ellipticalLexical = ellipticalExpansion.lexicalQueries.joined(separator: " ")
+        #expect(ellipticalLexical.contains("costs"))
+        #expect(ellipticalLexical.contains("price") == false)
+        #expect(ellipticalLexical.contains("payment") == false)
+    }
+
+    @Test
+    func proceduralEllipsisCanUseDocumentStructureWithoutDomainAliases() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("mail-in-application.md"),
+            """
+            # Mail-in application
+
+            By mail: submit the signed application form with proof of identity and the required fee.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("office-mailroom.md"),
+            """
+            # Office mailroom notes
+
+            The team checks the office mail twice a day and logs incoming packages.
+            """
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: GenericStructuredQueryExpander(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "Can I do it by mail?",
+                limit: 2,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5
+            )
+        )
+
+        #expect(results.first?.documentPath.hasSuffix("mail-in-application.md") == true)
+        #expect((results.first?.score.schema ?? 0) > 0)
+    }
+
+    @Test
+    func temporalAggregateQueriesPreferNumericEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("workshop-spend.md"),
+            """
+            # March workshop spending
+
+            On March 1 I paid $42 for the design workshop. On March 8 I spent $35 on the follow-up workshop.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("workshop-notes.md"),
+            """
+            # Workshop notes
+
+            The workshop covered facilitation, planning, and group exercises without discussing costs.
+            """
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: GenericStructuredQueryExpander(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How much total money did I spend on workshops in March?",
+                limit: 2,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5
+            )
+        )
+
+        #expect(results.first?.documentPath.hasSuffix("workshop-spend.md") == true)
+        #expect((results.first?.score.temporal ?? 0) > 0)
+    }
+
+    @Test
     func positionAwareBlendingUsesRerankSignal() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

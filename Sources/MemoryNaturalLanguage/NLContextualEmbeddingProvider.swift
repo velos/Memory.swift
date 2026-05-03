@@ -276,7 +276,7 @@ public extension MemoryConfiguration {
         databaseURL: URL,
         language: NLLanguage? = nil,
         poolingStrategy: PoolingStrategy = .mean,
-        structuredQueryExpander: (any StructuredQueryExpander)? = HeuristicStructuredQueryExpander(),
+        structuredQueryExpander: (any StructuredQueryExpander)? = GenericStructuredQueryExpander(),
         reranker: (any Reranker)? = nil,
         contentTagger: (any ContentTagger)? = nil,
         memoryExtractor: (any MemoryExtractor)? = nil,

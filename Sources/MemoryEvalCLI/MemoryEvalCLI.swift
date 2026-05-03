@@ -538,6 +538,8 @@ private struct RetrievalDiagnosticsReport: Codable {
     var candidatePoolRecall: Double
     var candidateOnlyMissRate: Double
     var candidateGenerationMissRate: Double
+    var diagnosticSurfaceCounts: [String: Int]
+    var queryShapeCounts: [String: Int]
     var avgContextTokens: Double
     var avgPackedDocuments: Double
     var emptyRetrievalRate: Double
@@ -556,6 +558,8 @@ private struct RetrievalDiagnosticQueryResult: Codable {
     var candidateMatchedRelevantDocumentIds: [String]
     var firstCandidateRelevantRank: Int?
     var candidateRecall: Double
+    var diagnosticSurface: String
+    var queryShape: [String]
     var retrievedDocumentIds: [String]
     var matchedRelevantDocumentIds: [String]
     var firstRelevantRank: Int?
@@ -1902,6 +1906,8 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
         print("Candidate Recall@pool: \(percent(report.candidatePoolRecall))")
         print("Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))")
         print("Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))")
+        print("Diagnostic surfaces: \(compactCountSummary(report.diagnosticSurfaceCounts))")
+        print("Query shapes: \(compactCountSummary(report.queryShapeCounts))")
         print("Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))")
         print("Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))")
         print("Context packing order: \(report.contextPackingOrder.rawValue)")
@@ -5439,6 +5445,22 @@ private func runRetrievalDiagnostics(
         let matchedRelevant = Array(Set(retrievedDocumentIDs).intersection(relevant)).sorted()
         let firstRank = firstRelevantRank(in: retrievedDocumentIDs, relevant: relevant, maxK: maxK)
         let scoreSortedFirstRank = firstRelevantRank(in: scoreSortedDocumentIDs, relevant: relevant, maxK: maxK)
+        let hitAtMax = rankedMetrics.hitByK[maxK] == true
+        let recallAtMax = rankedMetrics.recallByK[maxK] ?? 0
+        let diagnosticSurface = retrievalDiagnosticSurface(
+            retrievedDocumentIds: retrievedDocumentIDs,
+            hitAtMaxK: hitAtMax,
+            recallAtMaxK: recallAtMax,
+            relevantCount: relevant.count,
+            candidateRecall: candidateRecall,
+            firstCandidateRelevantRank: firstCandidateRank,
+            firstRelevantRank: firstRank
+        )
+        let queryShape = genericRetrievalQueryShape(
+            query: queryCase.query,
+            relevantCount: relevant.count,
+            memoryTypes: queryCase.memoryTypes ?? []
+        )
         queryResults.append(
             RetrievalDiagnosticQueryResult(
                 id: queryCase.id,
@@ -5448,6 +5470,8 @@ private func runRetrievalDiagnostics(
                 candidateMatchedRelevantDocumentIds: candidateMatchedRelevant,
                 firstCandidateRelevantRank: firstCandidateRank,
                 candidateRecall: candidateRecall,
+                diagnosticSurface: diagnosticSurface,
+                queryShape: queryShape,
                 retrievedDocumentIds: Array(retrievedDocumentIDs.prefix(maxK)),
                 matchedRelevantDocumentIds: matchedRelevant,
                 firstRelevantRank: firstRank,
@@ -5471,8 +5495,8 @@ private func runRetrievalDiagnostics(
         )
 
         if verbose {
-            let hitAtMax = rankedMetrics.hitByK[maxK] == true ? "hit" : "miss"
-            print("[retrieval-diagnostics] \(queryCase.id): \(hitAtMax) @\(maxK), contextTokens=\(packed.contextTokens)")
+            let hitLabel = hitAtMax ? "hit" : "miss"
+            print("[retrieval-diagnostics] \(queryCase.id): \(hitLabel) @\(maxK), surface=\(diagnosticSurface), contextTokens=\(packed.contextTokens)")
         }
         progress.advance(detail: verbose ? queryCase.id : nil)
     }
@@ -5523,9 +5547,11 @@ private func runRetrievalDiagnostics(
     let candidateGenerationMissCount = queryResults.filter {
         $0.candidateMatchedRelevantDocumentIds.isEmpty
     }.count
+    let diagnosticSurfaceCounts = countStrings(queryResults.map(\.diagnosticSurface))
+    let queryShapeCounts = countStrings(queryResults.flatMap(\.queryShape))
 
     return RetrievalDiagnosticsReport(
-        schemaVersion: 2,
+        schemaVersion: 3,
         createdAt: Date(),
         profile: profile,
         datasetRoot: datasetRoot.path,
@@ -5542,6 +5568,8 @@ private func runRetrievalDiagnostics(
         candidatePoolRecall: totalQueries == 0 ? 0 : totalCandidateRecall / Double(totalQueries),
         candidateOnlyMissRate: totalQueries == 0 ? 0 : Double(candidateOnlyMissCount) / Double(totalQueries),
         candidateGenerationMissRate: totalQueries == 0 ? 0 : Double(candidateGenerationMissCount) / Double(totalQueries),
+        diagnosticSurfaceCounts: diagnosticSurfaceCounts,
+        queryShapeCounts: queryShapeCounts,
         avgContextTokens: totalQueries == 0 ? 0 : Double(totalContextTokens) / Double(totalQueries),
         avgPackedDocuments: totalQueries == 0 ? 0 : Double(totalPackedDocuments) / Double(totalQueries),
         emptyRetrievalRate: totalQueries == 0 ? 0 : Double(emptyRetrievalCount) / Double(totalQueries),
@@ -5551,6 +5579,95 @@ private func runRetrievalDiagnostics(
         queryResults: queryResults.sorted { $0.id < $1.id },
         notes: notes
     )
+}
+
+private func retrievalDiagnosticSurface(
+    retrievedDocumentIds: [String],
+    hitAtMaxK: Bool,
+    recallAtMaxK: Double,
+    relevantCount: Int,
+    candidateRecall: Double,
+    firstCandidateRelevantRank: Int?,
+    firstRelevantRank: Int?
+) -> String {
+    if retrievedDocumentIds.isEmpty {
+        return "empty_retrieval"
+    }
+    if !hitAtMaxK, candidateRecall <= 0, firstCandidateRelevantRank == nil {
+        return "candidate_generation_miss"
+    }
+    if !hitAtMaxK, candidateRecall > 0 || firstCandidateRelevantRank != nil {
+        return "ranking_or_packing_miss"
+    }
+    if hitAtMaxK, relevantCount > 1, recallAtMaxK < 1 {
+        return "partial_multi_evidence"
+    }
+    if hitAtMaxK, let firstRelevantRank, firstRelevantRank > 1 {
+        return "rank_headroom"
+    }
+    return "covered"
+}
+
+private func genericRetrievalQueryShape(
+    query: String,
+    relevantCount: Int,
+    memoryTypes: [String]
+) -> [String] {
+    let lower = query.lowercased()
+    var labels: [String] = []
+
+    if lower.contains("how many") || lower.contains("number of") || lower.contains("count") {
+        labels.append("count")
+    }
+    if lower.contains("how much") || lower.contains("total") || lower.contains("combined")
+        || ["spent", "spend", "paid", "cost", "price", "money"].contains(where: lower.contains) {
+        labels.append("sum")
+    }
+    if lower.contains("how long") || lower.contains("days ago") || lower.contains("days passed")
+        || lower.contains("since ") {
+        labels.append("duration")
+    }
+    if lower.contains("order of") || lower.contains("earliest") || lower.contains("latest")
+        || lower.contains("first to last") {
+        labels.append("ordering")
+    }
+    if ["when", "before", "after", "between", "recently", "current", "yesterday", "today", "tomorrow"].contains(where: lower.contains)
+        || lower.range(of: #"\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\b"#, options: .regularExpression) != nil {
+        labels.append("temporal")
+    }
+    if ["recommend", "suggestion", "suggestions", "tips", "what to watch", "what to read"].contains(where: lower.contains) {
+        labels.append("recommendation")
+    }
+    if lower.hasPrefix("how ") || lower.hasPrefix("can i ") || lower.hasPrefix("what do ") || lower.hasPrefix("where do ") {
+        if ["apply", "submit", "form", "proof", "document", "fee", "mail", "online", "register", "change", "copy"].contains(where: lower.contains) {
+            labels.append("procedural")
+        }
+    }
+    if relevantCount > 1 || lower.contains(" all ") || lower.contains("different") || lower.contains(" and ") {
+        labels.append("multi_evidence")
+    }
+    if [" it ", " that ", " this ", " they ", " them ", " those "].contains(where: lower.contains) {
+        labels.append("contextual_ellipsis")
+    }
+
+    for memoryType in memoryTypes {
+        let normalized = memoryType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { continue }
+        labels.append("type:\(normalized)")
+    }
+
+    let deduped = labels.reduce(into: [String]()) { partialResult, label in
+        if !partialResult.contains(label) {
+            partialResult.append(label)
+        }
+    }
+    return deduped.isEmpty ? ["lexical_semantic"] : deduped
+}
+
+private func countStrings<S: Sequence>(_ values: S) -> [String: Int] where S.Element == String {
+    values.reduce(into: [:]) { counts, value in
+        counts[value, default: 0] += 1
+    }
 }
 
 private func computeLatencyStats(retrievalDiagnosticResults: [RetrievalDiagnosticQueryResult]) -> RecallLatencyStats? {
@@ -6620,6 +6737,8 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         "- Candidate Recall@pool: \(percent(report.candidatePoolRecall))",
         "- Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))",
         "- Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))",
+        "- Diagnostic surfaces: \(compactCountSummary(report.diagnosticSurfaceCounts))",
+        "- Query shapes: \(compactCountSummary(report.queryShapeCounts))",
         "- Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))",
         "- Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))",
         "- Empty retrieval rate: \(percent(report.emptyRetrievalRate))",
@@ -6686,6 +6805,28 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("| max | \(String(format: "%.1f", latencyStats.maxMs)) ms |")
     }
 
+    if !report.diagnosticSurfaceCounts.isEmpty {
+        lines.append("")
+        lines.append("## Diagnostic Surfaces")
+        lines.append("")
+        lines.append("| Surface | Queries |")
+        lines.append("|---|---:|")
+        for (surface, count) in sortedCountPairs(report.diagnosticSurfaceCounts) {
+            lines.append("| `\(surface)` | \(count) |")
+        }
+    }
+
+    if !report.queryShapeCounts.isEmpty {
+        lines.append("")
+        lines.append("## Query Shapes")
+        lines.append("")
+        lines.append("| Shape | Queries |")
+        lines.append("|---|---:|")
+        for (shape, count) in sortedCountPairs(report.queryShapeCounts) {
+            lines.append("| `\(shape)` | \(count) |")
+        }
+    }
+
     if let stageStats = report.stageLatencyStats {
         lines.append("")
         lines.append("## Query Stage Latency")
@@ -6720,11 +6861,11 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("")
         lines.append("## Misses (\(misses.count) at k=\(maxK))")
         lines.append("")
-        lines.append("| Query | Difficulty | Context Tokens | First Candidate | Relevant | Candidate Relevant | Retrieved |")
-        lines.append("|---|---|---:|---:|---|---|---|")
+        lines.append("| Query | Surface | Shape | Difficulty | Context Tokens | First Candidate | Relevant | Candidate Relevant | Retrieved |")
+        lines.append("|---|---|---|---|---:|---:|---|---|---|")
         for miss in misses.prefix(40) {
             lines.append(
-                "| `\(markdownTableCell(miss.id))` | \(markdownTableCell(miss.difficulty ?? "-")) | \(miss.contextTokens) | \(miss.firstCandidateRelevantRank.map(String.init) ?? "-") | \(markdownTableCell(miss.relevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.candidateMatchedRelevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.retrievedDocumentIds.prefix(maxK).joined(separator: ", "))) |"
+                "| `\(markdownTableCell(miss.id))` | `\(markdownTableCell(miss.diagnosticSurface))` | \(markdownTableCell(miss.queryShape.joined(separator: ", "))) | \(markdownTableCell(miss.difficulty ?? "-")) | \(miss.contextTokens) | \(miss.firstCandidateRelevantRank.map(String.init) ?? "-") | \(markdownTableCell(miss.relevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.candidateMatchedRelevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.retrievedDocumentIds.prefix(maxK).joined(separator: ", "))) |"
             )
         }
     }
@@ -7035,6 +7176,23 @@ private func markdownTableCell(_ value: String) -> String {
     value
         .replacingOccurrences(of: "|", with: "/")
         .replacingOccurrences(of: "\n", with: " ")
+}
+
+private func sortedCountPairs(_ counts: [String: Int]) -> [(String, Int)] {
+    counts.sorted { lhs, rhs in
+        if lhs.value == rhs.value {
+            return lhs.key < rhs.key
+        }
+        return lhs.value > rhs.value
+    }
+}
+
+private func compactCountSummary(_ counts: [String: Int], limit: Int = 6) -> String {
+    guard !counts.isEmpty else { return "none" }
+    return sortedCountPairs(counts)
+        .prefix(limit)
+        .map { "\($0.0)=\($0.1)" }
+        .joined(separator: ", ")
 }
 
 private func queryExpansionBranchRankSummary(_ diagnostics: QueryExpansionBranchDiagnostics) -> String {

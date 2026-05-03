@@ -1,6 +1,6 @@
 import Foundation
 
-public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
+public struct GenericStructuredQueryExpander: StructuredQueryExpander {
     public let identifier: String
 
     private let maxLexicalQueries: Int
@@ -11,7 +11,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     private let maxTopics: Int
 
     public init(
-        identifier: String = "heuristic-structured-query-expander",
+        identifier: String = "generic-structured-query-expander",
         maxLexicalQueries: Int = 2,
         maxSemanticQueries: Int = 2,
         maxHypotheticalDocuments: Int = 1,
@@ -40,6 +40,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         let normalizedEntities = normalizeEntities(analysis.entities, maxCount: maxEntities)
         let normalizedTopics = normalizeTopics(analysis.topics, maxCount: maxTopics)
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(trimmed)
         let normalizedFacetHints = normalizeFacetHints(
             mergedFacetHints(
                 analysis.facetHints,
@@ -53,6 +54,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             referenceDate: query.referenceDate,
             limit: min(maxLexicalQueries, limit)
         )
@@ -61,6 +63,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             limit: min(maxSemanticQueries, limit)
         )
         let hypotheticalDocuments = buildHypotheticalDocuments(
@@ -68,6 +71,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             limit: min(maxHypotheticalDocuments, limit)
         )
 
@@ -86,6 +90,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         referenceDate: Date?,
         limit: Int
     ) -> [String] {
@@ -95,8 +100,11 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var seen: Set<String> = [comparisonKey(for: original)]
 
         let tokenTerms = tokenLexicalTerms(from: original, entities: entities)
+        let rewriteTerms = shouldUseRewriteTerms(for: understanding)
+            ? GenericQueryRewriteLexicon.expansionTerms(for: understanding).filter(isUsefulRewriteTerm)
+            : []
         let prioritizedEntities = entities.prefix(2).map(\.value)
-        let salientTerms = tokenTerms
+        let salientTerms = Array(OrderedSet(tokenTerms + rewriteTerms))
         let prioritizedTopics = selectSalientTopics(
             from: topics,
             salientTerms: salientTerms
@@ -111,12 +119,19 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         let temporalAnchors = temporalAnchorTerms(from: original, referenceDate: referenceDate)
 
         let keywordRewrite = compactJoined(
-            prioritizedEntities + Array(tokenTerms.prefix(8)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
+            prioritizedEntities
+                + Array(tokenTerms.prefix(8))
+                + Array(rewriteTerms.prefix(12))
+                + Array(temporalAnchors.prefix(8))
+                + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
-            prioritizedEntities + Array(compactTopics.prefix(2)) + Array(temporalAnchors.prefix(6))
+            prioritizedEntities
+                + Array(compactTopics.prefix(2))
+                + Array(rewriteTerms.prefix(8))
+                + Array(temporalAnchors.prefix(6))
         )
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
@@ -132,6 +147,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -152,6 +168,19 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         var queries: [String] = []
         var seen: Set<String> = [comparisonKey(for: original)]
+
+        if let genericRewrite = GenericQueryRewriteLexicon.semanticRewrite(
+            for: understanding,
+            entities: entities,
+            topics: topics
+        ) {
+            appendCandidate(
+                genericRewrite,
+                to: &queries,
+                seen: &seen,
+                limit: limit
+            )
+        }
 
         if analysis.isHowToQuery {
             appendCandidate(
@@ -188,6 +217,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -401,6 +431,23 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             .map(\.topic)
     }
 
+    private func isUsefulRewriteTerm(_ term: String) -> Bool {
+        let tokens = term
+            .split(separator: " ")
+            .map(String.init)
+            .map(normalizeQueryToken)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return false }
+        return tokens.contains { !stopWords.contains($0) && !expansionNoiseTerms.contains($0) }
+    }
+
+    private func shouldUseRewriteTerms(for understanding: RecallQueryUnderstanding) -> Bool {
+        if understanding.isElliptical, understanding.coreTerms.count <= 1 {
+            return false
+        }
+        return true
+    }
+
     private func narrativeFocusPhrase(
         original: String,
         analysis: QueryAnalysis,
@@ -423,9 +470,11 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         entities: [MemoryEntity],
         topics: [String]
     ) -> Bool {
-        let explicitTemporalOrAggregateRecall = isExplicitTemporalOrAggregateRecall(original)
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(original)
+        let explicitTemporalOrAggregateRecall = understanding.isTemporalOrAggregate
         return analysis.isHowToQuery
             || entities.isEmpty == false
+            || understanding.operations.contains(.recommendation)
             || (explicitTemporalOrAggregateRecall && !isPersonalFactLookup(analysis))
             || (!isPersonalFactLookup(analysis) && topics.contains { topic in topic.split(separator: " ").count >= 3 })
     }
@@ -768,3 +817,5 @@ private struct OrderedSet<Element: Hashable>: Sequence {
         Array(values.prefix(maxLength))
     }
 }
+
+public typealias HeuristicStructuredQueryExpander = GenericStructuredQueryExpander

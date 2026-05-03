@@ -28,17 +28,7 @@ internal enum MemorySearchHeuristics {
     }
 
     internal static func isTemporalOrAggregateRecallQuery(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        if isTimeAnchoredQuery(queryText) {
-            return true
-        }
-
-        let recallIntentPhrases = [
-            "as of", "count", "days passed", "first", "from earliest to latest",
-            "how many", "how much", "last time", "most recently", "order of",
-            "what month", "when did", "which date"
-        ]
-        return recallIntentPhrases.contains { lower.contains($0) }
+        RecallQueryUnderstandingAnalyzer.analyze(queryText).isTemporalOrAggregate
     }
 
     internal static func isTimeAnchoredQuery(_ queryText: String) -> Bool {

@@ -71,6 +71,7 @@ public actor MemoryIndex {
         var preferredStatuses: Set<MemoryStatus>
         var monthDayAnchors: Set<MonthDayAnchor>
         var monthAnchors: Set<Int>
+        var understanding: RecallQueryUnderstanding
     }
 
     private struct MonthDayAnchor: Hashable {
@@ -2306,7 +2307,7 @@ public actor MemoryIndex {
         }
     }
 
-    private func queryMatchSignals(from analysis: QueryAnalysis) -> QueryMatchSignals {
+    private func queryMatchSignals(from analysis: QueryAnalysis, queryText: String) -> QueryMatchSignals {
         QueryMatchSignals(
             facets: Set(analysis.facetHints.map(\.tag)),
             entityValues: Set(analysis.entities.map(\.normalizedValue).map(normalizeEntityValue).filter { !$0.isEmpty }),
@@ -2314,12 +2315,13 @@ public actor MemoryIndex {
             temporalIntent: .any,
             preferredStatuses: [],
             monthDayAnchors: [],
-            monthAnchors: []
+            monthAnchors: [],
+            understanding: RecallQueryUnderstandingAnalyzer.analyze(queryText)
         )
     }
 
     private func queryMatchSignals(from analysis: QueryAnalysis, plan: RecallPlan?, queryText: String) -> QueryMatchSignals {
-        var signals = queryMatchSignals(from: analysis)
+        var signals = queryMatchSignals(from: analysis, queryText: queryText)
         if let plan {
             signals.temporalIntent = plan.temporalIntent
             signals.preferredStatuses = plan.statuses ?? []
@@ -2385,6 +2387,7 @@ public actor MemoryIndex {
     private func heuristicRecallPlan(query: String) -> RecallPlan {
         let lower = query.lowercased()
         let analysis = configuration.queryAnalyzer?.analyze(query: query) ?? heuristicQueryAnalysis(for: query)
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(query)
 
         let statuses: Set<MemoryStatus>?
         if containsAnyRecallStatusCue(
@@ -2398,28 +2401,21 @@ public actor MemoryIndex {
             statuses = nil
         }
 
-        let temporalIntent: RecallTemporalIntent
-        if containsAny(lower, needles: ["how many", "total", "count"]) {
-            temporalIntent = .count
-        } else if containsAny(lower, needles: ["most recent", "latest", "last "]) {
-            temporalIntent = .mostRecent
-        } else if isTimeAnchoredQuery(query) {
-            temporalIntent = .timeAnchored
-        } else {
-            temporalIntent = .any
-        }
+        let temporalIntent = understanding.temporalIntent
+        let lexicalQueries = analysis.keyTerms.isEmpty ? [] : [analysis.keyTerms.joined(separator: " ")]
+        let shouldExpandEvidenceWindow = understanding.requiresEvidenceAggregation
 
         return RecallPlan(
             query: query,
-            lexicalQueries: analysis.keyTerms.isEmpty ? [] : [analysis.keyTerms.joined(separator: " ")],
+            lexicalQueries: lexicalQueries,
             statuses: statuses,
             facets: nil,
             entityValues: [],
             topics: [],
             temporalIntent: temporalIntent,
-            semanticCandidateLimit: temporalIntent == .count ? configuration.semanticCandidateLimit + 150 : nil,
-            lexicalCandidateLimit: temporalIntent == .count ? configuration.lexicalCandidateLimit + 150 : nil,
-            rerankLimit: temporalIntent == .count || temporalIntent == .timeAnchored ? 60 : nil
+            semanticCandidateLimit: shouldExpandEvidenceWindow ? configuration.semanticCandidateLimit + 150 : nil,
+            lexicalCandidateLimit: shouldExpandEvidenceWindow ? configuration.lexicalCandidateLimit + 150 : nil,
+            rerankLimit: shouldExpandEvidenceWindow || temporalIntent == .timeAnchored ? 60 : nil
         )
     }
 
@@ -2782,6 +2778,7 @@ public actor MemoryIndex {
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
             let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
             let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
+                + ellipticalStructureBonus(querySignals: querySignals, metadata: metadata)
             let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
             let fused = (weights.semantic * semantic)
@@ -3170,12 +3167,12 @@ public actor MemoryIndex {
     }
 
     private func shouldRunExpansionDespiteStrongLexicalSignal(_ queryText: String) -> Bool {
-        let lower = queryText.lowercased()
-        if isTemporalOrAggregateRecallQuery(queryText) || lower.contains("days ago") {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
+        if understanding.isTemporalOrAggregate {
             return true
         }
 
-        return isRecommendationRecallQuery(queryText)
+        return understanding.operations.contains(.recommendation) || isRecommendationRecallQuery(queryText)
     }
 
     private func ftsPreprocess(_ text: String) -> String {
@@ -3381,6 +3378,55 @@ public actor MemoryIndex {
         return entityBonus + facetBonus + topicBonus
     }
 
+    private func ellipticalStructureBonus(
+        querySignals: QueryMatchSignals,
+        metadata: StoredChunkMetadata
+    ) -> Double {
+        let understanding = querySignals.understanding
+        guard shouldUseEllipticalStructureBonus(for: understanding) else {
+            return 0
+        }
+
+        let queryTerms = Set(understanding.coreTerms)
+        guard !queryTerms.isEmpty else { return 0 }
+
+        let titleText = [metadata.title, filenameStem(metadata.documentPath)]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        let titleTokens = Set(searchableTokens(in: titleText))
+        let headingTokens = Set(searchableTokens(in: structuralLeadText(from: metadata.content)))
+        let titleOverlap = overlapRatio(queryTerms: queryTerms, candidateTerms: titleTokens)
+        let headingOverlap = overlapRatio(queryTerms: queryTerms, candidateTerms: headingTokens)
+
+        var bonus = 0.0
+        if titleOverlap > 0 {
+            bonus += min(0.018, titleOverlap * 0.020)
+        }
+        if headingOverlap > 0 {
+            bonus += min(0.018, headingOverlap * 0.020)
+        }
+
+        let searchable = structuralLeadText(from: metadata.content).lowercased()
+        let directMatches = understanding.coreTerms.filter { searchable.contains($0) }.count
+        if directMatches > 0 {
+            bonus += min(0.012, 0.006 * Double(directMatches))
+        }
+
+        return min(0.035, bonus)
+    }
+
+    private func shouldUseEllipticalStructureBonus(for understanding: RecallQueryUnderstanding) -> Bool {
+        guard understanding.isElliptical, understanding.tokens.count <= 7 else {
+            return false
+        }
+        let tokenSet = Set(understanding.tokens)
+        if !tokenSet.isDisjoint(with: ["it", "that", "this", "they", "them", "those", "these"]) {
+            return true
+        }
+        let lower = understanding.originalText.lowercased()
+        return lower.hasPrefix("how do i apply") || lower.hasPrefix("can i do it")
+    }
+
     private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
         let anchorBonus = timeAnchorFitBonus(querySignals: querySignals, metadata: metadata)
         switch querySignals.temporalIntent {
@@ -3395,6 +3441,50 @@ public actor MemoryIndex {
         case .timeAnchored, .count:
             return anchorBonus + (isTimeAnchoredText(metadata.content) ? 0.025 : 0)
         }
+    }
+
+    private func filenameStem(_ path: String) -> String {
+        URL(fileURLWithPath: path)
+            .deletingPathExtension()
+            .lastPathComponent
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+    }
+
+    private func structuralLeadText(from content: String) -> String {
+        let lines = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        var selected: [String] = []
+        for line in lines.prefix(18) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if trimmed.hasPrefix("#")
+                || trimmed.range(of: #"^\d+\."#, options: .regularExpression) != nil
+                || trimmed.count <= 120 {
+                selected.append(trimmed)
+            }
+        }
+        if selected.isEmpty {
+            return String(content.prefix(700))
+        }
+        return selected.joined(separator: " ")
+    }
+
+    private func searchableTokens(in text: String) -> [String] {
+        MemorySearchHeuristics.normalizedComparisonKey(for: text)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { token in
+                token.count >= 2 && !MemorySearchHeuristics.queryStopWords.contains(token)
+            }
+    }
+
+    private func overlapRatio(queryTerms: Set<String>, candidateTerms: Set<String>) -> Double {
+        guard !queryTerms.isEmpty, !candidateTerms.isEmpty else { return 0 }
+        let overlap = queryTerms.intersection(candidateTerms).count
+        guard overlap > 0 else { return 0 }
+        return Double(overlap) / Double(min(queryTerms.count, max(1, candidateTerms.count)))
     }
 
     private func timeAnchorFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
