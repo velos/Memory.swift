@@ -920,6 +920,22 @@ struct MemoryIndexTests {
         #expect(tripLexical.contains("trip travel itinerary"))
         #expect(tripLexical.contains("travel sequence destination"))
 
+        let fitnessExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many fitness classes do I attend in a typical week?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["fitness", "classes", "attend", "typical", "week"],
+                facetHints: [],
+                topics: ["fitness classes", "typical week"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let fitnessLexical = fitnessExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(fitnessLexical.contains("fitness classes"))
+        #expect(fitnessLexical.contains("typical week"))
+        #expect(fitnessLexical.contains("fitness class workout schedule"))
+
         let groceryExpansion = try await expander.expand(
             query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
             analysis: QueryAnalysis(
@@ -934,6 +950,56 @@ struct MemoryIndexTests {
         let groceryLexical = groceryExpansion.lexicalQueries.joined(separator: " | ")
         #expect(groceryLexical.contains("grocery shopping"))
         #expect(groceryLexical.contains("receipt purchase"))
+        #expect(groceryLexical.contains("most money"))
+        #expect(groceryLexical.contains("past month"))
+
+        let debtExpansion = try await expander.expand(
+            query: SearchQuery(text: "Is it possible for me to pay off the entire debt if given the opportunity?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["pay", "entire", "debt"],
+                facetHints: [],
+                topics: ["pay off debt"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let debtLexical = debtExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(debtLexical.contains("pay full balance"))
+        #expect(debtLexical.contains("amount owed assessment"))
+
+        let eventGapExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many days before the Rack Fest did I participate in Turbocharged Tuesdays?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["days", "rack", "fest", "turbocharged", "tuesdays"],
+                facetHints: [FacetHint(tag: .timeSensitive, confidence: 0.8, isExplicit: true)],
+                topics: ["rack fest", "turbocharged tuesdays"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let eventGapLexical = eventGapExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(eventGapLexical.contains("days between events"))
+        #expect(eventGapLexical.contains("time gap event dates"))
+        #expect(eventGapExpansion.semanticQueries.isEmpty == false)
+
+        let deliveryExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many days did it take for my laptop backpack to arrive after I bought it?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["laptop", "backpack", "arrive", "bought"],
+                facetHints: [FacetHint(tag: .factAboutUser, confidence: 0.8, isExplicit: true)],
+                topics: ["laptop backpack", "delivery timing"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let deliveryLexical = deliveryExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(deliveryLexical.contains("delivery time purchase arrival"))
+        #expect(deliveryLexical.contains("arrived bought purchase date"))
+        #expect(deliveryExpansion.semanticQueries.isEmpty == false)
+        #expect(deliveryExpansion.hypotheticalDocuments.isEmpty == false)
 
         let kitchenExpansion = try await expander.expand(
             query: SearchQuery(text: "How many kitchen items did I replace or fix?"),

@@ -74,6 +74,8 @@ public actor MemoryIndex {
         var preferredStatuses: Set<MemoryStatus>
         var monthDayAnchors: Set<MonthDayAnchor>
         var monthAnchors: Set<Int>
+        var payoffIntent: Bool
+        var deliveryTimingIntent: Bool
     }
 
     private struct MonthDayAnchor: Hashable {
@@ -2368,7 +2370,9 @@ public actor MemoryIndex {
             temporalIntent: .any,
             preferredStatuses: [],
             monthDayAnchors: [],
-            monthAnchors: []
+            monthAnchors: [],
+            payoffIntent: false,
+            deliveryTimingIntent: false
         )
     }
 
@@ -2380,6 +2384,8 @@ public actor MemoryIndex {
         }
         signals.monthDayAnchors = monthDayAnchors(from: queryText)
         signals.monthAnchors = monthAnchors(from: queryText)
+        signals.payoffIntent = isPayoffIntent(queryText)
+        signals.deliveryTimingIntent = isDeliveryTimingIntent(queryText)
         return signals
     }
 
@@ -2463,9 +2469,11 @@ public actor MemoryIndex {
             temporalIntent = .any
         }
 
+        let lexicalQueries = heuristicRecallLexicalQueries(query: query, analysis: analysis)
+
         return RecallPlan(
             query: query,
-            lexicalQueries: analysis.keyTerms.isEmpty ? [] : [analysis.keyTerms.joined(separator: " ")],
+            lexicalQueries: lexicalQueries,
             statuses: statuses,
             facets: nil,
             entityValues: [],
@@ -2475,6 +2483,31 @@ public actor MemoryIndex {
             lexicalCandidateLimit: temporalIntent == .count ? configuration.lexicalCandidateLimit + 150 : nil,
             rerankLimit: temporalIntent == .count || temporalIntent == .timeAnchored ? 60 : nil
         )
+    }
+
+    private func heuristicRecallLexicalQueries(query: String, analysis: QueryAnalysis) -> [String] {
+        var queries: [String] = []
+        var seen: Set<String> = []
+
+        func append(_ query: String) {
+            let normalized = normalizedComparisonKey(for: query)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return }
+            queries.append(query)
+        }
+
+        if !analysis.keyTerms.isEmpty {
+            append(analysis.keyTerms.joined(separator: " "))
+        }
+
+        let lower = query.lowercased()
+        let hasDebtCue = containsAny(lower, needles: ["debt", "owe", "owed", "balance", "assessment", "fine", "fee"])
+        let hasPayoffCue = containsAny(lower, needles: ["pay off", "pay full", "pay the full", "entire", "full balance", "pay all"])
+        if hasDebtCue && hasPayoffCue {
+            append("pay full balance amount owed assessment")
+            append("pay total balance remaining fee")
+        }
+
+        return queries
     }
 
     private func hasResolvedStatusRecallCue(_ lowercasedQuery: String) -> Bool {
@@ -2929,6 +2962,7 @@ public actor MemoryIndex {
             let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
             let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
             let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
+                + queryIntentContentBonus(querySignals: querySignals, metadata: metadata)
             let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
             let fused = (weights.semantic * semantic)
@@ -3578,20 +3612,34 @@ public actor MemoryIndex {
     }
 
     private func anchorCoverageBonus(queryText: String, metadata: StoredChunkMetadata) -> Double {
-        let anchors = anchorTokens(from: queryText)
-        guard !anchors.isEmpty else { return 0 }
-
         let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
             .lowercased()
+        let phraseBonus = quotedPhraseCoverageBonus(queryText: queryText, searchable: searchable)
+        let anchors = anchorTokens(from: queryText)
+        guard !anchors.isEmpty else { return phraseBonus }
 
         var matched = 0
         for anchor in anchors where searchable.contains(anchor) {
             matched += 1
         }
-        guard matched > 0 else { return 0 }
+        guard matched > 0 else { return phraseBonus }
 
         let coverage = Double(matched) / Double(anchors.count)
-        return 0.003 * coverage
+        return phraseBonus + (0.003 * coverage)
+    }
+
+    private func quotedPhraseCoverageBonus(queryText: String, searchable: String) -> Double {
+        let phrases = quotedPhraseAnchors(from: queryText)
+        guard !phrases.isEmpty else { return 0 }
+
+        var matched = 0
+        for phrase in phrases where searchable.contains(phrase) {
+            matched += 1
+        }
+        guard matched > 0 else { return 0 }
+
+        let coverage = Double(matched) / Double(phrases.count)
+        return min(0.035, (0.018 * Double(matched)) + (0.017 * coverage))
     }
 
     private func contentTagBonus(queryTags: [ContentTag], metadata: StoredChunkMetadata) -> Double {
@@ -3658,6 +3706,35 @@ public actor MemoryIndex {
         let facetBonus = min(Double(matchedFacets) * 0.015, 0.06)
         let topicBonus = min(Double(matchedTopics) * 0.01, 0.04)
         return entityBonus + facetBonus + topicBonus
+    }
+
+    private func queryIntentContentBonus(
+        querySignals: QueryMatchSignals,
+        metadata: StoredChunkMetadata
+    ) -> Double {
+        guard querySignals.payoffIntent || querySignals.deliveryTimingIntent else { return 0 }
+
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_200)))
+            .lowercased()
+        var bonus: Double = 0
+
+        if querySignals.payoffIntent,
+           containsAny(
+            searchable,
+            needles: [
+                "pay the full", "full assessment", "total balance",
+                "balance of assessments", "amount you owe", "remaining balance"
+            ]
+           ) {
+            bonus += 0.04
+        }
+
+        if querySignals.deliveryTimingIntent,
+           containsAny(searchable, needles: ["arrived on", "delivered on", "delivery date"]) {
+            bonus += 0.025
+        }
+
+        return min(0.05, bonus)
     }
 
     private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
@@ -3835,6 +3912,28 @@ public actor MemoryIndex {
             return Array(prioritized.prefix(4))
         }
         return Array(fallback.prefix(3))
+    }
+
+    private func quotedPhraseAnchors(from text: String) -> [String] {
+        var seen: Set<String> = []
+        return regexCaptureGroups(pattern: #"[\"']([^\"']{3,80})[\"']"#, text: text)
+            .compactMap { match in match.first.map(normalizedComparisonKey(for:)) }
+            .filter { phrase in
+                phrase.split(separator: " ").count >= 2 && seen.insert(phrase).inserted
+            }
+    }
+
+    private func isPayoffIntent(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        let hasDebtCue = containsAny(lower, needles: ["debt", "owe", "owed", "balance", "assessment", "fine", "fee"])
+        let hasPayoffCue = containsAny(lower, needles: ["pay off", "pay full", "pay the full", "entire", "full balance", "pay all"])
+        return hasDebtCue && hasPayoffCue
+    }
+
+    private func isDeliveryTimingIntent(_ queryText: String) -> Bool {
+        let lower = queryText.lowercased()
+        return containsAny(lower, needles: ["arrive", "arrived", "delivery", "delivered"])
+            && containsAny(lower, needles: ["bought", "purchase", "ordered", "after", "take"])
     }
 
     private func sortByBlendedScore(_ lhs: SearchResult, _ rhs: SearchResult) -> Bool {

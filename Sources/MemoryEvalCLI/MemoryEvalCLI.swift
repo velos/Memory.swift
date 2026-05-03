@@ -4627,6 +4627,11 @@ private func runAgentMemorySuite(
         let extracted = try await index.extract(from: messages, limit: 20)
         let ingestResult = try await index.ingest(extracted)
         let allRecords = try await fetchAllMemoryRecords(index: index)
+        var scoringRecordsByID = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.id, $0) })
+        for record in ingestResult.records {
+            scoringRecordsByID[record.id] = record
+        }
+        let scoringRecords = Array(scoringRecordsByID.values)
 
         let expectedMemories = scenario.expectedMemories ?? []
         let expectedWriteCount = scenario.expectedWriteCount ?? expectedMemories.count
@@ -4637,7 +4642,7 @@ private func runAgentMemorySuite(
 
         let matchedExpectedWrites = countMatchedExpectedMemories(
             expectedMemories,
-            records: allRecords,
+            records: scoringRecords,
             context: "agent-memory scenario \(scenario.id)"
         )
         totalMatchedExpectedWrites += min(expectedWriteCount, matchedExpectedWrites)
@@ -4651,7 +4656,7 @@ private func runAgentMemorySuite(
 
         let activeStateCorrect = try activeStateMatchesExpected(
             expectedMemories,
-            records: allRecords,
+            records: scoringRecords,
             context: "agent-memory scenario \(scenario.id)"
         )
         if let activeStateCorrect {

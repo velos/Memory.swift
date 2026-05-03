@@ -1336,6 +1336,49 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func extractedProfileEditorUpdateKeepsReplacementMetadata() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let first = try await index.save(
+            text: "Preferred editor is Vim.",
+            kind: .profile,
+            canonicalKey: "profile:editor"
+        )
+        let extracted = try await index.extract(
+            from: [ConversationMessage(role: .user, content: "Preferred editor is Zed.")],
+            limit: 20
+        )
+        let result = try await index.ingest(extracted)
+
+        #expect(result.actions == [.replaceActive])
+        #expect(result.records.count == 1)
+        let replacement = try #require(result.records.first)
+        #expect(replacement.canonicalKey == "profile:editor")
+        #expect(replacement.text.localizedCaseInsensitiveContains("Zed"))
+        #expect(replacement.facetTags.contains(.preference))
+        #expect(replacement.entities.contains(where: { $0.normalizedValue == "zed" }))
+
+        let active = try await index.recall(mode: .kind(.profile), limit: 10)
+        #expect(active.records.count == 1)
+        #expect(active.records.first?.id == replacement.id)
+
+        let historical = try await index.recall(
+            mode: .kind(.profile),
+            limit: 10,
+            statuses: [.active, .superseded]
+        )
+        #expect(historical.records.contains(where: { $0.id == first.id && $0.status == .superseded }))
+    }
+
+    @Test
     func concurrentIdempotentIngestDoesNotDuplicateExactFact() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

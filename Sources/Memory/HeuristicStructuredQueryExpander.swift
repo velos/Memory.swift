@@ -95,7 +95,10 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var seen: Set<String> = [comparisonKey(for: original)]
 
         let prioritizedEntities = entities.prefix(2).map(\.value)
-        let salientTerms = salientLexicalTerms(from: original, entities: entities)
+        let derivedPhrases = derivedSalientTerms(from: original)
+            .filter { $0.split(separator: " ").count >= 2 }
+        let tokenTerms = tokenLexicalTerms(from: original, entities: entities)
+        let salientTerms = Array(OrderedSet(tokenTerms + derivedPhrases))
         let prioritizedTopics = selectSalientTopics(
             from: topics,
             salientTerms: salientTerms
@@ -107,23 +110,17 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty && !expansionNoiseTerms.contains($0) })
                 .prefix(4)
         )
-        let derivedPhrases = derivedSalientTerms(from: original)
-            .filter { $0.split(separator: " ").count >= 2 }
         let temporalAnchors = temporalAnchorTerms(from: original, referenceDate: referenceDate)
 
-        if let derivedPhrase = derivedPhrases.first {
-            appendCandidate(
-                compactJoined(prioritizedEntities + [derivedPhrase] + Array(temporalAnchors.prefix(6))),
-                to: &queries,
-                seen: &seen,
-                limit: limit
-            )
-        }
-
         let keywordRewrite = compactJoined(
-            prioritizedEntities + Array(salientTerms.prefix(6)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
+            prioritizedEntities + Array(tokenTerms.prefix(8)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
+
+        let derivedRewrite = compactJoined(
+            prioritizedEntities + Array(derivedPhrases.prefix(3)) + Array(tokenTerms.prefix(6)) + Array(temporalAnchors.prefix(6))
+        )
+        appendCandidate(derivedRewrite, to: &queries, seen: &seen, limit: limit)
 
         let focusedRewrite = compactJoined(
             prioritizedEntities + Array(compactTopics.prefix(2)) + Array(temporalAnchors.prefix(6))
@@ -201,7 +198,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
-        guard analysis.isHowToQuery || entities.isEmpty == false else { return [] }
+        guard analysis.isHowToQuery || entities.isEmpty == false || isExplicitTemporalOrAggregateRecall(original) else { return [] }
         guard shouldEmitNarrativeExpansions(
             original: original,
             analysis: analysis,
@@ -231,14 +228,15 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     }
 
     private func salientLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
+        Array(OrderedSet(derivedSalientTerms(from: original) + tokenLexicalTerms(from: original, entities: entities)))
+    }
+
+    private func tokenLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
         let normalizedEntities = Set(entities.map(\.normalizedValue))
         let tokens = tokenize(original)
 
         var terms: [String] = []
         var seen: Set<String> = []
-        for derived in derivedSalientTerms(from: original) where seen.insert(derived).inserted {
-            terms.append(derived)
-        }
         for token in tokens {
             let normalized = normalizeQueryToken(token)
             guard !normalized.isEmpty else { continue }
@@ -432,9 +430,10 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         entities: [MemoryEntity],
         topics: [String]
     ) -> Bool {
-        analysis.isHowToQuery
+        let explicitTemporalOrAggregateRecall = isExplicitTemporalOrAggregateRecall(original)
+        return analysis.isHowToQuery
             || entities.isEmpty == false
-            || (isExplicitTemporalOrAggregateRecall(original) && !isPersonalFactLookup(analysis))
+            || explicitTemporalOrAggregateRecall
             || (!isPersonalFactLookup(analysis) && topics.contains { topic in topic.split(separator: " ").count >= 3 })
     }
 
@@ -516,6 +515,20 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
             append("grocery shopping store spending")
             append("receipt purchase supermarket")
+        }
+        if lower.contains("pay off") || lower.contains("entire debt") || lower.contains("full balance") {
+            append("pay full balance amount owed assessment")
+            append("remaining balance statement payment")
+        }
+        if lower.contains("days before") || lower.contains("days after") || lower.contains("between") {
+            append("days between events")
+            append("time gap event dates")
+        }
+        if lower.contains("arrive") || lower.contains("arrived") || lower.contains("delivery") {
+            if lower.contains("bought") || lower.contains("purchase") || lower.contains("after") {
+                append("delivery time purchase arrival")
+                append("arrived bought purchase date")
+            }
         }
         if lower.contains("current role") || lower.contains("working in my current") {
             append("current job role position")
