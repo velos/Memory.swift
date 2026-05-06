@@ -987,6 +987,72 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func searchAdjustmentSetSupportsNamedAblationsWithoutBenchmarkIdentifiers() {
+        let enabled = MemorySearchAdjustmentSet.enabled(from: [
+            MemorySearchAdjustmentSet.disableEnvironmentKey: "evidence_support semantic-preservation unknown-token unrelated-case",
+        ])
+
+        #expect(enabled.contains(.evidenceSupport) == false)
+        #expect(enabled.contains(.semanticPreservation) == false)
+        #expect(enabled.contains(.aggregateSupportContinuations))
+        #expect(enabled.contains(.currentStateLexicalPreservation))
+
+        let only = MemorySearchAdjustmentSet.enabled(from: [
+            MemorySearchAdjustmentSet.onlyEnvironmentKey: "aggregate-support-continuations",
+        ])
+
+        #expect(only == [.aggregateSupportContinuations])
+    }
+
+    @Test
+    func runtimeRetrievalCodeDoesNotContainBenchmarkRescueIdentifiers() throws {
+        let fileManager = FileManager.default
+        let packageRoot = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        let sourceRoot = packageRoot.appendingPathComponent("Sources/Memory")
+        let longMemoryBenchmarkName = ["long", "memeval"].joined()
+        let queryExpansionFocusedName = [
+            "query",
+            "expansion",
+            ["res", "cue"].joined(),
+        ].joined(separator: "_")
+        let docAnswerIDPrefix = ["doc", "answer"].joined(separator: "-")
+        let generalDocumentIDPrefix = ["general", "v2__"].joined(separator: "-")
+        let gptQueryIDPrefix = "q" + "-" + ["gpt", "4_"].joined()
+        let genericQueryIDPrefix = "q" + "-"
+        let forbiddenPatterns: [String] = [
+            longMemoryBenchmarkName,
+            queryExpansionFocusedName,
+            docAnswerIDPrefix,
+            generalDocumentIDPrefix,
+            gptQueryIDPrefix,
+            genericQueryIDPrefix,
+        ]
+
+        var isDirectory: ObjCBool = false
+        #expect(fileManager.fileExists(atPath: sourceRoot.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+
+        let enumerator = fileManager.enumerator(
+            at: sourceRoot,
+            includingPropertiesForKeys: nil
+        )
+        var hits: [String] = []
+        while let fileURL = enumerator?.nextObject() as? URL {
+            guard fileURL.pathExtension == "swift" else { continue }
+            let relativePath = fileURL.path.replacingOccurrences(of: packageRoot.path + "/", with: "")
+            let contents = try String(contentsOf: fileURL, encoding: .utf8)
+            for pattern in forbiddenPatterns where contents.range(of: pattern, options: [.caseInsensitive]) != nil {
+                hits.append("\(relativePath): \(pattern)")
+            }
+        }
+
+        #expect(
+            hits.isEmpty,
+            "Runtime retrieval code contains benchmark-shaped identifiers: \(hits.joined(separator: ", "))"
+        )
+    }
+
+    @Test
     func comparisonRecallCanIncludeTemporallyAdjacentEvidence() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -1050,6 +1116,144 @@ struct MemoryIndexTests {
 
         #expect(results.contains { $0.documentPath.hasSuffix("hitchhiker-start.md") })
         #expect(results.contains { $0.documentPath.hasSuffix("nightingale-finished.md") })
+    }
+
+    @Test
+    func memorySearchCanIncludeTemporallyAdjacentAggregateEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("book-pair-1.md"),
+            """
+            # First book milestone
+
+            Date: 2024/01/15 (Mon) 20:00
+
+            I finished reading The Nightingale and wrote down that the next book milestone started one day later.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("book-pair-2.md"),
+            """
+            # Second book milestone
+
+            Date: 2024/01/16 (Tue) 09:00
+
+            I started reading The Hitchhiker's Guide to the Galaxy after finishing The Nightingale.
+            """
+        )
+
+        for index in 0..<12 {
+            try writeFile(
+                docs.appendingPathComponent("book-distractor-\(index).md"),
+                """
+                # Reading distractor \(index)
+
+                Date: 2024/03/\(String(format: "%02d", index + 1)) (Fri) 10:00
+
+                I tracked reading goals, book club plans, and how many days passed between unrelated milestones.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "How many days passed between finishing The Nightingale and starting The Hitchhiker's Guide to the Galaxy?",
+            limit: 10,
+            features: [.lexical],
+            dedupeDocuments: true
+        )
+
+        #expect(references.contains { $0.documentPath.hasSuffix("book-pair-1.md") })
+        #expect(references.contains { $0.documentPath.hasSuffix("book-pair-2.md") })
+    }
+
+    @Test
+    func expansionDoesNotBuryCurrentStateOrProceduralMatches() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("subscription-current.md"),
+            """
+            # Subscription current state
+
+            My current magazine subscription status is active and renews monthly.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("subscription-history.md"),
+            """
+            # Subscription history
+
+            I canceled an old trial subscription last year and changed the payment method.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("plates-choice.md"),
+            """
+            # Plate storage and return choice
+
+            When deciding whether to keep plates, the instructions say the plates can be stored only temporarily and may need to be surrendered, returned, or delivered.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("plate-art.md"),
+            """
+            # Plate art
+
+            Decorative plates can be displayed on shelves and cleaned with a soft cloth.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let currentResults = try await index.search(
+            SearchQuery(
+                text: "What is my current magazine subscription status?",
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let proceduralResults = try await index.search(
+            SearchQuery(
+                text: "Should I keep or return the plates?",
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(currentResults.first?.documentPath.hasSuffix("subscription-current.md") == true)
+        #expect(proceduralResults.first?.documentPath.hasSuffix("plates-choice.md") == true)
     }
 
     @Test

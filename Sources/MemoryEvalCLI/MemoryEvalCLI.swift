@@ -1600,6 +1600,9 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.json.")
     var output: String?
 
+    @Option(name: .long, help: "Comma-separated recall adjustment groups to disable for ablation runs.")
+    var disableRecallAdjustments: String?
+
     @Flag(
         name: .long,
         inversion: .prefixedNo,
@@ -1618,6 +1621,19 @@ struct RunCommand: AsyncParsableCommand {
     var verbose = false
 
     mutating func run() async throws {
+        let recallAdjustmentDisableKey = "MEMORY_RECALL_DISABLE_ADJUSTMENTS"
+        let originalDisabledAdjustments = ProcessInfo.processInfo.environment[recallAdjustmentDisableKey]
+        if let disableRecallAdjustments {
+            setenv(recallAdjustmentDisableKey, disableRecallAdjustments, 1)
+        }
+        defer {
+            if let originalDisabledAdjustments {
+                setenv(recallAdjustmentDisableKey, originalDisabledAdjustments, 1)
+            } else {
+                unsetenv(recallAdjustmentDisableKey)
+            }
+        }
+
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
         let ks = try parseKValues(kValues)
@@ -1675,6 +1691,9 @@ struct RunCommand: AsyncParsableCommand {
     ) async throws -> URL {
         let storageReport: StorageSuiteReport
         var notes: [String] = []
+        if let disableRecallAdjustments {
+            notes.append("Recall adjustment ablation disabled: \(disableRecallAdjustments).")
+        }
         if dataset.storageCases.isEmpty {
             storageReport = makeEmptyStorageSuiteReport()
             notes.append("No storage cases were provided; storage suite skipped.")
@@ -1882,6 +1901,9 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.retrieval-diagnostics.json.")
     var output: String?
 
+    @Option(name: .long, help: "Comma-separated recall adjustment groups to disable for ablation diagnostics.")
+    var disableRecallAdjustments: String?
+
     @Flag(
         name: .long,
         inversion: .prefixedNo,
@@ -1909,6 +1931,19 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     var groundedExpansionTermMode: GroundedExpansionTermMode = .phraseEntity
 
     mutating func run() async throws {
+        let recallAdjustmentDisableKey = "MEMORY_RECALL_DISABLE_ADJUSTMENTS"
+        let originalDisabledAdjustments = ProcessInfo.processInfo.environment[recallAdjustmentDisableKey]
+        if let disableRecallAdjustments {
+            setenv(recallAdjustmentDisableKey, disableRecallAdjustments, 1)
+        }
+        defer {
+            if let originalDisabledAdjustments {
+                setenv(recallAdjustmentDisableKey, originalDisabledAdjustments, 1)
+            } else {
+                unsetenv(recallAdjustmentDisableKey)
+            }
+        }
+
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
         guard !dataset.recallDocuments.isEmpty, !dataset.recallQueries.isEmpty else {
@@ -4705,6 +4740,18 @@ private func runAgentMemorySuite(
     var reciprocalRanks: [Double] = []
     var latencies: [Double] = []
 
+    let templateDatabaseURL = workspace.root
+        .appendingPathComponent("agent-memory-template", isDirectory: true)
+        .appendingPathComponent("index.sqlite")
+    try FileManager.default.createDirectory(
+        at: templateDatabaseURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    var templateConfiguration = try buildConfiguration(profile: profile, suite: .storage, databaseURL: templateDatabaseURL)
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &templateConfiguration, responseCache: responseCache)
+    }
+
     for scenario in scenarios {
         let started = Date()
         let caseDatabaseURL = workspace.root
@@ -4716,10 +4763,8 @@ private func runAgentMemorySuite(
             withIntermediateDirectories: true
         )
 
-        var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: caseDatabaseURL)
-        if let responseCache {
-            installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
-        }
+        var config = templateConfiguration
+        config.databaseURL = caseDatabaseURL
         let index = try MemoryIndex(configuration: config)
 
         var setupRecords: [MemoryRecord] = []

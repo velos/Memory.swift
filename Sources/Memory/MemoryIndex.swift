@@ -40,6 +40,7 @@ public actor MemoryIndex {
     private let storage: MemoryStorage
     private let fileManager: FileManager
     private let ingestLock = MemoryAsyncLock()
+    private let searchAdjustments: MemorySearchAdjustmentSet
 
     private let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private let codeExtensions: Set<String> = [
@@ -72,6 +73,11 @@ public actor MemoryIndex {
         var monthDayAnchors: Set<MonthDayAnchor>
         var monthAnchors: Set<Int>
         var understanding: RecallQueryUnderstanding
+    }
+
+    private struct AnchorCoverageSignals {
+        var anchors: [String]
+        var quotedPhrases: [String]
     }
 
     private struct SupportContinuationCandidate {
@@ -150,6 +156,7 @@ public actor MemoryIndex {
 
         self.configuration = configuration
         self.fileManager = fileManager
+        self.searchAdjustments = MemorySearchAdjustmentSet.enabledFromProcessEnvironment()
 
         do {
             self.storage = try MemoryStorage(databaseURL: configuration.databaseURL)
@@ -277,7 +284,8 @@ public actor MemoryIndex {
         _ query: SearchQuery,
         events: SearchEventHandler?,
         allowedChunkIDsOverride: Set<Int64>?,
-        recallPlan: RecallPlan?
+        recallPlan: RecallPlan?,
+        queryUnderstanding: RecallQueryUnderstanding? = nil
     ) async throws -> [SearchResult] {
         let normalizedText = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return [] }
@@ -482,7 +490,12 @@ public actor MemoryIndex {
         events?(.lexicalCandidates(count: lexicalCandidateCount))
 
         let fusionStart = DispatchTime.now().uptimeNanoseconds
-        let querySignals = queryMatchSignals(from: searchPlan.analysis, plan: recallPlan, queryText: normalizedText)
+        let querySignals = queryMatchSignals(
+            from: searchPlan.analysis,
+            plan: recallPlan,
+            queryText: normalizedText,
+            understanding: queryUnderstanding
+        )
         let queryTags = query.includeTagScoring
             ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
             : []
@@ -534,37 +547,7 @@ public actor MemoryIndex {
             }
         }
 
-        fused = applyEvidenceSupportAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyExpansionSemanticPreservationAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyCurrentStateLexicalPreservationAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyNegatedQualificationReliefAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyProceduralRetentionChoiceAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyExpansionTemporalLexicalPreservationAdjustment(
-            to: fused,
-            querySignals: querySignals,
-            query: query
-        )
-        fused = applyRecommendationSemanticAdjustment(
+        fused = applyPostRerankAdjustments(
             to: fused,
             querySignals: querySignals,
             query: query
@@ -945,6 +928,7 @@ public actor MemoryIndex {
             events: events
         )
         let queryText = plan.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? normalizedQuery : plan.query
+        let queryUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
 
         let effectiveKinds = intersectKinds(kinds, plan.kinds)
         let effectiveFacets = intersectFacets(facets, plan.facets)
@@ -998,15 +982,18 @@ public actor MemoryIndex {
             ),
             events: events,
             allowedChunkIDsOverride: allowedChunkIDs,
-            recallPlan: plan
+            recallPlan: plan,
+            queryUnderstanding: queryUnderstanding
         )
-        let orderedSearchResults = preserveAggregateSupportContinuations(
-            in: searchResults,
-            queryText: queryText,
-            effectiveLimit: effectiveLimit,
-            dedupeDocuments: dedupeDocuments,
-            activeOnlyByDefault: statuses == nil && plan.statuses == nil
-        )
+        let orderedSearchResults = searchAdjustments.contains(.aggregateSupportContinuations)
+            ? preserveAggregateSupportContinuations(
+                in: searchResults,
+                understanding: queryUnderstanding,
+                effectiveLimit: effectiveLimit,
+                dedupeDocuments: dedupeDocuments,
+                activeOnlyByDefault: statuses == nil && plan.statuses == nil
+            )
+            : searchResults
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
 
@@ -2362,7 +2349,11 @@ public actor MemoryIndex {
         }
     }
 
-    private func queryMatchSignals(from analysis: QueryAnalysis, queryText: String) -> QueryMatchSignals {
+    private func queryMatchSignals(
+        from analysis: QueryAnalysis,
+        queryText: String,
+        understanding: RecallQueryUnderstanding? = nil
+    ) -> QueryMatchSignals {
         QueryMatchSignals(
             facets: Set(analysis.facetHints.map(\.tag)),
             entityValues: Set(analysis.entities.map(\.normalizedValue).map(normalizeEntityValue).filter { !$0.isEmpty }),
@@ -2371,12 +2362,17 @@ public actor MemoryIndex {
             preferredStatuses: [],
             monthDayAnchors: [],
             monthAnchors: [],
-            understanding: RecallQueryUnderstandingAnalyzer.analyze(queryText)
+            understanding: understanding ?? RecallQueryUnderstandingAnalyzer.analyze(queryText)
         )
     }
 
-    private func queryMatchSignals(from analysis: QueryAnalysis, plan: RecallPlan?, queryText: String) -> QueryMatchSignals {
-        var signals = queryMatchSignals(from: analysis, queryText: queryText)
+    private func queryMatchSignals(
+        from analysis: QueryAnalysis,
+        plan: RecallPlan?,
+        queryText: String,
+        understanding: RecallQueryUnderstanding? = nil
+    ) -> QueryMatchSignals {
+        var signals = queryMatchSignals(from: analysis, queryText: queryText, understanding: understanding)
         if let plan {
             signals.temporalIntent = plan.temporalIntent
             signals.preferredStatuses = plan.statuses ?? []
@@ -2820,6 +2816,7 @@ public actor MemoryIndex {
 
         let now = Date()
         let weights = fusionWeights(for: primaryQueryText)
+        let anchorSignals = anchorCoverageSignals(for: primaryQueryText)
         var results: [FusedCandidate] = []
         results.reserveCapacity(candidateIDs.count)
 
@@ -2830,7 +2827,7 @@ public actor MemoryIndex {
             let lexical = lexicalRRF[chunkID] ?? 0
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
-            let anchorBonus = anchorCoverageBonus(queryText: primaryQueryText, metadata: metadata)
+            let anchorBonus = anchorCoverageBonus(signals: anchorSignals, metadata: metadata)
             let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
             let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
                 + ellipticalStructureBonus(querySignals: querySignals, metadata: metadata)
@@ -3329,6 +3326,88 @@ public actor MemoryIndex {
         return min(fusedCount, query.rerankLimit)
     }
 
+    private func applyPostRerankAdjustments(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard !results.isEmpty,
+              !searchAdjustments.isEmpty,
+              query.rerankLimit == 0,
+              query.limit >= 5 else {
+            return results
+        }
+
+        var adjusted = results
+        let understanding = querySignals.understanding
+        if searchAdjustments.contains(.evidenceSupport),
+           shouldAdjustEvidenceSupport(for: understanding) {
+            adjusted = applyEvidenceSupportAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        let canApplyExpansionAdjustments = query.expansionLimit > 0 && query.limit >= 10
+        if searchAdjustments.contains(.semanticPreservation),
+           canApplyExpansionAdjustments,
+           understanding.isProcedural || understanding.operations.contains(.currentState) {
+            adjusted = applyExpansionSemanticPreservationAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.currentStateLexicalPreservation),
+           canApplyExpansionAdjustments,
+           understanding.operations.contains(.currentState) {
+            adjusted = applyCurrentStateLexicalPreservationAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.negatedQualificationRelief),
+           query.limit >= 10,
+           GenericQueryRewriteLexicon.hasNegatedQualificationIntent(understanding),
+           hasLoanOrDebtCue(understanding) {
+            adjusted = applyNegatedQualificationReliefAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.proceduralRetentionChoice),
+           canApplyExpansionAdjustments,
+           understanding.isProcedural,
+           asksAboutRetentionChoice(understanding) {
+            adjusted = applyProceduralRetentionChoiceAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.temporalLexicalPreservation),
+           canApplyExpansionAdjustments,
+           understanding.requiresEvidenceAggregation,
+           hasExplicitDurationRecallShape(understanding) {
+            adjusted = applyExpansionTemporalLexicalPreservationAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.recommendationSemantic),
+           understanding.operations.contains(.recommendation) {
+            adjusted = applyRecommendationSemanticAdjustment(
+                to: adjusted,
+                querySignals: querySignals,
+                query: query
+            )
+        }
+        return adjusted
+    }
+
     private func normalizedFusedScore(_ fused: Double, maxFusedScore: Double) -> Double {
         guard maxFusedScore > 0 else { return min(1, max(0, fused)) }
         return min(1, max(0, fused / maxFusedScore))
@@ -3336,7 +3415,7 @@ public actor MemoryIndex {
 
     private func preserveAggregateSupportContinuations(
         in results: [SearchResult],
-        queryText: String,
+        understanding: RecallQueryUnderstanding,
         effectiveLimit: Int,
         dedupeDocuments: Bool,
         activeOnlyByDefault: Bool
@@ -3347,7 +3426,6 @@ public actor MemoryIndex {
             return results
         }
 
-        let understanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
         guard understanding.isEvidenceDense else {
             return results
         }
@@ -4223,25 +4301,30 @@ public actor MemoryIndex {
         MemorySearchHeuristics.isTimeAnchoredQuery(queryText)
     }
 
-    private func anchorCoverageBonus(queryText: String, metadata: StoredChunkMetadata) -> Double {
+    private func anchorCoverageSignals(for queryText: String) -> AnchorCoverageSignals {
+        AnchorCoverageSignals(
+            anchors: anchorTokens(from: queryText),
+            quotedPhrases: quotedPhraseAnchors(from: queryText)
+        )
+    }
+
+    private func anchorCoverageBonus(signals: AnchorCoverageSignals, metadata: StoredChunkMetadata) -> Double {
         let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
             .lowercased()
-        let phraseBonus = quotedPhraseCoverageBonus(queryText: queryText, searchable: searchable)
-        let anchors = anchorTokens(from: queryText)
-        guard !anchors.isEmpty else { return phraseBonus }
+        let phraseBonus = quotedPhraseCoverageBonus(phrases: signals.quotedPhrases, searchable: searchable)
+        guard !signals.anchors.isEmpty else { return phraseBonus }
 
         var matched = 0
-        for anchor in anchors where searchable.contains(anchor) {
+        for anchor in signals.anchors where searchable.contains(anchor) {
             matched += 1
         }
         guard matched > 0 else { return phraseBonus }
 
-        let coverage = Double(matched) / Double(anchors.count)
+        let coverage = Double(matched) / Double(signals.anchors.count)
         return phraseBonus + (0.003 * coverage)
     }
 
-    private func quotedPhraseCoverageBonus(queryText: String, searchable: String) -> Double {
-        let phrases = quotedPhraseAnchors(from: queryText)
+    private func quotedPhraseCoverageBonus(phrases: [String], searchable: String) -> Double {
         guard !phrases.isEmpty else { return 0 }
 
         var matched = 0
