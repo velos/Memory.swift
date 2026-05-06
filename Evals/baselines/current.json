@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-05-03T03:20:00Z",
+  "created_at": "2026-05-06T22:59:02Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -10,6 +10,9 @@
     "Refreshed after removing benchmark-derived query aliases, query intent content bonuses, primary-branch protection, and post-fusion multi-evidence rank surgery.",
     "query_expansion_gold_v1 now tracks coverage plus retrieval no-harm instead of requiring positive mined MRR lift.",
     "general_v2 and longmemeval_v2 are the broad recall checkpoints for future retrieval improvements.",
+    "LongMemEval thresholds now promote the generalized recall adjustment gains proven by three fresh no-cache/no-index repeats on 2026-05-06.",
+    "Held-out LifeBench-style retrieval diagnostics showed the same adjustment layer transfers on top-k quality without relying on benchmark-derived runtime behavior.",
+    "The promoted LongMemEval floor protects generic aggregate/support preservation, not benchmark-specific rescue phrases, IDs, or aliases.",
     "agent_memory_gold_v1 remains locked at the current 100% behavior baseline; rerun before release when agent-memory code changes."
   ],
   "required_runs": [
@@ -80,18 +83,18 @@
       "dataset": "longmemeval_v2",
       "dataset_root": "Evals/longmemeval_v2",
       "profile": "coreml_default",
-      "latency_p95_ms": 630.1679611206055,
+      "latency_p95_ms": 709.867000579834,
       "metrics": {
-        "recall.hit_at_10": 0.8839779005524862,
-        "recall.recall_at_10": 0.7850828729281771,
-        "recall.mrr_at_10": 0.5985793212312549,
-        "recall.ndcg_at_10": 0.6060567831942332
+        "recall.hit_at_10": 0.9226519337016574,
+        "recall.recall_at_10": 0.8289134438305714,
+        "recall.mrr_at_10": 0.6131193545558186,
+        "recall.ndcg_at_10": 0.6267239872139525
       },
       "minimum_metrics": {
-        "recall.hit_at_10": 0.83,
-        "recall.recall_at_10": 0.73,
-        "recall.mrr_at_10": 0.55,
-        "recall.ndcg_at_10": 0.55
+        "recall.hit_at_10": 0.91,
+        "recall.recall_at_10": 0.825,
+        "recall.mrr_at_10": 0.61,
+        "recall.ndcg_at_10": 0.62
       }
     },
     {
