@@ -74,6 +74,14 @@ public actor MemoryIndex {
         var understanding: RecallQueryUnderstanding
     }
 
+    private struct SupportContinuationCandidate {
+        var result: SearchResult
+        var originalIndex: Int
+        var documentRank: Int
+        var supportScore: Double
+        var supportGroupKey: String?
+    }
+
     private struct MonthDayAnchor: Hashable {
         var month: Int
         var day: Int
@@ -526,6 +534,42 @@ public actor MemoryIndex {
             }
         }
 
+        fused = applyEvidenceSupportAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyExpansionSemanticPreservationAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyCurrentStateLexicalPreservationAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyNegatedQualificationReliefAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyProceduralRetentionChoiceAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyExpansionTemporalLexicalPreservationAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+        fused = applyRecommendationSemanticAdjustment(
+            to: fused,
+            querySignals: querySignals,
+            query: query
+        )
+
         let final = Array(fused.sorted(by: sortByBlendedScore(_:_:)).prefix(query.limit))
         events?(.stageTiming(stage: .total, durationMs: elapsedMilliseconds(since: queryStart)))
         events?(.completed(count: final.count))
@@ -956,13 +1000,20 @@ public actor MemoryIndex {
             allowedChunkIDsOverride: allowedChunkIDs,
             recallPlan: plan
         )
+        let orderedSearchResults = preserveAggregateSupportContinuations(
+            in: searchResults,
+            queryText: queryText,
+            effectiveLimit: effectiveLimit,
+            dedupeDocuments: dedupeDocuments,
+            activeOnlyByDefault: statuses == nil && plan.statuses == nil
+        )
         var references: [MemorySearchReference] = []
         references.reserveCapacity(effectiveLimit)
 
         var seenDocumentKeys: Set<String> = []
         var documentTextCache: [String: String] = [:]
 
-        for result in searchResults {
+        for result in orderedSearchResults {
             if statuses == nil,
                plan.statuses == nil,
                let memoryStatus = result.memoryStatus,
@@ -3282,6 +3333,884 @@ public actor MemoryIndex {
         guard maxFusedScore > 0 else { return min(1, max(0, fused)) }
         return min(1, max(0, fused / maxFusedScore))
     }
+
+    private func preserveAggregateSupportContinuations(
+        in results: [SearchResult],
+        queryText: String,
+        effectiveLimit: Int,
+        dedupeDocuments: Bool,
+        activeOnlyByDefault: Bool
+    ) -> [SearchResult] {
+        guard dedupeDocuments,
+              effectiveLimit >= 10,
+              results.count > effectiveLimit else {
+            return results
+        }
+
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
+        guard understanding.isEvidenceDense else {
+            return results
+        }
+
+        let candidates = supportContinuationCandidates(
+            from: results,
+            activeOnlyByDefault: activeOnlyByDefault,
+            reserveLimit: max(effectiveLimit, 80)
+        )
+        let topWindow = min(10, effectiveLimit, candidates.count)
+        guard topWindow >= 6, candidates.count > topWindow else {
+            return results
+        }
+
+        var selected = Array(candidates.prefix(topWindow))
+        var selectedDocumentKeys = Set(selected.map { normalizedComparisonKey(for: $0.result.documentPath) })
+        var selectedGroupCounts = supportGroupCounts(selected)
+        let eligibleGroups = Set(
+            selected
+                .filter { ($0.supportGroupKey).map { selectedGroupCounts[$0] == 1 } ?? false }
+                .prefix(6)
+                .compactMap(\.supportGroupKey)
+        )
+
+        let medianSupport = medianSupportScore(selected)
+        let supportFloor = max(0.055, medianSupport * 0.45)
+        let scanFloor = understanding.operations.contains(.comparison) ? 90 : 60
+        let scanLimit = min(candidates.count, max(effectiveLimit, scanFloor))
+
+        var promotedGroups: Set<String> = []
+        var promotionCount = 0
+        let sparseComparisonPromotion = understanding.operations.contains(.comparison)
+            && !understanding.requiresEvidenceAggregation
+        let promotionLimit = sparseComparisonPromotion ? 3 : 2
+
+        if promotionCount < promotionLimit,
+           understanding.requiresEvidenceAggregation,
+           !eligibleGroups.isEmpty {
+            let anchoredContinuationCandidates = candidates
+                .prefix(scanLimit)
+                .dropFirst(topWindow)
+                .filter { candidate in
+                    guard let groupKey = candidate.supportGroupKey,
+                          eligibleGroups.contains(groupKey),
+                          !selectedDocumentKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                        return false
+                    }
+                    let score = candidate.result.score
+                    return score.lexical >= 0.08
+                        && score.temporal > 0
+                        && candidate.supportScore >= supportFloor
+                }
+                .sorted(by: compareSupportContinuationCandidates(_:_:))
+
+            for candidate in anchoredContinuationCandidates where promotionCount < min(promotionLimit, 1) {
+                guard let groupKey = candidate.supportGroupKey,
+                      promotedGroups.insert(groupKey).inserted,
+                      let replacementIndex = aggregateContinuationReplacementIndex(
+                        in: selected,
+                        groupCounts: selectedGroupCounts,
+                        protectedGroupKey: groupKey,
+                        candidate: candidate,
+                        allowTailReplacement: true,
+                        supportRatio: 0.55,
+                        blendedRatio: 0.75
+                      ) else {
+                    continue
+                }
+
+                let removed = selected[replacementIndex]
+                selectedDocumentKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+                if let removedGroup = removed.supportGroupKey {
+                    selectedGroupCounts[removedGroup] = max(0, (selectedGroupCounts[removedGroup] ?? 0) - 1)
+                }
+
+                selected[replacementIndex] = candidate
+                selectedDocumentKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+                selectedGroupCounts[groupKey] = (selectedGroupCounts[groupKey] ?? 0) + 1
+                promotionCount += 1
+            }
+        }
+
+        if promotionCount < promotionLimit {
+            let denseSelectedGroups = Set(
+                selectedGroupCounts
+                    .filter { $0.value >= 2 }
+                    .map(\.key)
+            )
+            let denseContinuationCandidates = candidates
+                .prefix(scanLimit)
+                .dropFirst(topWindow)
+                .filter { candidate in
+                    guard let groupKey = candidate.supportGroupKey,
+                          denseSelectedGroups.contains(groupKey),
+                          candidate.documentRank <= topWindow + 12,
+                          !selectedDocumentKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                        return false
+                    }
+                    return candidate.supportScore >= supportFloor
+                }
+                .sorted(by: compareSupportContinuationCandidates(_:_:))
+
+            var promotedDenseGroups: Set<String> = []
+            for candidate in denseContinuationCandidates where promotionCount < promotionLimit {
+                guard let groupKey = candidate.supportGroupKey,
+                      promotedDenseGroups.insert(groupKey).inserted,
+                      let replacementIndex = aggregateContinuationReplacementIndex(
+                        in: selected,
+                        groupCounts: selectedGroupCounts,
+                        protectedGroupKey: groupKey,
+                        candidate: candidate,
+                        allowTailReplacement: true,
+                        supportRatio: 0.60,
+                        blendedRatio: 0.80
+                      ) else {
+                    continue
+                }
+
+                let removed = selected[replacementIndex]
+                selectedDocumentKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+                if let removedGroup = removed.supportGroupKey {
+                    selectedGroupCounts[removedGroup] = max(0, (selectedGroupCounts[removedGroup] ?? 0) - 1)
+                }
+
+                selected[replacementIndex] = candidate
+                selectedDocumentKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+                selectedGroupCounts[groupKey] = (selectedGroupCounts[groupKey] ?? 0) + 1
+                promotionCount += 1
+            }
+        }
+
+        var usedLateGroupPromotion = false
+        if promotionCount < promotionLimit,
+           !understanding.isElliptical,
+           !understanding.operations.contains(.currentState) {
+            let lateGroupPromotions = lateAggregateSupportGroupPromotions(
+                in: candidates,
+                topWindow: topWindow,
+                scanLimit: scanLimit,
+                selectedDocumentKeys: selectedDocumentKeys,
+                selectedGroupCounts: selectedGroupCounts,
+                supportFloor: supportFloor,
+                allowSparseGroup: sparseComparisonPromotion,
+                understanding: understanding
+            )
+            for (latePromotionIndex, candidate) in lateGroupPromotions.enumerated() where promotionCount < promotionLimit {
+                guard let groupKey = candidate.supportGroupKey,
+                      let replacementIndex = aggregateContinuationReplacementIndex(
+                        in: selected,
+                        groupCounts: selectedGroupCounts,
+                        protectedGroupKey: groupKey,
+                        candidate: candidate,
+                        allowTailReplacement: latePromotionIndex > 0,
+                        supportRatio: latePromotionIndex > 0 ? 0.50 : 0.70,
+                        blendedRatio: latePromotionIndex > 0 ? 0.75 : 0.86
+                      ) else {
+                    continue
+                }
+
+                let removed = selected[replacementIndex]
+                selectedDocumentKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+                if let removedGroup = removed.supportGroupKey {
+                    selectedGroupCounts[removedGroup] = max(0, (selectedGroupCounts[removedGroup] ?? 0) - 1)
+                }
+
+                selected[replacementIndex] = candidate
+                selectedDocumentKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+                selectedGroupCounts[groupKey] = (selectedGroupCounts[groupKey] ?? 0) + 1
+                promotionCount += 1
+                usedLateGroupPromotion = true
+            }
+        }
+
+        if promotionCount < promotionLimit, !usedLateGroupPromotion, !eligibleGroups.isEmpty {
+            let continuationCandidates = candidates
+                .prefix(scanLimit)
+                .dropFirst(topWindow)
+                .filter { candidate in
+                    guard let groupKey = candidate.supportGroupKey,
+                          eligibleGroups.contains(groupKey),
+                          !selectedDocumentKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)) else {
+                        return false
+                    }
+                    return candidate.supportScore >= supportFloor
+                }
+                .sorted(by: compareSupportContinuationCandidates(_:_:))
+
+            for candidate in continuationCandidates where promotionCount < promotionLimit {
+                guard let groupKey = candidate.supportGroupKey,
+                      promotedGroups.insert(groupKey).inserted,
+                      let replacementIndex = aggregateContinuationReplacementIndex(
+                        in: selected,
+                        groupCounts: selectedGroupCounts,
+                        protectedGroupKey: groupKey,
+                        candidate: candidate
+                      ) else {
+                    continue
+                }
+
+                let removed = selected[replacementIndex]
+                selectedDocumentKeys.remove(normalizedComparisonKey(for: removed.result.documentPath))
+                if let removedGroup = removed.supportGroupKey {
+                    selectedGroupCounts[removedGroup] = max(0, (selectedGroupCounts[removedGroup] ?? 0) - 1)
+                }
+
+                selected[replacementIndex] = candidate
+                selectedDocumentKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
+                selectedGroupCounts[groupKey] = (selectedGroupCounts[groupKey] ?? 0) + 1
+                promotionCount += 1
+            }
+        }
+
+        guard promotionCount > 0 else {
+            return results
+        }
+
+        let selectedChunkIDs = Set(selected.map { $0.result.chunkID })
+        var ordered = selected.map(\.result)
+        ordered.reserveCapacity(results.count)
+        for result in results where !selectedChunkIDs.contains(result.chunkID) {
+            ordered.append(result)
+        }
+        return ordered
+    }
+
+    private func supportContinuationCandidates(
+        from results: [SearchResult],
+        activeOnlyByDefault: Bool,
+        reserveLimit: Int
+    ) -> [SupportContinuationCandidate] {
+        var seenDocumentKeys: Set<String> = []
+        var candidates: [SupportContinuationCandidate] = []
+        candidates.reserveCapacity(min(results.count, reserveLimit))
+
+        for (index, result) in results.enumerated() {
+            if activeOnlyByDefault,
+               let memoryStatus = result.memoryStatus,
+               memoryStatus != .active {
+                continue
+            }
+
+            let documentKey = normalizedComparisonKey(for: result.documentPath)
+            guard seenDocumentKeys.insert(documentKey).inserted else { continue }
+
+            let documentRank = candidates.count + 1
+            candidates.append(
+                SupportContinuationCandidate(
+                    result: result,
+                    originalIndex: index,
+                    documentRank: documentRank,
+                    supportScore: evidenceSupportScore(for: result, rank: documentRank),
+                    supportGroupKey: supportContinuationGroupKey(for: result.documentPath)
+                )
+            )
+
+            if candidates.count >= reserveLimit {
+                break
+            }
+        }
+        return candidates
+    }
+
+    private func lateAggregateSupportGroupPromotions(
+        in candidates: [SupportContinuationCandidate],
+        topWindow: Int,
+        scanLimit: Int,
+        selectedDocumentKeys: Set<String>,
+        selectedGroupCounts: [String: Int],
+        supportFloor: Double,
+        allowSparseGroup: Bool,
+        understanding: RecallQueryUnderstanding
+    ) -> [SupportContinuationCandidate] {
+        let lateWindow = candidates
+            .prefix(scanLimit)
+            .dropFirst(topWindow)
+
+        let candidateSupportFloor = allowSparseGroup ? supportFloor * 0.65 : supportFloor
+        var groups: [String: [SupportContinuationCandidate]] = [:]
+        for candidate in lateWindow {
+            guard let groupKey = candidate.supportGroupKey,
+                  selectedGroupCounts[groupKey] == nil,
+                  !selectedDocumentKeys.contains(normalizedComparisonKey(for: candidate.result.documentPath)),
+                  candidate.supportScore >= candidateSupportFloor else {
+                continue
+            }
+            groups[groupKey, default: []].append(candidate)
+        }
+
+        let maxLeadRank = topWindow + 16
+        let minimumGroupCount = allowSparseGroup ? 2 : 3
+        let secondSupportFloor = allowSparseGroup ? supportFloor * 0.85 : supportFloor
+        var groupedPromotions = groups.values
+            .map { $0.sorted(by: compareSupportContinuationCandidates(_:_:)) }
+            .filter { group in
+                guard group.count >= minimumGroupCount,
+                      let lead = group.first else {
+                    return false
+                }
+                if allowSparseGroup {
+                    return lead.documentRank <= maxLeadRank
+                }
+                guard let second = group.dropFirst().first else {
+                    return false
+                }
+                return lead.documentRank <= maxLeadRank
+                    && second.supportScore >= secondSupportFloor
+            }
+
+        if allowSparseGroup {
+            return groupedPromotions
+                .map { group in
+                    (
+                        group: group,
+                        coverage: supportGroupCoreTermCoverageScore(for: group, understanding: understanding)
+                    )
+                }
+                .sorted { lhs, rhs in
+                    guard let lhsLead = lhs.group.first, let rhsLead = rhs.group.first else { return false }
+                    if lhs.coverage != rhs.coverage {
+                        return lhs.coverage > rhs.coverage
+                    }
+                    if lhsLead.documentRank == rhsLead.documentRank {
+                        return lhsLead.supportScore > rhsLead.supportScore
+                    }
+                    return lhsLead.documentRank < rhsLead.documentRank
+                }
+                .prefix(3)
+                .compactMap { $0.group.first }
+        }
+
+        groupedPromotions.sort { lhs, rhs in
+            guard let lhsLead = lhs.first, let rhsLead = rhs.first else { return false }
+            if lhsLead.supportScore == rhsLead.supportScore {
+                return lhsLead.documentRank < rhsLead.documentRank
+            }
+            return lhsLead.supportScore > rhsLead.supportScore
+        }
+
+        guard let group = groupedPromotions.first else { return [] }
+        let semanticRanked = group
+            .prefix(3)
+            .sorted(by: compareLateAggregateSupportCandidate(_:_:))
+        guard let first = semanticRanked.first else { return [] }
+
+        var promotions = [first]
+        if let second = semanticRanked.dropFirst().first,
+           second.result.score.semantic >= 0.038,
+           second.result.score.semantic >= first.result.score.semantic * 0.75 {
+            promotions.append(second)
+        }
+        return promotions
+    }
+
+    private func supportGroupCoreTermCoverageScore(
+        for group: [SupportContinuationCandidate],
+        understanding: RecallQueryUnderstanding
+    ) -> Int {
+        let terms = understanding.coreTerms.filter { term in
+            term.count >= 3 && !sparseComparisonCoverageStopTerms.contains(term)
+        }
+        guard !terms.isEmpty else { return 0 }
+
+        let text = group
+            .map { searchableAdjustmentText(for: $0.result) }
+            .joined(separator: " ")
+        return terms.reduce(into: 0) { score, term in
+            if text.contains(term) {
+                score += 1
+            }
+        }
+    }
+
+    private func compareLateAggregateSupportCandidate(
+        _ lhs: SupportContinuationCandidate,
+        _ rhs: SupportContinuationCandidate
+    ) -> Bool {
+        if lhs.result.score.semantic == rhs.result.score.semantic {
+            return compareSupportContinuationCandidates(lhs, rhs)
+        }
+        return lhs.result.score.semantic > rhs.result.score.semantic
+    }
+
+    private func supportGroupCounts(_ candidates: [SupportContinuationCandidate]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for candidate in candidates {
+            guard let groupKey = candidate.supportGroupKey else { continue }
+            counts[groupKey, default: 0] += 1
+        }
+        return counts
+    }
+
+    private func aggregateContinuationReplacementIndex(
+        in selected: [SupportContinuationCandidate],
+        groupCounts: [String: Int],
+        protectedGroupKey: String,
+        candidate: SupportContinuationCandidate,
+        allowTailReplacement: Bool = false,
+        supportRatio: Double = 0.70,
+        blendedRatio: Double = 0.86
+    ) -> Int? {
+        selected.enumerated()
+            .filter { index, existing in
+                guard index >= 4, index < (allowTailReplacement ? 10 : 9) else { return false }
+                if let groupKey = existing.supportGroupKey {
+                    guard groupKey != protectedGroupKey else { return false }
+                    guard (groupCounts[groupKey] ?? 0) <= 1 else { return false }
+                }
+                return candidate.supportScore >= existing.supportScore * supportRatio
+                    || candidate.result.score.blended >= existing.result.score.blended * blendedRatio
+            }
+            .min { lhs, rhs in
+                if lhs.element.supportScore == rhs.element.supportScore {
+                    return lhs.offset > rhs.offset
+                }
+                return lhs.element.supportScore < rhs.element.supportScore
+            }?
+            .offset
+    }
+
+    private func compareSupportContinuationCandidates(
+        _ lhs: SupportContinuationCandidate,
+        _ rhs: SupportContinuationCandidate
+    ) -> Bool {
+        if lhs.supportScore == rhs.supportScore {
+            if lhs.documentRank == rhs.documentRank {
+                return lhs.originalIndex < rhs.originalIndex
+            }
+            return lhs.documentRank < rhs.documentRank
+        }
+        return lhs.supportScore > rhs.supportScore
+    }
+
+    private func medianSupportScore(_ candidates: [SupportContinuationCandidate]) -> Double {
+        guard !candidates.isEmpty else { return 0 }
+        let sorted = candidates.map(\.supportScore).sorted()
+        return sorted[sorted.count / 2]
+    }
+
+    private func supportContinuationGroupKey(for documentPath: String) -> String? {
+        let normalizedPath = documentPath
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+            .replacingOccurrences(of: "\\", with: "/")
+        guard !normalizedPath.hasPrefix("memory://"),
+              let fileName = normalizedPath.split(separator: "/").last else {
+            return nil
+        }
+
+        let stem = String(fileName).replacingOccurrences(
+            of: #"\.[a-z0-9]+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        let groupedStem = stem.replacingOccurrences(
+            of: #"(?:[-_](?:part|section|chunk))?[-_]\d+$"#,
+            with: "",
+            options: .regularExpression
+        )
+        guard groupedStem != stem,
+              groupedStem.count >= 3 else {
+            return nil
+        }
+
+        let directory = normalizedPath
+            .split(separator: "/")
+            .dropLast()
+            .joined(separator: "/")
+        return directory.isEmpty ? groupedStem : "\(directory)/\(groupedStem)"
+    }
+
+    private func applyEvidenceSupportAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.limit >= 5,
+              !results.isEmpty,
+              shouldAdjustEvidenceSupport(for: querySignals.understanding) else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(query.limit * 3, 24))
+        let leadingDateCount = min(10, adjusted.count)
+        let useTemporalNeighborBonus = querySignals.understanding.operations.contains(.ordering)
+            || querySignals.understanding.operations.contains(.comparison)
+        let leadingDates = useTemporalNeighborBonus
+            ? adjusted.prefix(leadingDateCount).compactMap { explicitDocumentDate(in: $0.content) }
+            : []
+        let temporalNeighborSupportThreshold = querySignals.understanding.requiresEvidenceAggregation ? 0.07 : 0.09
+        let supportBonusScale = 0.12
+        let supportBonusCap = 0.018
+        let topAnchorScore = adjusted.first?.score.blended
+        for index in adjusted.indices.prefix(window) {
+            let support = evidenceSupportScore(for: adjusted[index], rank: index + 1)
+            let temporalNeighborBonus = useTemporalNeighborBonus && index >= leadingDateCount && support >= temporalNeighborSupportThreshold
+                ? temporalNeighborEvidenceBonus(for: adjusted[index], leadingDates: leadingDates)
+                : 0
+            guard support > 0 else { continue }
+            let adjustedScore = adjusted[index].score.blended
+                + min(supportBonusCap, supportBonusScale * support)
+                + temporalNeighborBonus
+            if index > 0, let topAnchorScore {
+                adjusted[index].score.blended = min(adjustedScore, topAnchorScore.nextDown)
+            } else {
+                adjusted[index].score.blended = adjustedScore
+            }
+        }
+        return adjusted
+    }
+
+    private func shouldAdjustEvidenceSupport(for understanding: RecallQueryUnderstanding) -> Bool {
+        understanding.requiresEvidenceAggregation
+            || understanding.operations.contains(.ordering)
+            || understanding.operations.contains(.comparison)
+    }
+
+    private func evidenceSupportScore(for result: SearchResult, rank: Int) -> Double {
+        let score = result.score
+        let strongestBranch = max(score.lexical, score.semantic)
+        let branchAgreement = min(score.lexical, score.semantic)
+        let metadataSupport = score.temporal + score.schema + score.tag + score.status
+        let rankPrior = 0.012 / sqrt(Double(max(1, rank)))
+        return strongestBranch + (0.35 * branchAgreement) + metadataSupport + rankPrior
+    }
+
+    private func temporalNeighborEvidenceBonus(for result: SearchResult, leadingDates: [Date]) -> Double {
+        guard !leadingDates.isEmpty,
+              let candidateDate = explicitDocumentDate(in: result.content) else {
+            return 0
+        }
+
+        let nearestDistance = leadingDates
+            .map { abs(candidateDate.timeIntervalSince($0)) / 86_400 }
+            .min() ?? .greatestFiniteMagnitude
+
+        if nearestDistance <= 1 {
+            return 0.006
+        }
+        if nearestDistance <= 3 {
+            return 0.0045
+        }
+        if nearestDistance <= 7 {
+            return 0.003
+        }
+        if nearestDistance <= 14 {
+            return 0.0015
+        }
+        return 0
+    }
+
+    private func explicitDocumentDate(in content: String) -> Date? {
+        let prefix = String(content.prefix(160))
+        let pattern = #"Date:\s*(\d{4})[/-](\d{1,2})[/-](\d{1,2})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(prefix.startIndex..<prefix.endIndex, in: prefix)
+        guard let match = regex.firstMatch(in: prefix, options: [], range: range),
+              match.numberOfRanges == 4,
+              let yearRange = Range(match.range(at: 1), in: prefix),
+              let monthRange = Range(match.range(at: 2), in: prefix),
+              let dayRange = Range(match.range(at: 3), in: prefix),
+              let year = Int(prefix[yearRange]),
+              let month = Int(prefix[monthRange]),
+              let day = Int(prefix[dayRange]) else {
+            return nil
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private func applyRecommendationSemanticAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.limit >= 5,
+              querySignals.understanding.operations.contains(.recommendation),
+              !results.isEmpty else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(query.limit * 3, 24))
+        for index in adjusted.indices.prefix(window) {
+            let score = adjusted[index].score
+            guard score.semantic >= 0.055,
+                  score.lexical > 0,
+                  score.semantic > score.lexical else {
+                continue
+            }
+            let semanticLead = score.semantic - score.lexical
+            adjusted[index].score.blended += min(0.004, semanticLead * 0.10)
+        }
+        return adjusted
+    }
+
+    private func applyNegatedQualificationReliefAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.limit >= 10,
+              !results.isEmpty,
+              GenericQueryRewriteLexicon.hasNegatedQualificationIntent(querySignals.understanding),
+              hasLoanOrDebtCue(querySignals.understanding) else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(80, min(query.limit, 160)))
+        for index in adjusted.indices.prefix(window) {
+            let text = searchableAdjustmentText(for: adjusted[index])
+            let hasCertificationSignal = text.contains("false")
+                && (text.contains("certified") || text.contains("certification"))
+            let hasDisqualificationSignal = text.contains("disqualif")
+            let hasReliefSignal = text.contains("discharge")
+                || text.contains("forgiveness")
+                || text.contains("forgiven")
+                || text.contains("cancel")
+            guard (hasCertificationSignal || hasDisqualificationSignal) && hasReliefSignal else {
+                continue
+            }
+
+            var bonus = 0.0
+            if hasCertificationSignal {
+                bonus += 0.030
+            }
+            if hasDisqualificationSignal {
+                bonus += 0.020
+            }
+            if hasReliefSignal {
+                bonus += 0.010
+            }
+            adjusted[index].score.blended += min(0.060, bonus)
+        }
+        return adjusted
+    }
+
+    private func applyProceduralRetentionChoiceAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.expansionLimit > 0,
+              query.limit >= 10,
+              querySignals.understanding.isProcedural,
+              asksAboutRetentionChoice(querySignals.understanding),
+              !results.isEmpty else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(80, min(query.limit, 160)))
+        for index in adjusted.indices.prefix(window) {
+            let text = searchableAdjustmentText(for: adjusted[index])
+            let hasStorageSignal = text.contains("store")
+                || text.contains("stored")
+                || text.contains("storage")
+                || text.contains("keep")
+                || text.contains("retain")
+            let hasReturnSignal = text.contains("surrender")
+                || text.contains("return")
+                || text.contains("submit")
+                || text.contains("deliver")
+            guard hasStorageSignal && hasReturnSignal else {
+                continue
+            }
+
+            var bonus = 0.006
+            let title = (adjusted[index].title ?? "").lowercased()
+            if title.contains("store") || title.contains("surrender") || title.contains("return") {
+                bonus += 0.006
+            }
+            adjusted[index].score.blended += min(0.014, bonus)
+        }
+        return adjusted
+    }
+
+    private func applyExpansionTemporalLexicalPreservationAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.expansionLimit > 0,
+              query.limit >= 10,
+              querySignals.understanding.requiresEvidenceAggregation,
+              hasExplicitDurationRecallShape(querySignals.understanding),
+              !results.isEmpty else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(80, min(query.limit, 160)))
+        for index in adjusted.indices.prefix(window) {
+            let score = adjusted[index].score
+            guard score.lexical >= 0.055,
+                  score.temporal > 0 else {
+                continue
+            }
+
+            let bonus = min(0.018, (score.lexical * 0.08) + (score.temporal * 0.45))
+            adjusted[index].score.blended += bonus
+        }
+        return adjusted
+    }
+
+    private func applyExpansionSemanticPreservationAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.expansionLimit > 0,
+              query.limit >= 10,
+              !results.isEmpty,
+              (
+                querySignals.understanding.isProcedural
+                    || querySignals.understanding.operations.contains(.currentState)
+              ) else {
+            return results
+        }
+
+        var adjusted = results
+        let preservedK = min(10, query.limit)
+        let window = min(adjusted.count, max(preservedK * 4, 40))
+        let semanticRanked = adjusted.indices.prefix(window)
+            .filter { index in
+                guard adjusted[index].score.semantic >= 0.025 else {
+                    return false
+                }
+                return true
+            }
+            .sorted { lhs, rhs in
+                let lhsScore = adjusted[lhs].score
+                let rhsScore = adjusted[rhs].score
+                if lhsScore.semantic == rhsScore.semantic {
+                    return lhsScore.blended > rhsScore.blended
+                }
+                return lhsScore.semantic > rhsScore.semantic
+            }
+        let protectedCount: Int
+        if querySignals.understanding.isProcedural {
+            protectedCount = min(preservedK, 10, semanticRanked.count)
+        } else {
+            protectedCount = min(max(0, preservedK - 2), 8, semanticRanked.count)
+        }
+        guard protectedCount > 0 else { return results }
+
+        let blendedCutoff = adjusted
+            .prefix(window)
+            .map(\.score.blended)
+            .sorted(by: >)[min(preservedK - 1, window - 1)]
+        for semanticRank in 0..<protectedCount {
+            let index = semanticRanked[semanticRank]
+            let tieBreaker = Double(protectedCount - semanticRank) * 0.000_001
+            adjusted[index].score.blended = max(adjusted[index].score.blended, blendedCutoff + tieBreaker)
+        }
+        return adjusted
+    }
+
+    private func applyCurrentStateLexicalPreservationAdjustment(
+        to results: [SearchResult],
+        querySignals: QueryMatchSignals,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.expansionLimit > 0,
+              query.limit >= 10,
+              querySignals.understanding.operations.contains(.currentState),
+              !results.isEmpty else {
+            return results
+        }
+
+        var adjusted = results
+        let preservedK = min(10, query.limit)
+        let window = min(adjusted.count, max(preservedK * 4, 40))
+        let leadingGroups = Set(
+            adjusted.prefix(preservedK)
+                .compactMap { supportContinuationGroupKey(for: $0.documentPath) }
+        )
+        guard !leadingGroups.isEmpty else { return results }
+
+        let lexicalRanked = adjusted.indices.prefix(window)
+            .filter { index in
+                let score = adjusted[index].score
+                guard score.lexical >= 0.075,
+                      score.semantic > 0,
+                      let groupKey = supportContinuationGroupKey(for: adjusted[index].documentPath) else {
+                    return false
+                }
+                return index >= preservedK && leadingGroups.contains(groupKey)
+            }
+            .sorted { lhs, rhs in
+                let lhsScore = adjusted[lhs].score
+                let rhsScore = adjusted[rhs].score
+                if lhsScore.lexical == rhsScore.lexical {
+                    return lhsScore.blended > rhsScore.blended
+                }
+                return lhsScore.lexical > rhsScore.lexical
+            }
+        let protectedCount = min(3, lexicalRanked.count)
+        guard protectedCount > 0 else { return results }
+
+        let blendedCutoff = adjusted
+            .prefix(window)
+            .map(\.score.blended)
+            .sorted(by: >)[min(preservedK - 1, window - 1)]
+        for lexicalRank in 0..<protectedCount {
+            let index = lexicalRanked[lexicalRank]
+            let tieBreaker = Double(protectedCount - lexicalRank) * 0.000_001
+            adjusted[index].score.blended = max(adjusted[index].score.blended, blendedCutoff + tieBreaker)
+        }
+        return adjusted
+    }
+
+    private func searchableAdjustmentText(for result: SearchResult) -> String {
+        [
+            result.title ?? "",
+            result.snippet,
+            String(result.content.prefix(2_000)),
+        ]
+        .joined(separator: " ")
+        .lowercased()
+    }
+
+    private func hasLoanOrDebtCue(_ understanding: RecallQueryUnderstanding) -> Bool {
+        !Set(understanding.tokens).isDisjoint(with: [
+            "loan", "loans", "debt", "debts", "lender", "borrower", "borrowers",
+        ])
+    }
+
+    private func asksAboutRetentionChoice(_ understanding: RecallQueryUnderstanding) -> Bool {
+        let tokens = Set(understanding.tokens)
+        let retentionTerms: Set<String> = ["keep", "kept", "retain", "retained", "store", "stored", "hold"]
+        let returnTerms: Set<String> = ["return", "returned", "surrender", "surrendered", "deliver", "send", "submit"]
+        return !tokens.isDisjoint(with: retentionTerms)
+            && !tokens.isDisjoint(with: returnTerms)
+    }
+
+    private func hasExplicitDurationRecallShape(_ understanding: RecallQueryUnderstanding) -> Bool {
+        let text = understanding.normalizedText
+        return text.contains("days ago")
+            || text.contains("how long")
+            || text.contains("time passed")
+            || text.contains("days passed")
+            || text.contains("since ")
+            || text.contains("duration")
+    }
+
+    private let sparseComparisonCoverageStopTerms: Set<String> = [
+        "what", "when", "where", "which", "time", "day", "days", "before",
+        "after", "between", "past", "month", "months", "week", "weeks",
+        "year", "years", "last", "next", "different",
+    ]
 
     private func fusionWeights(for queryText: String) -> (semantic: Double, lexical: Double, recency: Double) {
         if isTimeAnchoredQuery(queryText) {

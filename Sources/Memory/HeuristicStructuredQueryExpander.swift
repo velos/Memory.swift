@@ -121,7 +121,7 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
         let keywordRewrite = compactJoined(
             prioritizedEntities
                 + Array(tokenTerms.prefix(8))
-                + Array(rewriteTerms.prefix(12))
+                + Array(rewriteTerms.prefix(16))
                 + Array(temporalAnchors.prefix(8))
                 + prioritizedTerms
         )
@@ -130,7 +130,7 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
         let focusedRewrite = compactJoined(
             prioritizedEntities
                 + Array(compactTopics.prefix(2))
-                + Array(rewriteTerms.prefix(8))
+                + Array(rewriteTerms.prefix(12))
                 + Array(temporalAnchors.prefix(6))
         )
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)

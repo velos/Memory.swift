@@ -968,6 +968,91 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func genericRewriteLexiconAddsLifestyleAndSubscriptionAliases() {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "Can you suggest fitness magazine subscriptions?"
+        )
+        let terms = GenericQueryRewriteLexicon.expansionTerms(for: understanding)
+
+        #expect(terms.contains("exercise"))
+        #expect(terms.contains("periodical"))
+        #expect(terms.contains("memberships"))
+
+        let cookingUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "How many cuisines have I tried cooking?"
+        )
+        let cookingTerms = GenericQueryRewriteLexicon.expansionTerms(for: cookingUnderstanding)
+        #expect(cookingTerms.contains("recipes"))
+        #expect(cookingTerms.contains("dishes"))
+    }
+
+    @Test
+    func comparisonRecallCanIncludeTemporallyAdjacentEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("hitchhiker-start.md"),
+            """
+            # Session hitchhiker-start
+
+            Date: 2024/01/16 (Tue) 09:00
+
+            I started reading 'The Hitchhiker's Guide to the Galaxy' today and wanted similar comic science fiction books.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("nightingale-finished.md"),
+            """
+            # Session nightingale-finished
+
+            Date: 2024/01/15 (Mon) 20:00
+
+            I finished reading 'The Nightingale' today, one day before the next reading milestone, and recorded how many days passed between the two books.
+            """
+        )
+
+        for index in 0..<10 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(index).md"),
+                """
+                # Session distractor-\(index)
+
+                Date: 2024/03/\(String(format: "%02d", index + 1)) (Fri) 10:00
+
+                I started reading 'The Nightingale' while tracking how many days passed between reading goals and book club plans.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How many days passed between the day I finished reading 'The Nightingale' and the day I started reading 'The Hitchhiker's Guide to the Galaxy'?",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 80,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.contains { $0.documentPath.hasSuffix("hitchhiker-start.md") })
+        #expect(results.contains { $0.documentPath.hasSuffix("nightingale-finished.md") })
+    }
+
+    @Test
     func proceduralEllipsisCanUseDocumentStructureWithoutDomainAliases() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")

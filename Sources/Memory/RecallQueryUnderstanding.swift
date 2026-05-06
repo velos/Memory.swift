@@ -173,6 +173,8 @@ internal enum RecallQueryUnderstandingAnalyzer {
 
     private static func isProceduralQuery(lower: String, tokens: Set<String>) -> Bool {
         let hasQuestionShape = lower.hasPrefix("how ")
+            || lower.hasPrefix("is it ")
+            || lower.hasPrefix("should i ")
             || lower.hasPrefix("what do ")
             || lower.hasPrefix("what should ")
             || lower.hasPrefix("can i ")
@@ -223,7 +225,8 @@ internal enum RecallQueryUnderstandingAnalyzer {
         "document", "documents", "proof", "requirement", "requirements", "required",
         "fee", "fees", "pay", "payment", "mail", "online", "office", "appointment",
         "register", "registration", "renew", "change", "update", "replace", "copy",
-        "appeal", "file", "report", "contact", "send",
+        "appeal", "file", "report", "contact", "send", "address", "license",
+        "plate", "plates", "deliver", "return", "surrender",
     ]
 
     private static let weekdayStems: Set<String> = [
@@ -264,10 +267,16 @@ internal enum GenericQueryRewriteLexicon {
 
     internal static func expansionTerms(for understanding: RecallQueryUnderstanding) -> [String] {
         var terms: [String] = []
+        let hasQualificationNegation = hasNegatedQualificationIntent(understanding)
         for token in understanding.coreTerms {
             append(token, to: &terms)
             for synonym in tokenSynonyms[token] ?? [] {
                 append(synonym, to: &terms)
+            }
+            if hasQualificationNegation, qualificationTerms.contains(token) {
+                for term in qualificationNegationTerms {
+                    append(term, to: &terms)
+                }
             }
         }
 
@@ -308,6 +317,19 @@ internal enum GenericQueryRewriteLexicon {
         values.append(normalized)
     }
 
+    internal static func hasNegatedQualificationIntent(_ understanding: RecallQueryUnderstanding) -> Bool {
+        let tokens = understanding.tokens
+        guard tokens.contains(where: { qualificationTerms.contains($0) }) else { return false }
+
+        for (index, token) in tokens.enumerated() where qualificationTerms.contains(token) {
+            let start = max(0, index - 4)
+            if tokens[start..<index].contains(where: { negationTerms.contains($0) }) {
+                return true
+            }
+        }
+        return false
+    }
+
     private static func compactJoined<S: Sequence>(_ parts: S) -> String where S.Element == String {
         parts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -325,6 +347,8 @@ internal enum GenericQueryRewriteLexicon {
         "request": ["apply", "submit", "ask", "form"],
         "mail": ["mailing", "postal", "send", "address"],
         "mailed": ["mail", "mailing", "postal", "sent"],
+        "address": ["addresses", "change", "update", "contact"],
+        "addresses": ["address", "change", "update", "contact"],
         "online": ["website", "portal", "account", "web"],
         "fee": ["fees", "cost", "payment", "pay", "amount"],
         "fees": ["fee", "cost", "payment", "pay", "amount"],
@@ -342,6 +366,8 @@ internal enum GenericQueryRewriteLexicon {
         "arrived": ["arrival", "received", "delivered"],
         "receive": ["received", "arrived", "delivered"],
         "received": ["receive", "arrived", "delivered"],
+        "deliver": ["return", "submit", "send", "surrender"],
+        "delivered": ["returned", "submitted", "sent"],
         "change": ["update", "modify", "correct"],
         "changed": ["update", "modified", "corrected"],
         "update": ["change", "modify", "current", "correct"],
@@ -350,6 +376,23 @@ internal enum GenericQueryRewriteLexicon {
         "document": ["documents", "paperwork", "record"],
         "documents": ["document", "paperwork", "records"],
         "paperwork": ["documents", "forms", "records"],
+        "license": ["licence", "registration", "permit"],
+        "licenses": ["licences", "registrations", "permits"],
+        "plate": ["plates", "registration", "vehicle", "return", "surrender"],
+        "plates": ["plate", "registration", "vehicle", "return", "surrender"],
+        "keep": ["store", "retain", "hold"],
+        "kept": ["retained", "stored", "held"],
+        "eligible": ["qualified", "qualification", "certification"],
+        "qualified": ["eligible", "qualification", "certification"],
+        "loan": ["discharge", "forgiveness", "debt", "loans"],
+        "loans": ["discharge", "forgiveness", "debt", "loan"],
+        "debt": ["discharge", "forgiveness", "loan"],
+        "policing": ["police", "public", "safety"],
+        "police": ["policing", "public", "safety"],
+        "participated": ["attended", "joined", "played"],
+        "participate": ["attend", "join", "play"],
+        "sports": ["sport", "games", "athletic", "events"],
+        "sport": ["sports", "game", "athletic", "event"],
         "current": ["currently", "active", "now", "still"],
         "currently": ["current", "active", "now", "still"],
         "own": ["owned", "have", "currently"],
@@ -359,10 +402,31 @@ internal enum GenericQueryRewriteLexicon {
         "suggest": ["recommend", "preference", "favorite", "idea", "tips"],
         "suggestions": ["recommendations", "ideas", "tips", "preferences"],
         "tips": ["advice", "suggestions", "recommendations"],
+        "fitness": ["exercise", "workout", "training", "session"],
+        "magazine": ["periodical", "subscription", "issue"],
+        "magazines": ["periodicals", "subscriptions", "issues"],
+        "subscription": ["membership", "magazine", "service"],
+        "subscriptions": ["memberships", "magazines", "services"],
         "recipe": ["recipes", "meal", "cook", "cooking"],
         "recipes": ["recipe", "meal", "cook", "cooking"],
+        "cuisine": ["cooking", "food", "dish", "recipe"],
+        "cuisines": ["cooking", "foods", "dishes", "recipes"],
         "bake": ["baking", "recipe"],
         "baking": ["bake", "recipe"],
+    ]
+
+    private static let qualificationTerms: Set<String> = [
+        "eligible", "eligibility", "qualified", "qualify", "qualification",
+    ]
+
+    private static let negationTerms: Set<String> = [
+        "not", "no", "never", "without", "wasn", "weren", "isn", "aren",
+        "cannot", "cant", "couldn", "shouldn", "didn", "unqualified",
+        "ineligible",
+    ]
+
+    private static let qualificationNegationTerms: [String] = [
+        "ineligible", "disqualified", "disqualifying", "false", "certified",
     ]
 }
 
