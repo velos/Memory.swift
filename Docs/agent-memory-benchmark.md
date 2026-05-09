@@ -117,3 +117,55 @@ scoped lexical search:
   this should remain configurable for on-device 8k-context agents.
 - External benchmark adapters should remain local or live in the benchmark repo;
   Memory.swift should only absorb generic eval infrastructure and runtime fixes.
+
+## ChatGPT-Signed Codex Smoke Runs
+
+For local ballpark end-to-end runs with ChatGPT subscription access, this
+checkout has used a local `codex-chatgpt` LLM provider in the ignored AMB
+reference tree. It shells out to `codex exec`, uses the active Codex ChatGPT
+login, and asks Codex for structured JSON output. This is intentionally separate
+from the API-key `openai` provider: it is useful for local signal, not for
+public apples-to-apples AMB claims.
+
+Useful environment variables:
+
+```bash
+OMB_ANSWER_LLM=codex-chatgpt
+OMB_ANSWER_MODEL=gpt-5.5
+OMB_JUDGE_LLM=codex-chatgpt
+OMB_JUDGE_MODEL=gpt-5.4-mini
+OMB_CODEX_REASONING_EFFORT=low
+OMB_CODEX_VERBOSITY=low
+```
+
+Before running, verify the local auth state:
+
+```bash
+codex login status
+```
+
+Use a small `--query-limit` first. Each answer and each LLM-judge call starts a
+separate Codex session, so full 500-query LongMemEval runs consume far more
+ChatGPT/Codex message allowance than Gemini/API-key runs.
+
+Local 2026-05-09 LongMemEval `s` run:
+
+- Run path:
+  `references/agent-memory-benchmark/outputs/longmemeval/memory-swift-codex-chatgpt-full/rag/s.json`
+- Answer model: `codex-chatgpt:gpt-5.5:low`
+- Judge model: `codex-chatgpt:gpt-5.4-mini:low`
+- Result: 443/500 correct, 88.6% accuracy
+
+Failure analysis pointed mostly at fixed-context evidence survival and answer
+synthesis, not raw candidate generation. The corresponding retrieval-only run
+had Hit@10 93.2%, with-gold Hit@10 97.3%, and with-gold support-document
+Recall@10 93.4%.
+
+For AMB adapter work, prefer passing `memory serve` context-packaging params
+through the bridge instead of repacking full chunks only in Python:
+`contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
+Focused diagnostics on three multi-evidence failures showed document-level
+support Recall@10 improvements from 50.0% to 75.0%, 60.0% to 100.0%, and 66.7%
+to 83.3%. Those did not all convert to judged answer wins because some AMB gold
+matches are document-level while Memory.swift returns chunk-level context; a
+retrieved gold document can still expose the wrong chunk for a counting answer.
