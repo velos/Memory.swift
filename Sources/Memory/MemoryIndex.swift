@@ -3873,26 +3873,6 @@ public actor MemoryIndex {
                 query: query
             )
         }
-        if searchAdjustments.contains(.negatedQualificationRelief),
-           query.limit >= 10,
-           GenericQueryRewriteLexicon.hasNegatedQualificationIntent(understanding),
-           hasLoanOrDebtCue(understanding) {
-            adjusted = applyNegatedQualificationReliefAdjustment(
-                to: adjusted,
-                querySignals: querySignals,
-                query: query
-            )
-        }
-        if searchAdjustments.contains(.proceduralRetentionChoice),
-           canApplyExpansionAdjustments,
-           understanding.isProcedural,
-           asksAboutRetentionChoice(understanding) {
-            adjusted = applyProceduralRetentionChoiceAdjustment(
-                to: adjusted,
-                querySignals: querySignals,
-                query: query
-            )
-        }
         if searchAdjustments.contains(.temporalLexicalPreservation),
            canApplyExpansionAdjustments,
            understanding.requiresEvidenceAggregation,
@@ -4615,90 +4595,6 @@ public actor MemoryIndex {
             }
     }
 
-    private func applyNegatedQualificationReliefAdjustment(
-        to results: [SearchResult],
-        querySignals: QueryMatchSignals,
-        query: SearchQuery
-    ) -> [SearchResult] {
-        guard query.rerankLimit == 0,
-              query.limit >= 10,
-              !results.isEmpty,
-              GenericQueryRewriteLexicon.hasNegatedQualificationIntent(querySignals.understanding),
-              hasLoanOrDebtCue(querySignals.understanding) else {
-            return results
-        }
-
-        var adjusted = results
-        let window = min(adjusted.count, max(80, min(query.limit, 160)))
-        for index in adjusted.indices.prefix(window) {
-            let text = searchableAdjustmentText(for: adjusted[index])
-            let hasCertificationSignal = text.contains("false")
-                && (text.contains("certified") || text.contains("certification"))
-            let hasDisqualificationSignal = text.contains("disqualif")
-            let hasReliefSignal = text.contains("discharge")
-                || text.contains("forgiveness")
-                || text.contains("forgiven")
-                || text.contains("cancel")
-            guard (hasCertificationSignal || hasDisqualificationSignal) && hasReliefSignal else {
-                continue
-            }
-
-            var bonus = 0.0
-            if hasCertificationSignal {
-                bonus += 0.030
-            }
-            if hasDisqualificationSignal {
-                bonus += 0.020
-            }
-            if hasReliefSignal {
-                bonus += 0.010
-            }
-            adjusted[index].score.blended += min(0.060, bonus)
-        }
-        return adjusted
-    }
-
-    private func applyProceduralRetentionChoiceAdjustment(
-        to results: [SearchResult],
-        querySignals: QueryMatchSignals,
-        query: SearchQuery
-    ) -> [SearchResult] {
-        guard query.rerankLimit == 0,
-              query.expansionLimit > 0,
-              query.limit >= 10,
-              querySignals.understanding.isProcedural,
-              asksAboutRetentionChoice(querySignals.understanding),
-              !results.isEmpty else {
-            return results
-        }
-
-        var adjusted = results
-        let window = min(adjusted.count, max(80, min(query.limit, 160)))
-        for index in adjusted.indices.prefix(window) {
-            let text = searchableAdjustmentText(for: adjusted[index])
-            let hasStorageSignal = text.contains("store")
-                || text.contains("stored")
-                || text.contains("storage")
-                || text.contains("keep")
-                || text.contains("retain")
-            let hasReturnSignal = text.contains("surrender")
-                || text.contains("return")
-                || text.contains("submit")
-                || text.contains("deliver")
-            guard hasStorageSignal && hasReturnSignal else {
-                continue
-            }
-
-            var bonus = 0.006
-            let title = (adjusted[index].title ?? "").lowercased()
-            if title.contains("store") || title.contains("surrender") || title.contains("return") {
-                bonus += 0.006
-            }
-            adjusted[index].score.blended += min(0.014, bonus)
-        }
-        return adjusted
-    }
-
     private func applyExpansionTemporalLexicalPreservationAdjustment(
         to results: [SearchResult],
         querySignals: QueryMatchSignals,
@@ -4845,20 +4741,6 @@ public actor MemoryIndex {
         ]
         .joined(separator: " ")
         .lowercased()
-    }
-
-    private func hasLoanOrDebtCue(_ understanding: RecallQueryUnderstanding) -> Bool {
-        !Set(understanding.tokens).isDisjoint(with: [
-            "loan", "loans", "debt", "debts", "lender", "borrower", "borrowers",
-        ])
-    }
-
-    private func asksAboutRetentionChoice(_ understanding: RecallQueryUnderstanding) -> Bool {
-        let tokens = Set(understanding.tokens)
-        let retentionTerms: Set<String> = ["keep", "kept", "retain", "retained", "store", "stored", "hold"]
-        let returnTerms: Set<String> = ["return", "returned", "surrender", "surrendered", "deliver", "send", "submit"]
-        return !tokens.isDisjoint(with: retentionTerms)
-            && !tokens.isDisjoint(with: returnTerms)
     }
 
     private func hasExplicitDurationRecallShape(_ understanding: RecallQueryUnderstanding) -> Bool {

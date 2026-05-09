@@ -42,8 +42,19 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         }
 
         var keyTerms: [String] = []
-        let posTagger = NLTagger(tagSchemes: [.lexicalClass])
+        var seenKeyTerms: Set<String> = []
+        let posTagger = NLTagger(tagSchemes: [.lexicalClass, .lemma])
         posTagger.string = trimmed
+
+        func appendKeyTerm(_ raw: String) {
+            let term = raw
+                .lowercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard term.count >= 3, !stopWords.contains(term) else { return }
+            guard seenKeyTerms.insert(term).inserted else { return }
+            keyTerms.append(term)
+        }
+
         posTagger.enumerateTags(
             in: trimmed.startIndex..<trimmed.endIndex,
             unit: .word,
@@ -51,9 +62,14 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
             options: [.omitWhitespace, .omitPunctuation]
         ) { tag, range in
             if let tag, tag == .noun || tag == .verb || tag == .adjective {
-                let term = String(trimmed[range]).lowercased()
-                if term.count >= 3, !stopWords.contains(term) {
-                    keyTerms.append(term)
+                appendKeyTerm(String(trimmed[range]))
+                let (lemmaTag, _) = posTagger.tag(
+                    at: range.lowerBound,
+                    unit: .word,
+                    scheme: .lemma
+                )
+                if let lemma = lemmaTag?.rawValue {
+                    appendKeyTerm(lemma)
                 }
             }
             return true

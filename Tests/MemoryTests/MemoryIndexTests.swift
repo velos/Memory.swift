@@ -904,14 +904,9 @@ struct MemoryIndexTests {
         #expect(tripLexical.contains("trips"))
         #expect(tripLexical.contains("past"))
         #expect(tripLexical.contains("months"))
-        let focusedTripLexical = try #require(
-            tripExpansion.lexicalQueries.first { query in
-                query.contains("trip") && !query.contains("order") && !query.contains("months")
-            }
-        )
-        #expect(focusedTripLexical.contains("got back"))
-        #expect(focusedTripLexical.contains("earliest") == false)
-        #expect(focusedTripLexical.contains("latest") == false)
+        #expect(tripLexical.contains("got back") == false)
+        #expect(tripLexical.contains("earliest") == false)
+        #expect(tripLexical.contains("latest") == false)
 
         let groceryExpansion = try await expander.expand(
             query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
@@ -1037,7 +1032,6 @@ struct MemoryIndexTests {
         let lexical = expansion.lexicalQueries.joined(separator: " ")
         #expect(expander.identifier == "generic-structured-query-expander")
         #expect(lexical.contains("mail"))
-        #expect(lexical.contains("postal") || lexical.contains("send"))
         #expect(lexical.contains("instructions") == false)
         #expect(lexical.contains("requirements") == false)
         #expect(lexical.contains("dmv") == false)
@@ -1058,23 +1052,27 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func genericRewriteLexiconAddsLifestyleAndSubscriptionAliases() {
+    func genericRewriteLexiconAvoidsHandWrittenLifestyleAliases() {
         let understanding = RecallQueryUnderstandingAnalyzer.analyze(
             "Can you suggest fitness magazine subscriptions?"
         )
         let terms = GenericQueryRewriteLexicon.expansionTerms(for: understanding)
 
-        #expect(terms.contains("exercise"))
-        #expect(terms.contains("periodical"))
+        #expect(terms.contains("fitness"))
+        #expect(terms.contains("magazine"))
         #expect(terms.contains("subscription"))
-        #expect(terms.contains("memberships"))
+        #expect(terms.contains("exercise") == false)
+        #expect(terms.contains("periodical") == false)
+        #expect(terms.contains("memberships") == false)
 
         let cookingUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
             "How many cuisines have I tried cooking?"
         )
         let cookingTerms = GenericQueryRewriteLexicon.expansionTerms(for: cookingUnderstanding)
-        #expect(cookingTerms.contains("recipes"))
-        #expect(cookingTerms.contains("dishes"))
+        #expect(cookingTerms.contains("cuisine"))
+        #expect(cookingTerms.contains("cooking"))
+        #expect(cookingTerms.contains("recipes") == false)
+        #expect(cookingTerms.contains("dishes") == false)
     }
 
     @Test
@@ -1112,22 +1110,24 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func genericRewriteLexiconAddsMediaAndEventVocabulary() {
+    func genericRewriteLexiconAvoidsHandWrittenMediaAliases() {
         let mediaUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
             "Can you recommend a show or movie to watch?"
         )
         let mediaTerms = GenericQueryRewriteLexicon.expansionTerms(for: mediaUnderstanding)
 
-        #expect(mediaTerms.contains("film"))
-        #expect(mediaTerms.contains("special"))
+        #expect(mediaTerms.contains("movie"))
+        #expect(mediaTerms.contains("film") == false)
+        #expect(mediaTerms.contains("special") == false)
 
         let festivalUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
             "How many movie festivals did I attend?"
         )
         let festivalTerms = GenericQueryRewriteLexicon.expansionTerms(for: festivalUnderstanding)
 
-        #expect(festivalTerms.contains("fest"))
-        #expect(festivalTerms.contains("event"))
+        #expect(festivalTerms.contains("festival"))
+        #expect(festivalTerms.contains("fest") == false)
+        #expect(festivalTerms.contains("event") == false)
     }
 
     @Test
@@ -1171,6 +1171,13 @@ struct MemoryIndexTests {
             generalDocumentIDPrefix,
             gptQueryIDPrefix,
             genericQueryIDPrefix,
+            "tokenSynonyms",
+            "serviceUsageLexicalQuery",
+            "completedTravelEventLexicalQuery",
+            "negatedQualificationRelief",
+            "proceduralRetentionChoice",
+            "qualificationNegationTerms",
+            "got back today",
         ]
 
         var isDirectory: ObjCBool = false
@@ -1512,7 +1519,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func serviceUsageExpansionAddsGenericRelianceCues() async throws {
+    func evidenceDenseServiceExpansionAvoidsInjectedUsageAliases() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let expansion = try await expander.expand(
             query: SearchQuery(text: "How many different delivery services have I used recently?"),
@@ -1526,15 +1533,13 @@ struct MemoryIndexTests {
             limit: 5
         )
 
-        let focusedLexical = try #require(
-            expansion.lexicalQueries.first { query in
-                query.contains("service")
-                    && query.contains("lately")
-                    && query.contains("relying")
-            }
-        )
-        #expect(focusedLexical.contains("convenience"))
-        #expect(focusedLexical.contains("quickcart") == false)
+        let lexical = expansion.lexicalQueries.joined(separator: " ")
+        #expect(lexical.contains("delivery"))
+        #expect(lexical.contains("service"))
+        #expect(lexical.contains("lately") == false)
+        #expect(lexical.contains("relying") == false)
+        #expect(lexical.contains("convenience") == false)
+        #expect(lexical.contains("quickcart") == false)
     }
 
     @Test
@@ -1591,19 +1596,19 @@ struct MemoryIndexTests {
             """
         )
         try writeFile(
-            docs.appendingPathComponent("plates-choice.md"),
+            docs.appendingPathComponent("equipment-choice.md"),
             """
-            # Plate storage and return choice
+            # Equipment storage and return choice
 
-            When deciding whether to keep plates, the instructions say the plates can be stored only temporarily and may need to be surrendered, returned, or delivered.
+            When deciding whether to keep equipment, the instructions say the equipment can be stored only temporarily and may need to be returned or delivered.
             """
         )
         try writeFile(
-            docs.appendingPathComponent("plate-art.md"),
+            docs.appendingPathComponent("equipment-display.md"),
             """
-            # Plate art
+            # Equipment display
 
-            Decorative plates can be displayed on shelves and cleaned with a soft cloth.
+            Decorative equipment can be displayed on shelves and cleaned with a soft cloth.
             """
         )
 
@@ -1631,7 +1636,7 @@ struct MemoryIndexTests {
         )
         let proceduralResults = try await index.search(
             SearchQuery(
-                text: "Should I keep or return the plates?",
+                text: "Should I keep or return the equipment?",
                 limit: 3,
                 semanticCandidateLimit: 0,
                 lexicalCandidateLimit: 30,
@@ -1642,7 +1647,7 @@ struct MemoryIndexTests {
         )
 
         #expect(currentResults.first?.documentPath.hasSuffix("subscription-current.md") == true)
-        #expect(proceduralResults.first?.documentPath.hasSuffix("plates-choice.md") == true)
+        #expect(proceduralResults.first?.documentPath.hasSuffix("equipment-choice.md") == true)
     }
 
     @Test

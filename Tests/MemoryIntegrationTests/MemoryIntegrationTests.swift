@@ -109,6 +109,24 @@ struct MemoryIntegrationTests {
     }
 
     @Test
+    func naturalLanguageQueryAnalyzerEmitsLemmaKeyTerms() {
+        let analysis = NLQueryAnalyzer().analyze(
+            query: "How many cuisines, recipes, and trips were purchased or completed?"
+        )
+
+        #expect(analysis.keyTerms.contains("cuisines"))
+        #expect(analysis.keyTerms.contains("cuisine"))
+        #expect(analysis.keyTerms.contains("recipes"))
+        #expect(analysis.keyTerms.contains("recipe"))
+        #expect(analysis.keyTerms.contains("trips"))
+        #expect(analysis.keyTerms.contains("trip"))
+        #expect(analysis.keyTerms.contains("purchased"))
+        #expect(analysis.keyTerms.contains("purchase"))
+        #expect(analysis.keyTerms.contains("completed"))
+        #expect(analysis.keyTerms.contains("complete"))
+    }
+
+    @Test
     func canonicalMemoryPersistsAcrossReinitialization() async throws {
         let root = try makeTempDir()
         let db = root.appendingPathComponent("index.sqlite")
