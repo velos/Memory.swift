@@ -117,6 +117,20 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
                 .prefix(4)
         )
         let temporalAnchors = temporalAnchorTerms(from: original, referenceDate: referenceDate)
+        let evidenceSubjectRewrite = evidenceSubjectLexicalQuery(
+            tokenTerms: tokenTerms,
+            rewriteTerms: rewriteTerms,
+            topics: compactTopics,
+            understanding: understanding
+        )
+        let serviceUsageRewrite = serviceUsageLexicalQuery(
+            tokenTerms: tokenTerms,
+            understanding: understanding
+        )
+        let completedTravelRewrite = completedTravelEventLexicalQuery(
+            tokenTerms: tokenTerms,
+            understanding: understanding
+        )
 
         let keywordRewrite = compactJoined(
             prioritizedEntities
@@ -127,12 +141,30 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
-        let focusedRewrite = compactJoined(
-            prioritizedEntities
-                + Array(compactTopics.prefix(2))
-                + Array(rewriteTerms.prefix(12))
-                + Array(temporalAnchors.prefix(6))
-        )
+        let focusedRewrite: String
+        if let completedTravelRewrite {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + [completedTravelRewrite]
+            )
+        } else if let serviceUsageRewrite {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + [serviceUsageRewrite]
+            )
+        } else if let evidenceSubjectRewrite {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + [evidenceSubjectRewrite]
+            )
+        } else {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + Array(compactTopics.prefix(2))
+                    + Array(rewriteTerms.prefix(12))
+                    + Array(temporalAnchors.prefix(6))
+            )
+        }
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
         if queries.count < limit, let firstTopic = compactTopics.first, firstTopic.count > 6 {
@@ -140,6 +172,123 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
         }
 
         return queries
+    }
+
+    private func evidenceSubjectLexicalQuery(
+        tokenTerms: [String],
+        rewriteTerms: [String],
+        topics: [String],
+        understanding: RecallQueryUnderstanding
+    ) -> String? {
+        guard understanding.isEvidenceDense,
+              !understanding.operations.contains(.currentState) else { return nil }
+
+        var selected: [String] = []
+        var seen: Set<String> = []
+
+        func appendTerm(_ raw: String) {
+            let tokens = raw
+                .split(separator: " ")
+                .map(String.init)
+                .map(normalizeQueryToken)
+                .map(canonicalEvidenceSubjectToken)
+                .filter { token in
+                    !token.isEmpty
+                        && !stopWords.contains(token)
+                        && !expansionNoiseTerms.contains(token)
+                        && !evidenceDenseOperatorTerms.contains(token)
+                }
+            let compact = compactJoined(tokens)
+            guard !compact.isEmpty else { return }
+            let key = comparisonKey(for: compact)
+            guard seen.insert(key).inserted else { return }
+            selected.append(compact)
+        }
+
+        for term in rewriteTerms {
+            appendTerm(term)
+        }
+        for term in tokenTerms {
+            appendTerm(term)
+        }
+        for topic in topics.prefix(2) {
+            appendTerm(topic)
+        }
+
+        guard !selected.isEmpty else { return nil }
+        return compactJoined(selected.prefix(8))
+    }
+
+    private func serviceUsageLexicalQuery(
+        tokenTerms: [String],
+        understanding: RecallQueryUnderstanding
+    ) -> String? {
+        guard understanding.isEvidenceDense,
+              !understanding.operations.contains(.currentState),
+              understanding.operations.contains(.count) || understanding.requiresEvidenceAggregation else {
+            return nil
+        }
+
+        let queryTokens = Set(understanding.tokens.map(canonicalEvidenceSubjectToken))
+        let originalTerms = tokenTerms.map(canonicalEvidenceSubjectToken)
+        let asksAboutServices = queryTokens.contains("service") || originalTerms.contains("service")
+        let asksAboutRecentUse = !queryTokens.isDisjoint(with: serviceUsageCueTerms)
+        guard asksAboutServices, asksAboutRecentUse else { return nil }
+
+        var selected: [String] = []
+        var seen: Set<String> = []
+        for raw in originalTerms {
+            guard !raw.isEmpty,
+                  !stopWords.contains(raw),
+                  !expansionNoiseTerms.contains(raw),
+                  !evidenceDenseOperatorTerms.contains(raw),
+                  !serviceUsageCueTerms.contains(raw),
+                  seen.insert(raw).inserted else {
+                continue
+            }
+            selected.append(raw)
+        }
+
+        guard !selected.isEmpty else { return nil }
+        return compactJoined(Array(selected.prefix(5)) + ["recently", "lately", "used", "tried", "relied", "relying", "convenience", "convenient"])
+    }
+
+    private func completedTravelEventLexicalQuery(
+        tokenTerms: [String],
+        understanding: RecallQueryUnderstanding
+    ) -> String? {
+        guard understanding.isEvidenceDense,
+              !understanding.operations.contains(.currentState) else { return nil }
+
+        let queryTokens = Set(understanding.tokens.map(canonicalEvidenceSubjectToken))
+        let candidateTerms = tokenTerms.map(canonicalEvidenceSubjectToken)
+        guard let subject = candidateTerms.first(where: { completedTravelSubjectTerms.contains($0) })
+                ?? queryTokens.first(where: { completedTravelSubjectTerms.contains($0) }) else {
+            return nil
+        }
+
+        let hasCompletionCue = !queryTokens.isDisjoint(with: completedTravelQueryCueTerms)
+            || understanding.operations.contains(.ordering)
+            || understanding.operations.contains(.recency)
+            || understanding.requiresEvidenceAggregation
+        guard hasCompletionCue else { return nil }
+
+        return compactJoined([subject, "got", "back", "today"])
+    }
+
+    private func canonicalEvidenceSubjectToken(_ token: String) -> String {
+        guard token.count >= 4 else { return token }
+
+        if token.hasSuffix("ies"), token.count > 4 {
+            return String(token.dropLast(3)) + "y"
+        }
+        if token.hasSuffix("ches") || token.hasSuffix("shes") || token.hasSuffix("ses") || token.hasSuffix("xes") || token.hasSuffix("zes") {
+            return String(token.dropLast(2))
+        }
+        if token.hasSuffix("s"), !token.hasSuffix("ss"), !token.hasSuffix("us") {
+            return String(token.dropLast())
+        }
+        return token
     }
 
     private func buildSemanticQueries(
@@ -768,6 +917,29 @@ public struct GenericStructuredQueryExpander: StructuredQueryExpander {
         "tuesdays", "thursday", "thursdays", "march", "july", "october",
         "year", "years", "price", "cost", "paid", "order", "earliest",
         "latest", "first", "recent", "recently", "chronology",
+    ]
+
+    private let evidenceDenseOperatorTerms: Set<String> = [
+        "ago", "amount", "amounts", "before", "after", "between", "chronology",
+        "combined", "count", "day", "days", "during", "earlier", "earliest",
+        "eight", "five", "first", "four", "frequency", "how", "last", "later", "latest", "least",
+        "month", "months", "money", "most", "number", "order", "ordered",
+        "ordering", "past", "recent", "recently", "seven", "since", "six",
+        "spend", "spent", "sum", "take", "taken", "ten", "three", "time",
+        "timeline", "times", "took", "total", "two", "week", "weeks", "year", "years",
+        "attend", "attended", "participate", "participated",
+    ]
+
+    private let completedTravelSubjectTerms: Set<String> = [
+        "journey", "outing", "trip", "travel", "vacation",
+    ]
+
+    private let completedTravelQueryCueTerms: Set<String> = [
+        "done", "past", "recent", "recently", "returned", "take", "taken", "took", "went",
+    ]
+
+    private let serviceUsageCueTerms: Set<String> = [
+        "recent", "recently", "rely", "relied", "relying", "tried", "try", "use", "used", "using",
     ]
 
     private let queryPunctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`.")

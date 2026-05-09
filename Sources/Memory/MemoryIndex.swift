@@ -823,7 +823,11 @@ public actor MemoryIndex {
             let rerankLimit = features.contains(.rerank)
                 ? min(80, max(plan.rerankLimit ?? 40, effectiveLimit * 2))
                 : 0
-            let expansionLimit = features.contains(.expansion) ? 5 : 0
+            let queryUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
+            let expansionLimit = memorySearchExpansionLimit(
+                features: features,
+                understanding: queryUnderstanding
+            )
 
             let searchResults = try await search(
                 SearchQuery(
@@ -837,7 +841,8 @@ public actor MemoryIndex {
                 ),
                 events: events,
                 allowedChunkIDsOverride: allowedChunkIDs,
-                recallPlan: plan
+                recallPlan: plan,
+                queryUnderstanding: queryUnderstanding
             )
 
             var records: [MemoryRecord] = []
@@ -959,14 +964,15 @@ public actor MemoryIndex {
         let rerankLimit = features.contains(.rerank)
             ? min(80, max(plan.rerankLimit ?? 40, effectiveLimit * 2))
             : 0
-        let expansionLimit = features.contains(.expansion) ? 5 : 0
-        let searchLimit: Int
-        if dedupeDocuments {
-            let broadLimit = min(400, max(effectiveLimit * 6, effectiveLimit))
-            searchLimit = effectiveLimit >= 50 ? min(320, broadLimit) : broadLimit
-        } else {
-            searchLimit = effectiveLimit
-        }
+        let expansionLimit = memorySearchExpansionLimit(
+            features: features,
+            understanding: queryUnderstanding
+        )
+        let searchLimit = memorySearchCandidateLimit(
+            effectiveLimit: effectiveLimit,
+            dedupeDocuments: dedupeDocuments,
+            understanding: queryUnderstanding
+        )
 
         let searchResults = try await search(
             SearchQuery(
@@ -1069,6 +1075,64 @@ public actor MemoryIndex {
         }
 
         return references
+    }
+
+    private func memorySearchCandidateLimit(
+        effectiveLimit: Int,
+        dedupeDocuments: Bool,
+        understanding: RecallQueryUnderstanding
+    ) -> Int {
+        guard dedupeDocuments else { return effectiveLimit }
+
+        let broadLimit = min(400, max(effectiveLimit * 6, effectiveLimit))
+        let defaultLimit = effectiveLimit >= 50 ? min(320, broadLimit) : broadLimit
+        guard understanding.isEvidenceDense else { return defaultLimit }
+
+        let evidenceFloor = aggregateSupportScanFloor(for: understanding)
+        return min(400, max(defaultLimit, evidenceFloor))
+    }
+
+    private func memorySearchExpansionLimit(
+        features: RecallFeatures,
+        understanding: RecallQueryUnderstanding
+    ) -> Int {
+        guard features.contains(.expansion) else { return 0 }
+        if shouldPreserveOriginalSurfaceForSuperlativeMoneyAggregate(understanding) {
+            return 0
+        }
+        return 5
+    }
+
+    private func shouldPreserveOriginalSurfaceForSuperlativeMoneyAggregate(
+        _ understanding: RecallQueryUnderstanding
+    ) -> Bool {
+        guard understanding.requiresEvidenceAggregation,
+              understanding.operations.contains(.sum),
+              understanding.tokens.count <= 14 else {
+            return false
+        }
+
+        let tokenSet = Set(understanding.tokens)
+        let hasMoneyCue = !tokenSet.isDisjoint(with: [
+            "money", "spend", "spent", "paid", "pay", "cost", "costs", "price", "prices", "amount",
+        ])
+        guard hasMoneyCue else { return false }
+
+        let text = " \(understanding.normalizedText) "
+        return text.contains(" most ")
+            || text.contains(" least ")
+            || text.contains(" highest ")
+            || text.contains(" lowest ")
+    }
+
+    private func aggregateSupportScanFloor(for understanding: RecallQueryUnderstanding) -> Int {
+        if understanding.operations.contains(.comparison) {
+            return 120
+        }
+        if understanding.requiresEvidenceAggregation || understanding.operations.contains(.ordering) {
+            return 90
+        }
+        return 60
     }
 
     public func memoryGet(
@@ -2765,7 +2829,7 @@ public actor MemoryIndex {
     }
 
     private func documentLexicalWeight(branchIndex: Int) -> Double {
-        branchIndex == 0 ? documentLexicalPrimaryWeight : documentLexicalExpansionWeight
+        return branchIndex == 0 ? documentLexicalPrimaryWeight : documentLexicalExpansionWeight
     }
 
     private func isBroadRecallQuery(_ queryText: String) -> Bool {
@@ -3430,10 +3494,11 @@ public actor MemoryIndex {
             return results
         }
 
+        let scanFloor = aggregateSupportScanFloor(for: understanding)
         let candidates = supportContinuationCandidates(
             from: results,
             activeOnlyByDefault: activeOnlyByDefault,
-            reserveLimit: max(effectiveLimit, 80)
+            reserveLimit: max(effectiveLimit, scanFloor)
         )
         let topWindow = min(10, effectiveLimit, candidates.count)
         guard topWindow >= 6, candidates.count > topWindow else {
@@ -3452,7 +3517,6 @@ public actor MemoryIndex {
 
         let medianSupport = medianSupportScore(selected)
         let supportFloor = max(0.055, medianSupport * 0.45)
-        let scanFloor = understanding.operations.contains(.comparison) ? 90 : 60
         let scanLimit = min(candidates.count, max(effectiveLimit, scanFloor))
 
         var promotedGroups: Set<String> = []

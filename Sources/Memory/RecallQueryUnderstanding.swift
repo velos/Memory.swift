@@ -270,6 +270,9 @@ internal enum GenericQueryRewriteLexicon {
         let hasQualificationNegation = hasNegatedQualificationIntent(understanding)
         for token in understanding.coreTerms {
             append(token, to: &terms)
+            for variant in inflectionalVariants(for: token) {
+                append(variant, to: &terms)
+            }
             for synonym in tokenSynonyms[token] ?? [] {
                 append(synonym, to: &terms)
             }
@@ -281,6 +284,26 @@ internal enum GenericQueryRewriteLexicon {
         }
 
         return terms
+    }
+
+    private static func inflectionalVariants(for token: String) -> [String] {
+        guard token.count >= 4 else { return [] }
+
+        var candidates: [String] = []
+        if token.hasSuffix("ies"), token.count > 4 {
+            candidates.append(String(token.dropLast(3)) + "y")
+        }
+        if token.hasSuffix("ches") || token.hasSuffix("shes") || token.hasSuffix("ses") || token.hasSuffix("xes") || token.hasSuffix("zes") {
+            candidates.append(String(token.dropLast(2)))
+        } else if token.hasSuffix("s"), !token.hasSuffix("ss"), !token.hasSuffix("us") {
+            candidates.append(String(token.dropLast()))
+        }
+
+        return candidates.filter { candidate in
+            candidate != token
+                && candidate.count >= 3
+                && !MemorySearchHeuristics.queryStopWords.contains(candidate)
+        }
     }
 
     internal static func semanticRewrite(
@@ -402,6 +425,14 @@ internal enum GenericQueryRewriteLexicon {
         "suggest": ["recommend", "preference", "favorite", "idea", "tips"],
         "suggestions": ["recommendations", "ideas", "tips", "preferences"],
         "tips": ["advice", "suggestions", "recommendations"],
+        "movie": ["film", "cinema", "special"],
+        "movies": ["films", "cinema", "specials"],
+        "film": ["movie", "cinema"],
+        "films": ["movies", "cinema"],
+        "show": ["series", "program", "special"],
+        "shows": ["series", "programs", "specials"],
+        "festival": ["fest", "event"],
+        "festivals": ["festival", "fest", "event", "fests", "events"],
         "fitness": ["exercise", "workout", "training", "session"],
         "magazine": ["periodical", "subscription", "issue"],
         "magazines": ["periodicals", "subscriptions", "issues"],

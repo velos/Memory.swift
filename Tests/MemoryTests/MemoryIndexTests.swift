@@ -2,6 +2,38 @@ import Foundation
 import Testing
 @testable import Memory
 
+private final class SearchEventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completedCounts: [Int] = []
+    private var expandedQueryCounts: [Int] = []
+
+    func record(_ event: SearchEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch event {
+        case .completed(let count):
+            completedCounts.append(count)
+        case .expandedQueries(let count):
+            expandedQueryCounts.append(count)
+        default:
+            break
+        }
+    }
+
+    var lastCompletedCount: Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return completedCounts.last
+    }
+
+    var lastExpandedQueryCount: Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return expandedQueryCounts.last
+    }
+}
+
 struct MemoryIndexTests {
     @Test
     func searchReturnsRelevantDocument() async throws {
@@ -822,6 +854,14 @@ struct MemoryIndexTests {
         #expect(tripLexical.contains("trips"))
         #expect(tripLexical.contains("past"))
         #expect(tripLexical.contains("months"))
+        let focusedTripLexical = try #require(
+            tripExpansion.lexicalQueries.first { query in
+                query.contains("trip") && !query.contains("order") && !query.contains("months")
+            }
+        )
+        #expect(focusedTripLexical.contains("got back"))
+        #expect(focusedTripLexical.contains("earliest") == false)
+        #expect(focusedTripLexical.contains("latest") == false)
 
         let groceryExpansion = try await expander.expand(
             query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
@@ -976,6 +1016,7 @@ struct MemoryIndexTests {
 
         #expect(terms.contains("exercise"))
         #expect(terms.contains("periodical"))
+        #expect(terms.contains("subscription"))
         #expect(terms.contains("memberships"))
 
         let cookingUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
@@ -984,6 +1025,37 @@ struct MemoryIndexTests {
         let cookingTerms = GenericQueryRewriteLexicon.expansionTerms(for: cookingUnderstanding)
         #expect(cookingTerms.contains("recipes"))
         #expect(cookingTerms.contains("dishes"))
+    }
+
+    @Test
+    func genericRewriteLexiconAddsInflectionalVariantsForRecallTerms() {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "What order were the trips, festivals, and classes?"
+        )
+        let terms = GenericQueryRewriteLexicon.expansionTerms(for: understanding)
+
+        #expect(terms.contains("trip"))
+        #expect(terms.contains("festival"))
+        #expect(terms.contains("class"))
+    }
+
+    @Test
+    func genericRewriteLexiconAddsMediaAndEventVocabulary() {
+        let mediaUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "Can you recommend a show or movie to watch?"
+        )
+        let mediaTerms = GenericQueryRewriteLexicon.expansionTerms(for: mediaUnderstanding)
+
+        #expect(mediaTerms.contains("film"))
+        #expect(mediaTerms.contains("special"))
+
+        let festivalUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "How many movie festivals did I attend?"
+        )
+        let festivalTerms = GenericQueryRewriteLexicon.expansionTerms(for: festivalUnderstanding)
+
+        #expect(festivalTerms.contains("fest"))
+        #expect(festivalTerms.contains("event"))
     }
 
     @Test
@@ -1177,6 +1249,250 @@ struct MemoryIndexTests {
 
         #expect(references.contains { $0.documentPath.hasSuffix("book-pair-1.md") })
         #expect(references.contains { $0.documentPath.hasSuffix("book-pair-2.md") })
+    }
+
+    @Test
+    func memorySearchWidensCandidatePoolForEvidenceDenseQueries() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<130 {
+            try writeFile(
+                docs.appendingPathComponent("timeline-note-\(index).md"),
+                """
+                # Timeline note \(index)
+
+                Date: 2024/04/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                The alpha stage and beta stage project notes record how many days passed between the checkpoints.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let ordinaryEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "alpha beta project notes",
+            limit: 10,
+            features: [.lexical],
+            events: { event in ordinaryEvents.record(event) }
+        )
+
+        let aggregateEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How many alpha beta project notes are tracked this month?",
+            limit: 10,
+            features: [.lexical],
+            events: { event in aggregateEvents.record(event) }
+        )
+
+        let evidenceDenseEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How many days passed between the alpha stage and beta stage checkpoints?",
+            limit: 10,
+            features: [.lexical],
+            events: { event in evidenceDenseEvents.record(event) }
+        )
+
+        #expect(ordinaryEvents.lastCompletedCount == 60)
+        #expect(aggregateEvents.lastCompletedCount == 90)
+        #expect(evidenceDenseEvents.lastCompletedCount == 120)
+    }
+
+    @Test
+    func evidenceDenseExpansionCanRecoverFocusedSubjectCandidates() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<70 {
+            try writeFile(
+                docs.appendingPathComponent("noise-trip-\(index).md"),
+                """
+                # Noisy trip note \(index)
+
+                Date: 2024/05/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                This note discusses the latest order for a future itinerary and past month planning details.
+                """
+            )
+        }
+
+        try writeFile(
+            docs.appendingPathComponent("distributed-trip-journal.md"),
+            """
+            # Distributed trip journal
+
+            Date: 2024/05/29 (Wed) 09:00
+
+            The spring trip journal covered trail planning and campground ideas.
+
+            The second trip entry compared campsite access and hiking routes.
+
+            The third trip entry summarized backpack, tent, and bear-safety decisions.
+
+            The final trip recap connected the outdoor plans into one travel timeline.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 24, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "What is the order of the trips I took in the past three months?",
+            limit: 80,
+            features: [.lexical, .expansion]
+        )
+
+        #expect(references.contains { $0.documentPath.hasSuffix("distributed-trip-journal.md") })
+    }
+
+    @Test
+    func evidenceDenseCompletedTravelExpansionRecoversCompletedTripNotes() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<60 {
+            try writeFile(
+                docs.appendingPathComponent("future-trip-plan-\(index).md"),
+                """
+                # Future trip plan \(index)
+
+                Date: 2024/05/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                This note discusses the latest order for a future trip itinerary and past month planning.
+                """
+            )
+        }
+
+        try writeFile(
+            docs.appendingPathComponent("completed-coastal-trip.md"),
+            """
+            # Completed coastal trip
+
+            Date: 2024/03/12 (Tue) 09:00
+
+            I just got back from a coastal trip today and logged the route, meals, and photo stops.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("completed-mountain-trip.md"),
+            """
+            # Completed mountain trip
+
+            Date: 2024/04/18 (Thu) 09:00
+
+            I just got back from a mountain trip today and wrote down the trails and campground notes.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("completed-city-trip.md"),
+            """
+            # Completed city trip
+
+            Date: 2024/05/20 (Mon) 09:00
+
+            I just got back from a city trip today and saved the museum and restaurant highlights.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 24, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "What is the order of the three trips I took in the past three months?",
+            limit: 80,
+            features: [.lexical, .expansion]
+        )
+
+        let paths = references.map(\.documentPath)
+        #expect(paths.contains { $0.hasSuffix("completed-coastal-trip.md") })
+        #expect(paths.contains { $0.hasSuffix("completed-mountain-trip.md") })
+        #expect(paths.contains { $0.hasSuffix("completed-city-trip.md") })
+    }
+
+    @Test
+    func serviceUsageExpansionAddsGenericRelianceCues() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let expansion = try await expander.expand(
+            query: SearchQuery(text: "How many different delivery services have I used recently?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["delivery", "services", "used", "recently"],
+                facetHints: [],
+                topics: ["delivery services"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+
+        let focusedLexical = try #require(
+            expansion.lexicalQueries.first { query in
+                query.contains("service")
+                    && query.contains("lately")
+                    && query.contains("relying")
+            }
+        )
+        #expect(focusedLexical.contains("convenience"))
+        #expect(focusedLexical.contains("quickcart") == false)
+    }
+
+    @Test
+    func superlativeMoneyAggregatesPreserveOriginalQuerySurface() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 32, overlapTokenCount: 0)
+            )
+        )
+
+        let superlativeEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "Which grocery store did I spend the most money at in the past month?",
+            limit: 10,
+            events: superlativeEvents.record
+        )
+        #expect(superlativeEvents.lastExpandedQueryCount == 0)
+
+        let aggregateEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How much total money did I spend on workshops in March?",
+            limit: 10,
+            events: aggregateEvents.record
+        )
+        #expect((aggregateEvents.lastExpandedQueryCount ?? 0) > 0)
     }
 
     @Test
