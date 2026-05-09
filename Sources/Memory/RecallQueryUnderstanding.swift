@@ -69,7 +69,7 @@ internal enum RecallQueryUnderstandingAnalyzer {
         }
         if containsAny(lower, [
             "order of", "earliest", "latest", "first to last", "from first", "from earliest", "chronological", "chronology", "timeline",
-        ]) {
+        ]) || hasOrdinalOrderingCue(lower: lower, tokens: tokenSet) {
             operations.insert(.ordering)
         }
         if containsAny(lower, [
@@ -169,6 +169,29 @@ internal enum RecallQueryUnderstandingAnalyzer {
             return true
         }
         return false
+    }
+
+    private static func hasOrdinalOrderingCue(lower: String, tokens: Set<String>) -> Bool {
+        if lower.range(
+            of: #"\bfirst\b.{0,48}\b(second|third)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
+        if lower.range(
+            of: #"\bsecond\b.{0,48}\bthird\b"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
+
+        guard tokens.contains("first") else { return false }
+        return containsAny(lower, [
+            "complete first", "completed first",
+            "finish first", "finished first",
+            "start first", "started first",
+            "begin first", "began first",
+        ])
     }
 
     private static func isProceduralQuery(lower: String, tokens: Set<String>) -> Bool {

@@ -1040,6 +1040,28 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func ordinalRecallCuesAreEvidenceDenseWithoutBroadChoiceFirstExpansion() {
+        let ordinalSeries = RecallQueryUnderstandingAnalyzer.analyze(
+            "Who finished first, second, and third in the workshop?"
+        )
+        #expect(ordinalSeries.operations.contains(.ordering))
+        #expect(ordinalSeries.temporalIntent == .timeAnchored)
+        #expect(ordinalSeries.isEvidenceDense)
+
+        let completionChoice = RecallQueryUnderstandingAnalyzer.analyze(
+            "Which task did I complete first, drafting the memo or filing the report?"
+        )
+        #expect(completionChoice.operations.contains(.ordering))
+        #expect(completionChoice.temporalIntent == .timeAnchored)
+        #expect(completionChoice.isEvidenceDense)
+
+        let broadChoice = RecallQueryUnderstandingAnalyzer.analyze(
+            "Which trip did I take first, the family vacation or the solo weekend?"
+        )
+        #expect(broadChoice.operations.contains(.ordering) == false)
+    }
+
+    @Test
     func genericRewriteLexiconAddsMediaAndEventVocabulary() {
         let mediaUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
             "Can you recommend a show or movie to watch?"

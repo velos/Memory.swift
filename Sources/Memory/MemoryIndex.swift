@@ -3592,19 +3592,25 @@ public actor MemoryIndex {
                 }
                 .sorted(by: compareSupportContinuationCandidates(_:_:))
 
-            var promotedDenseGroups: Set<String> = []
+            var promotedDenseGroupCounts: [String: Int] = [:]
             for candidate in denseContinuationCandidates where promotionCount < promotionLimit {
-                guard let groupKey = candidate.supportGroupKey,
-                      promotedDenseGroups.insert(groupKey).inserted,
-                      let replacementIndex = aggregateContinuationReplacementIndex(
-                        in: selected,
-                        groupCounts: selectedGroupCounts,
-                        protectedGroupKey: groupKey,
-                        candidate: candidate,
-                        allowTailReplacement: true,
-                        supportRatio: 0.60,
-                        blendedRatio: 0.80
-                      ) else {
+                guard let groupKey = candidate.supportGroupKey else {
+                    continue
+                }
+                let existingGroupCount = selectedGroupCounts[groupKey] ?? 0
+                let alreadyPromotedCount = promotedDenseGroupCounts[groupKey] ?? 0
+                guard alreadyPromotedCount == 0 || existingGroupCount >= 3 else {
+                    continue
+                }
+                guard let replacementIndex = aggregateContinuationReplacementIndex(
+                    in: selected,
+                    groupCounts: selectedGroupCounts,
+                    protectedGroupKey: groupKey,
+                    candidate: candidate,
+                    allowTailReplacement: true,
+                    supportRatio: 0.60,
+                    blendedRatio: 0.80
+                ) else {
                     continue
                 }
 
@@ -3617,6 +3623,7 @@ public actor MemoryIndex {
                 selected[replacementIndex] = candidate
                 selectedDocumentKeys.insert(normalizedComparisonKey(for: candidate.result.documentPath))
                 selectedGroupCounts[groupKey] = (selectedGroupCounts[groupKey] ?? 0) + 1
+                promotedDenseGroupCounts[groupKey] = alreadyPromotedCount + 1
                 promotionCount += 1
             }
         }
