@@ -563,6 +563,10 @@ private struct RetrievalDiagnosticsReport: Codable {
     var latencyStats: RecallLatencyStats?
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
+    var queryIntentCounts: [String: Int]
+    var intentMatchedRetrievedRate: Double
+    var avgTypeScoreDelta: Double
+    var maxTypeScoreDelta: Double
     var groundedMetricsByK: [RecallPerKMetric]?
     var groundedExpansionPolicy: GroundedExpansionApplicationPolicy?
     var groundedExpansionTermMode: GroundedExpansionTermMode?
@@ -615,6 +619,14 @@ private struct RetrievalDiagnosticQueryResult: Codable {
     var latencyMs: Double
     var stageTimings: RecallQueryStageTimings?
     var candidateCounts: RecallQueryCandidateCounts?
+    var queryIntent: String?
+    var queryIntentConfidence: Double?
+    var candidateTypeDistribution: [String: Int]
+    var retrievedTypeDistribution: [String: Int]
+    var intentMatchedCandidateCount: Int
+    var intentMatchedRetrievedCount: Int
+    var avgTypeScoreDelta: Double
+    var maxTypeScoreDelta: Double
     var difficulty: String?
     var retrieved: [RetrievalDiagnosticRetrievedDocument]
 }
@@ -624,6 +636,8 @@ private struct RetrievalDiagnosticRetrievedDocument: Codable {
     var documentId: String
     var documentPath: String
     var chunkID: Int64
+    var memoryType: String?
+    var memoryTypeConfidence: Double?
     var contextTokens: Int
     var truncated: Bool
     var score: SearchScoreBreakdown
@@ -1469,6 +1483,7 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var timingsByStage: [SearchStage: Double] = [:]
     private var counts = RecallQueryCandidateCounts()
+    private var typeIntent: (label: String, confidence: Double)?
 
     func record(_ event: SearchEvent) {
         lock.lock()
@@ -1485,6 +1500,8 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
             counts.fusedCandidates = count
         case let .reranked(count):
             counts.rerankedCandidates = count
+        case let .memoryTypeIntent(label, confidence):
+            typeIntent = (label, confidence)
         case let .stageTiming(stage, durationMs):
             timingsByStage[stage, default: 0] += durationMs
         default:
@@ -1515,6 +1532,13 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
         let snapshot = counts
         lock.unlock()
         return snapshot.hasData ? snapshot : nil
+    }
+
+    func memoryTypeIntent() -> (label: String, confidence: Double)? {
+        lock.lock()
+        let snapshot = typeIntent
+        lock.unlock()
+        return snapshot
     }
 }
 
@@ -5565,6 +5589,18 @@ private func runRetrievalDiagnostics(
         )
         let retrievedDocumentIDs = packed.documents.map(\.documentId)
         let scoreSortedDocumentIDs = scoreSortedRetrievalDiagnosticDocuments(packed.documents).map(\.documentId)
+        let typeIntent = searchStageCollector.memoryTypeIntent()
+        let candidateTypeDistribution = retrievalDiagnosticTypeDistribution(references)
+        let retrievedTypeDistribution = retrievalDiagnosticTypeDistribution(packed.documents)
+        let intentMatchedCandidateCount = typeIntent.map { intent in
+            references.filter { retrievalDiagnosticTypeMatchesIntent($0.memoryType, intent: intent.label) }.count
+        } ?? 0
+        let intentMatchedRetrievedCount = typeIntent.map { intent in
+            packed.documents.filter { retrievalDiagnosticTypeMatchesIntent($0.memoryType, intent: intent.label) }.count
+        } ?? 0
+        let typeScoreDeltas = packed.documents.map(\.score.type)
+        let avgTypeScoreDelta = typeScoreDeltas.isEmpty ? 0 : typeScoreDeltas.reduce(0, +) / Double(typeScoreDeltas.count)
+        let maxTypeScoreDelta = typeScoreDeltas.max() ?? 0
 
         let rankedMetrics = computePerQueryRecallMetrics(
             rankedDocumentIDs: retrievedDocumentIDs,
@@ -5759,6 +5795,14 @@ private func runRetrievalDiagnostics(
                 latencyMs: queryLatencyMs,
                 stageTimings: searchStageCollector.queryTimings(),
                 candidateCounts: searchStageCollector.queryCounts(),
+                queryIntent: typeIntent?.label,
+                queryIntentConfidence: typeIntent?.confidence,
+                candidateTypeDistribution: candidateTypeDistribution,
+                retrievedTypeDistribution: retrievedTypeDistribution,
+                intentMatchedCandidateCount: intentMatchedCandidateCount,
+                intentMatchedRetrievedCount: intentMatchedRetrievedCount,
+                avgTypeScoreDelta: avgTypeScoreDelta,
+                maxTypeScoreDelta: maxTypeScoreDelta,
                 difficulty: queryCase.difficulty,
                 retrieved: packed.documents
             )
@@ -5836,6 +5880,12 @@ private func runRetrievalDiagnostics(
     }.count
     let diagnosticSurfaceCounts = countStrings(queryResults.map(\.diagnosticSurface))
     let queryShapeCounts = countStrings(queryResults.flatMap(\.queryShape))
+    let queryIntentCounts = countStrings(queryResults.compactMap(\.queryIntent))
+    let intentMatchedRetrievedCount = queryResults.filter { $0.intentMatchedRetrievedCount > 0 }.count
+    let avgTypeScoreDelta = queryResults.isEmpty
+        ? 0
+        : queryResults.map(\.avgTypeScoreDelta).reduce(0, +) / Double(queryResults.count)
+    let maxTypeScoreDelta = queryResults.map(\.maxTypeScoreDelta).max() ?? 0
     let groundedDiagnosticSurfaceCounts = groundedExpansion
         ? countStrings(queryResults.compactMap(\.groundedDiagnosticSurface))
         : nil
@@ -5879,6 +5929,10 @@ private func runRetrievalDiagnostics(
         latencyStats: computeLatencyStats(retrievalDiagnosticResults: queryResults),
         stageLatencyStats: computeRecallStageLatencyStats(retrievalDiagnosticResults: queryResults),
         candidateCountStats: computeRecallCandidateCountStats(retrievalDiagnosticResults: queryResults),
+        queryIntentCounts: queryIntentCounts,
+        intentMatchedRetrievedRate: totalQueries == 0 ? 0 : Double(intentMatchedRetrievedCount) / Double(totalQueries),
+        avgTypeScoreDelta: avgTypeScoreDelta,
+        maxTypeScoreDelta: maxTypeScoreDelta,
         groundedMetricsByK: groundedMetricsByK,
         groundedExpansionPolicy: groundedExpansion ? groundedExpansionPolicy : nil,
         groundedExpansionTermMode: groundedExpansion ? groundedExpansionTermMode : nil,
@@ -6050,6 +6104,54 @@ private func computeRecallCandidateCountStats(retrievalDiagnosticResults: [Retri
     return report.hasData ? report : nil
 }
 
+private func retrievalDiagnosticTypeDistribution(_ references: [MemorySearchReference]) -> [String: Int] {
+    countStrings(references.map { retrievalDiagnosticMemoryTypeLabel($0.memoryType) })
+}
+
+private func retrievalDiagnosticTypeDistribution(_ documents: [RetrievalDiagnosticRetrievedDocument]) -> [String: Int] {
+    countStrings(documents.map { retrievalDiagnosticMemoryTypeLabel($0.memoryType) })
+}
+
+private func retrievalDiagnosticTypeMatchesIntent(_ rawType: String?, intent: String) -> Bool {
+    let type = retrievalDiagnosticMemoryTypeLabel(rawType)
+    switch intent {
+    case "procedural":
+        return type == "procedural" || type == "factual"
+    case "episodic":
+        return type == "episodic" || type == "contextual" || type == "factual"
+    case "semantic":
+        return type == "semantic" || type == "factual"
+    case "contextual":
+        return type == "contextual" || type == "factual" || type == "semantic"
+    case "factual":
+        return type == "factual" || type == "semantic" || type == "contextual"
+    default:
+        return type == intent
+    }
+}
+
+private func retrievalDiagnosticMemoryTypeLabel(_ rawType: String?) -> String {
+    guard let rawType else { return "unknown" }
+    let normalized = rawType
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "-", with: "_")
+    switch normalized {
+    case "fact", "factual":
+        return "factual"
+    case "procedure", "procedural":
+        return "procedural"
+    case "episode", "episodic", "temporal":
+        return "episodic"
+    case "semantic":
+        return "semantic"
+    case "context", "contextual":
+        return "contextual"
+    default:
+        return normalized.isEmpty ? "unknown" : normalized
+    }
+}
+
 private func packRetrievalDiagnosticContext(
     references: [MemorySearchReference],
     index: MemoryIndex,
@@ -6093,6 +6195,8 @@ private func packRetrievalDiagnosticContext(
                 documentId: documentID,
                 documentPath: reference.documentPath,
                 chunkID: reference.chunkID,
+                memoryType: reference.memoryType,
+                memoryTypeConfidence: reference.memoryTypeConfidence,
                 contextTokens: availableTokens,
                 truncated: truncated,
                 score: reference.score,
@@ -7457,6 +7561,10 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         "- Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))",
         "- Diagnostic surfaces: \(compactCountSummary(report.diagnosticSurfaceCounts))",
         "- Query shapes: \(compactCountSummary(report.queryShapeCounts))",
+        "- Query intents: \(compactCountSummary(report.queryIntentCounts))",
+        "- Intent-matched retrieved rate: \(percent(report.intentMatchedRetrievedRate))",
+        "- Avg type score delta: \(format(report.avgTypeScoreDelta))",
+        "- Max type score delta: \(format(report.maxTypeScoreDelta))",
         "- Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))",
         "- Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))",
         "- Empty retrieval rate: \(percent(report.emptyRetrievalRate))",
@@ -7578,6 +7686,23 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         for (shape, count) in sortedCountPairs(report.queryShapeCounts) {
             lines.append("| `\(shape)` | \(count) |")
         }
+    }
+
+    if !report.queryIntentCounts.isEmpty {
+        lines.append("")
+        lines.append("## Memory Type Intent")
+        lines.append("")
+        lines.append("| Intent | Queries |")
+        lines.append("|---|---:|")
+        for (intent, count) in sortedCountPairs(report.queryIntentCounts) {
+            lines.append("| `\(intent)` | \(count) |")
+        }
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|---|---:|")
+        lines.append("| intent_matched_retrieved_rate | \(percent(report.intentMatchedRetrievedRate)) |")
+        lines.append("| avg_type_score_delta | \(format(report.avgTypeScoreDelta)) |")
+        lines.append("| max_type_score_delta | \(format(report.maxTypeScoreDelta)) |")
     }
 
     if let groundedSurfaceCounts = report.groundedDiagnosticSurfaceCounts, !groundedSurfaceCounts.isEmpty {

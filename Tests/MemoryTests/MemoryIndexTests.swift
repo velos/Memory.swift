@@ -67,6 +67,56 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func memoryTypeIntentAddsBoundedSoftScoreForMatchingDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("procedure.md"),
+            """
+            # How to renew a workshop permit
+            Submit the workshop permit renewal form online or by mail.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("fact.md"),
+            """
+            # Workshop permit overview
+            Workshop permits list the room, schedule, and safety contact.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How do I renew a workshop permit?",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 20,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        let procedural = try #require(results.first { $0.documentPath.hasSuffix("procedure.md") })
+        let factual = try #require(results.first { $0.documentPath.hasSuffix("fact.md") })
+        #expect(procedural.memoryType == "procedural")
+        #expect((procedural.score.type) > (factual.score.type))
+        #expect(procedural.score.type <= 0.012)
+    }
+
+    @Test
     func additionalLexicalQueriesCanLiftRelevantDocument() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -1090,6 +1140,7 @@ struct MemoryIndexTests {
         #expect(enabled.contains(.semanticPreservation) == false)
         #expect(enabled.contains(.aggregateSupportContinuations))
         #expect(enabled.contains(.currentStateLexicalPreservation))
+        #expect(enabled.contains(.memoryTypeIntent))
 
         let only = MemorySearchAdjustmentSet.enabled(from: [
             MemorySearchAdjustmentSet.onlyEnvironmentKey: "aggregate-support-continuations",

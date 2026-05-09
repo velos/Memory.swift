@@ -15,6 +15,7 @@ internal struct MemorySearchAdjustmentSet: OptionSet, Sendable, Hashable {
     internal static let temporalLexicalPreservation = MemorySearchAdjustmentSet(rawValue: 1 << 5)
     internal static let recommendationSemantic = MemorySearchAdjustmentSet(rawValue: 1 << 6)
     internal static let aggregateSupportContinuations = MemorySearchAdjustmentSet(rawValue: 1 << 7)
+    internal static let memoryTypeIntent = MemorySearchAdjustmentSet(rawValue: 1 << 8)
 
     internal static let all: MemorySearchAdjustmentSet = [
         .evidenceSupport,
@@ -25,6 +26,7 @@ internal struct MemorySearchAdjustmentSet: OptionSet, Sendable, Hashable {
         .temporalLexicalPreservation,
         .recommendationSemantic,
         .aggregateSupportContinuations,
+        .memoryTypeIntent,
     ]
 
     internal static let disableEnvironmentKey = "MEMORY_RECALL_DISABLE_ADJUSTMENTS"
@@ -84,6 +86,8 @@ internal struct MemorySearchAdjustmentSet: OptionSet, Sendable, Hashable {
             return "recommendation_semantic"
         case .aggregateSupportContinuations:
             return "aggregate_support_continuations"
+        case .memoryTypeIntent:
+            return "memory_type_intent"
         default:
             return nil
         }
@@ -115,6 +119,8 @@ internal struct MemorySearchAdjustmentSet: OptionSet, Sendable, Hashable {
             return .recommendationSemantic
         case "aggregate_support", "aggregate_support_continuations", "support_continuations":
             return .aggregateSupportContinuations
+        case "memory_type", "memory_type_intent", "type_intent":
+            return .memoryTypeIntent
         default:
             return nil
         }

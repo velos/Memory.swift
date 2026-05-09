@@ -93,6 +93,21 @@ public actor MemoryIndex {
         var day: Int
     }
 
+    private struct LegacyDocumentMemoryTypeClassification {
+        var label: String
+        var confidence: Double
+    }
+
+    private struct RetrievalMemoryTypeIntent {
+        var label: String
+        var confidence: Double
+        var compatibleLabels: Set<String>
+
+        var isInformative: Bool {
+            confidence >= 0.55
+        }
+    }
+
     private static let monthNameToNumber: [String: Int] = [
         "january": 1,
         "february": 2,
@@ -110,6 +125,178 @@ public actor MemoryIndex {
     private static let monthNameByNumber: [Int: String] = Dictionary(
         uniqueKeysWithValues: monthNameToNumber.map { ($0.value, $0.key) }
     )
+    private static let documentProceduralTitlePhrases: [String] = [
+        "apply",
+        "file",
+        "appeal",
+        "get",
+        "renew",
+        "register",
+        "transfer",
+        "change",
+        "create",
+        "open",
+        "pay",
+        "plead",
+        "provide",
+        "remove",
+        "exchange",
+        "learn what documents",
+        "checklists",
+        "instructions",
+        "how to",
+        "loan counseling",
+        "log on",
+        "link to us",
+        "permit",
+        "restriction",
+        "restrictions",
+        "status",
+        "designation",
+        "insurance",
+        "claims",
+        "complaint",
+        "complaints",
+        "charges",
+        "lower",
+        "suspend",
+        "treatment",
+        "complete",
+        "counseling",
+        "agreement",
+        "eligible",
+        "reemployment",
+        "users",
+        "foreign",
+        "sales tax",
+        "careers",
+        "career",
+        "employment",
+        "copy",
+        "ticket",
+    ]
+    private static let documentStrongProceduralBodyPhrases: [String] = [
+        "step 1",
+        "apply online",
+        "apply by mail",
+        "online or by mail",
+        "in person",
+        "at a dmv office",
+        "follow the instructions",
+        "checklist",
+        "you must",
+        "you need to",
+    ]
+    private static let documentProceduralBodyPhrases: [String] = [
+        "submit",
+        "form",
+        "application",
+        "eligible",
+        "requirements",
+        "by mail",
+        "you can apply",
+        "you can file",
+        "you can renew",
+        "you can get",
+        "you can change",
+        "you can transfer",
+    ]
+    private static let documentEpisodicTitlePhrases: [String] = [
+        "stories",
+        "story",
+        "tale",
+        "journey",
+        "incident report",
+        "spotlight",
+        "campaign",
+        "volunteerism",
+        "resilience",
+    ]
+    private static let documentStrongEpisodicBodyPhrases: [String] = [
+        "once upon",
+        "when i",
+        "i found myself",
+        "i ve",
+        "i have walked",
+        "personal account",
+        "at the starting line",
+    ]
+    private static let documentEpisodicBodyPhrases: [String] = [
+        "on september",
+        "on october",
+        "on november",
+        "residents were",
+        "city council",
+        "recently",
+        "launched",
+        "announced",
+        "marked",
+        "gathered",
+        "woke",
+        "struck",
+        "occurred",
+        "happened",
+    ]
+    private static let documentSemanticTitlePhrases: [String] = [
+        "myths",
+        "mythical",
+        "legendary",
+        "origins",
+        "importance",
+        "emerging technologies",
+        "methodologies",
+        "supply chain",
+        "internet of things",
+        "mindfulness",
+        "festivals",
+        "revolutionizing",
+        "learn about",
+        "works",
+        "benefits",
+    ]
+    private static let documentStrongSemanticBodyPhrases: [String] = [
+        "ethical debates",
+        "methodologies",
+        "historical origins",
+        "importance",
+        "origin stories",
+        "creation myths",
+        "internet of things",
+        "emerging technologies",
+        "supply chain",
+        "mindfulness",
+        "festivals",
+        "cultural heritage",
+    ]
+    private static let documentSemanticBodyPhrases: [String] = [
+        "concept",
+        "concepts",
+        "understand",
+        "learn how",
+        "in this section",
+        "exploring",
+        "importance",
+        "role of",
+        "history of",
+        "origins",
+        "landscape",
+        "transforming",
+        "innovation",
+        "cultural",
+        "society",
+        "traditions",
+    ]
+    private static let documentContextualTitlePhrases: [String] = [
+        "terms of service",
+        "terms",
+    ]
+    private static let documentContextualBodyPhrases: [String] = [
+        "terms of service",
+        "registered users",
+        "take effect",
+        "changes expected",
+        "announced an ambitious",
+    ]
 
     private struct StructuredSearchPlan {
         var expandedQueries: [WeightedQuery]
@@ -496,6 +683,8 @@ public actor MemoryIndex {
             queryText: normalizedText,
             understanding: queryUnderstanding
         )
+        let memoryTypeIntent = classifyRetrievalMemoryTypeIntent(querySignals.understanding)
+        events?(.memoryTypeIntent(label: memoryTypeIntent.label, confidence: memoryTypeIntent.confidence))
         let queryTags = query.includeTagScoring
             ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
             : []
@@ -505,7 +694,8 @@ public actor MemoryIndex {
             query: query,
             primaryQueryText: normalizedText,
             queryTags: queryTags,
-            querySignals: querySignals
+            querySignals: querySignals,
+            memoryTypeIntent: memoryTypeIntent
         )
         events?(.stageTiming(stage: .fusion, durationMs: elapsedMilliseconds(since: fusionStart)))
         events?(.fusedCandidates(count: fused.count))
@@ -550,6 +740,7 @@ public actor MemoryIndex {
         fused = applyPostRerankAdjustments(
             to: fused,
             querySignals: querySignals,
+            memoryTypeIntent: memoryTypeIntent,
             query: query
         )
 
@@ -1057,6 +1248,8 @@ public actor MemoryIndex {
                     memoryID: result.memoryID,
                     memoryKind: result.memoryKind,
                     memoryStatus: result.memoryStatus,
+                    memoryType: result.memoryType,
+                    memoryTypeConfidence: result.memoryTypeConfidence,
                     score: result.score
                 )
             )
@@ -1287,6 +1480,8 @@ public actor MemoryIndex {
             memoryID: metadata.memoryID,
             memoryKind: resolveMemoryKind(from: metadata),
             memoryStatus: resolveMemoryStatus(raw: metadata.memoryStatus, hasMemoryID: metadata.memoryID != nil),
+            memoryType: normalizedRetrievalMemoryType(metadata.memoryType),
+            memoryTypeConfidence: metadata.memoryTypeConfidence,
             score: score
         )
     }
@@ -2260,6 +2455,7 @@ public actor MemoryIndex {
         guard !chunks.isEmpty else { return nil }
 
         let documentTitle = inferTitle(content: content, fallback: url.deletingPathExtension().lastPathComponent)
+        let memoryType = classifyLegacyDocumentMemoryType(title: documentTitle, content: content)
         let embeddings: [[Float]]
         let embeddingStart = DispatchTime.now().uptimeNanoseconds
         do {
@@ -2303,9 +2499,9 @@ public actor MemoryIndex {
             title: documentTitle,
             modifiedAt: modifiedAt,
             checksum: checksum(content),
-            memoryType: "document",
+            memoryType: memoryType.label,
             memoryTypeSource: "system",
-            memoryTypeConfidence: nil,
+            memoryTypeConfidence: memoryType.confidence,
             chunks: chunkInputs
         )
     }
@@ -2329,6 +2525,245 @@ public actor MemoryIndex {
             }
         }
         return fallback
+    }
+
+    private func classifyLegacyDocumentMemoryType(
+        title: String,
+        content: String
+    ) -> LegacyDocumentMemoryTypeClassification {
+        let normalizedTitle = normalizedClassifierText(title)
+        let normalizedContent = normalizedClassifierText(String(content.prefix(16_000)))
+        let contentTokens = normalizedContent.split(separator: " ").map(String.init)
+
+        var proceduralScore = 0
+        var episodicScore = 0
+        var semanticScore = 0
+        var contextualScore = 0
+
+        let proceduralTitleMatches = countNormalizedPhraseMatches(
+            MemoryIndex.documentProceduralTitlePhrases,
+            in: normalizedTitle
+        )
+        proceduralScore += proceduralTitleMatches * 3
+        let numberedProcessCue = hasNumberedProcessCue(tokens: contentTokens)
+        let proceduralHowCue = containsAnyNormalizedPhrase(["how do", "how can", "how to"], in: normalizedContent)
+        if proceduralTitleMatches > 0 {
+            proceduralScore += countNormalizedPhraseMatches(
+                MemoryIndex.documentStrongProceduralBodyPhrases,
+                in: normalizedContent
+            ) * 2
+            proceduralScore += countNormalizedPhraseMatches(
+                MemoryIndex.documentProceduralBodyPhrases,
+                in: normalizedContent
+            )
+            if proceduralHowCue {
+                proceduralScore += 2
+            }
+            if hasOrderedActionCue(tokens: contentTokens, normalizedContent: normalizedContent) {
+                proceduralScore += 1
+            }
+        } else if numberedProcessCue {
+            proceduralScore += 4
+        }
+        if numberedProcessCue {
+            proceduralScore += 2
+        }
+
+        let episodicTitleMatches = countNormalizedPhraseMatches(
+            MemoryIndex.documentEpisodicTitlePhrases,
+            in: normalizedTitle
+        )
+        episodicScore += episodicTitleMatches * 2
+        episodicScore += countNormalizedPhraseMatches(
+            MemoryIndex.documentStrongEpisodicBodyPhrases,
+            in: normalizedContent
+        ) * 3
+        if episodicTitleMatches > 0 {
+            episodicScore += countNormalizedPhraseMatches(
+                MemoryIndex.documentEpisodicBodyPhrases,
+                in: normalizedContent
+            )
+        }
+        if containsNormalizedPhrase("neighborhood stories", in: normalizedTitle),
+           hasNeighborhoodNarrativeCue(tokens: contentTokens, normalizedContent: normalizedContent) {
+            episodicScore += 3
+        }
+        if hasPersonalNarrativeCue(normalizedContent: normalizedContent) {
+            episodicScore += 3
+        }
+        if episodicTitleMatches > 0, hasMonthDateCue(tokens: contentTokens) {
+            episodicScore += 1
+        }
+
+        let semanticTitleMatches = countNormalizedPhraseMatches(
+            MemoryIndex.documentSemanticTitlePhrases,
+            in: normalizedTitle
+        )
+        semanticScore += semanticTitleMatches * 2
+        semanticScore += countNormalizedPhraseMatches(
+            MemoryIndex.documentStrongSemanticBodyPhrases,
+            in: normalizedContent
+        ) * 3
+        if semanticTitleMatches > 0 {
+            semanticScore += countNormalizedPhraseMatches(
+                MemoryIndex.documentSemanticBodyPhrases,
+                in: normalizedContent
+            )
+        }
+        if containsAnyNormalizedPhrase(["folklore", "myth", "myths", "legendary", "legends"], in: normalizedTitle) {
+            semanticScore += 4
+        }
+
+        contextualScore += countNormalizedPhraseMatches(
+            MemoryIndex.documentContextualTitlePhrases,
+            in: normalizedTitle
+        ) * 2
+        contextualScore += countNormalizedPhraseMatches(
+            MemoryIndex.documentContextualBodyPhrases,
+            in: normalizedContent
+        ) * 2
+
+        if contextualScore >= 4,
+           contextualScore >= max(proceduralScore, episodicScore, semanticScore) - 1 {
+            return LegacyDocumentMemoryTypeClassification(
+                label: "contextual",
+                confidence: confidence(for: contextualScore)
+            )
+        }
+
+        let scored = [
+            ("procedural", proceduralScore),
+            ("episodic", episodicScore),
+            ("semantic", semanticScore),
+            ("contextual", contextualScore),
+        ]
+        let best = scored.max { lhs, rhs in
+            if lhs.1 == rhs.1 {
+                return legacyDocumentTypePriority(lhs.0) < legacyDocumentTypePriority(rhs.0)
+            }
+            return lhs.1 < rhs.1
+        } ?? ("factual", 0)
+
+        switch best.0 {
+        case "procedural" where best.1 >= 5:
+            return LegacyDocumentMemoryTypeClassification(label: best.0, confidence: confidence(for: best.1))
+        case "episodic" where best.1 >= 4:
+            return LegacyDocumentMemoryTypeClassification(label: best.0, confidence: confidence(for: best.1))
+        case "semantic" where best.1 >= 4:
+            return LegacyDocumentMemoryTypeClassification(label: best.0, confidence: confidence(for: best.1))
+        case "contextual" where best.1 >= 4:
+            return LegacyDocumentMemoryTypeClassification(label: best.0, confidence: confidence(for: best.1))
+        default:
+            return LegacyDocumentMemoryTypeClassification(label: "factual", confidence: 0.55)
+        }
+    }
+
+    private func legacyDocumentTypePriority(_ label: String) -> Int {
+        switch label {
+        case "contextual":
+            return 4
+        case "semantic":
+            return 3
+        case "episodic":
+            return 2
+        case "procedural":
+            return 1
+        default:
+            return 0
+        }
+    }
+
+    private func confidence(for score: Int) -> Double {
+        min(0.95, 0.55 + (Double(score) * 0.04))
+    }
+
+    private func normalizedClassifierText(_ text: String) -> String {
+        text
+            .lowercased()
+            .split { character in !character.isLetter && !character.isNumber }
+            .joined(separator: " ")
+    }
+
+    private func containsNormalizedPhrase(_ phrase: String, in normalizedText: String) -> Bool {
+        guard !phrase.isEmpty, !normalizedText.isEmpty else { return false }
+        return " \(normalizedText) ".contains(" \(phrase) ")
+    }
+
+    private func containsAnyNormalizedPhrase(_ phrases: [String], in normalizedText: String) -> Bool {
+        phrases.contains { containsNormalizedPhrase($0, in: normalizedText) }
+    }
+
+    private func countNormalizedPhraseMatches(_ phrases: [String], in normalizedText: String) -> Int {
+        phrases.reduce(into: 0) { count, phrase in
+            if containsNormalizedPhrase(phrase, in: normalizedText) {
+                count += 1
+            }
+        }
+    }
+
+    private func hasNumberedProcessCue(tokens: [String]) -> Bool {
+        guard tokens.count >= 2 else { return false }
+        for index in 0..<(tokens.count - 1) {
+            guard tokens[index] == "step" || tokens[index] == "phase" else { continue }
+            if Int(tokens[index + 1]) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func hasOrderedActionCue(tokens: [String], normalizedContent: String) -> Bool {
+        let orderingTokens: Set<String> = ["first", "second", "third", "next", "finally"]
+        guard tokens.contains(where: orderingTokens.contains) else { return false }
+        return containsAnyNormalizedPhrase(["apply", "submit", "complete"], in: normalizedContent)
+    }
+
+    private func hasMonthDateCue(tokens: [String]) -> Bool {
+        guard tokens.count >= 2 else { return false }
+        for index in 0..<(tokens.count - 1) {
+            guard MemoryIndex.monthNameToNumber[tokens[index]] != nil else { continue }
+            if Int(tokens[index + 1]) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func hasNeighborhoodNarrativeCue(tokens: [String], normalizedContent: String) -> Bool {
+        if containsAnyNormalizedPhrase(
+            [
+                "when i",
+                "i found myself",
+                "once upon",
+                "gathered",
+                "marked the commencement",
+                "at the starting line",
+            ],
+            in: normalizedContent
+        ) {
+            return true
+        }
+
+        return tokens.contains("september")
+            || tokens.contains("october")
+            || tokens.contains("november")
+            || hasMonthDateCue(tokens: tokens)
+    }
+
+    private func hasPersonalNarrativeCue(normalizedContent: String) -> Bool {
+        guard containsAnyNormalizedPhrase(["i", "my", "we"], in: normalizedContent) else { return false }
+        return containsAnyNormalizedPhrase(
+            [
+                "felt",
+                "learned",
+                "walked",
+                "found myself",
+                "declared",
+                "went",
+                "began",
+            ],
+            in: normalizedContent
+        )
     }
 
     private func checksum(_ text: String) -> String {
@@ -2858,7 +3293,8 @@ public actor MemoryIndex {
         query: SearchQuery,
         primaryQueryText: String,
         queryTags: [ContentTag],
-        querySignals: QueryMatchSignals
+        querySignals: QueryMatchSignals,
+        memoryTypeIntent: RetrievalMemoryTypeIntent
     ) async throws -> [SearchResult] {
         struct FusedCandidate {
             var metadata: StoredChunkMetadata
@@ -2897,6 +3333,9 @@ public actor MemoryIndex {
                 + ellipticalStructureBonus(querySignals: querySignals, metadata: metadata)
             let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
+            let typeBonus = searchAdjustments.contains(.memoryTypeIntent)
+                ? memoryTypeIntentBonus(intent: memoryTypeIntent, metadata: metadata)
+                : 0
             let fused = (weights.semantic * semantic)
                 + (weights.lexical * lexical)
                 + (weights.recency * recency)
@@ -2905,6 +3344,7 @@ public actor MemoryIndex {
                 + schemaBonus
                 + temporalBonus
                 + statusBonus
+                + typeBonus
 
             results.append(
                 FusedCandidate(
@@ -2917,6 +3357,7 @@ public actor MemoryIndex {
                         schema: schemaBonus,
                         temporal: temporalBonus,
                         status: statusBonus,
+                        type: typeBonus,
                         fused: fused
                     )
                 )
@@ -3393,6 +3834,7 @@ public actor MemoryIndex {
     private func applyPostRerankAdjustments(
         to results: [SearchResult],
         querySignals: QueryMatchSignals,
+        memoryTypeIntent: RetrievalMemoryTypeIntent,
         query: SearchQuery
     ) -> [SearchResult] {
         guard !results.isEmpty,
@@ -3466,6 +3908,14 @@ public actor MemoryIndex {
             adjusted = applyRecommendationSemanticAdjustment(
                 to: adjusted,
                 querySignals: querySignals,
+                query: query
+            )
+        }
+        if searchAdjustments.contains(.memoryTypeIntent),
+           memoryTypeIntent.isInformative {
+            adjusted = applyMemoryTypeIntentTailAdjustment(
+                to: adjusted,
+                intent: memoryTypeIntent,
                 query: query
             )
         }
@@ -4099,6 +4549,72 @@ public actor MemoryIndex {
         return adjusted
     }
 
+    private func applyMemoryTypeIntentTailAdjustment(
+        to results: [SearchResult],
+        intent: RetrievalMemoryTypeIntent,
+        query: SearchQuery
+    ) -> [SearchResult] {
+        guard query.rerankLimit == 0,
+              query.limit >= 5,
+              !results.isEmpty else {
+            return results
+        }
+
+        var adjusted = results
+        let window = min(adjusted.count, max(query.limit * 3, 24))
+        for index in adjusted.indices.prefix(window) {
+            let fit = memoryTypeIntentFit(intent: intent, result: adjusted[index])
+            guard fit > 0 else { continue }
+
+            let branchEvidence = max(adjusted[index].score.lexical, adjusted[index].score.semantic)
+            guard branchEvidence > 0 else { continue }
+
+            let bonus = min(0.0015, adjusted[index].score.type * 0.35 + fit * 0.0008)
+            guard bonus > 0 else { continue }
+            adjusted[index].score.type += bonus
+            adjusted[index].score.blended += bonus
+        }
+        return adjusted
+    }
+
+    private func memoryTypeIntentFit(intent: RetrievalMemoryTypeIntent, result: SearchResult) -> Double {
+        let labels = retrievalMemoryTypeLabels(for: result)
+        guard !labels.isEmpty else { return 0 }
+
+        var bestFit = 0.0
+        for label in labels {
+            if label.name == intent.label {
+                bestFit = max(bestFit, label.confidence)
+            } else if intent.compatibleLabels.contains(label.name) {
+                bestFit = max(bestFit, label.confidence * 0.20)
+            }
+        }
+        return bestFit
+    }
+
+    private func retrievalMemoryTypeLabels(for result: SearchResult) -> [(name: String, confidence: Double)] {
+        var labels: [String: Double] = [:]
+
+        if let label = normalizedRetrievalMemoryType(result.memoryType) {
+            let confidence = min(1, max(0.35, result.memoryTypeConfidence ?? 0.65))
+            labels[label] = max(labels[label] ?? 0, confidence)
+        }
+
+        if let kind = result.memoryKind,
+           let kindLabel = retrievalMemoryTypeLabel(for: kind) {
+            labels[kindLabel] = max(labels[kindLabel] ?? 0, 0.70)
+        }
+
+        return labels
+            .map { (name: $0.key, confidence: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.confidence == rhs.confidence {
+                    return lhs.name < rhs.name
+                }
+                return lhs.confidence > rhs.confidence
+            }
+    }
+
     private func applyNegatedQualificationReliefAdjustment(
         to results: [SearchResult],
         querySignals: QueryMatchSignals,
@@ -4360,6 +4876,191 @@ public actor MemoryIndex {
         "after", "between", "past", "month", "months", "week", "weeks",
         "year", "years", "last", "next", "different",
     ]
+
+    private func classifyRetrievalMemoryTypeIntent(_ understanding: RecallQueryUnderstanding) -> RetrievalMemoryTypeIntent {
+        let normalized = normalizedClassifierText(understanding.originalText)
+        let tokens = Set(understanding.tokens)
+
+        if containsAnyNormalizedPhrase([
+                "current status",
+                "what changed",
+                "changed since",
+                "right now",
+                "as of",
+                "terms of service",
+                "policy",
+                "status",
+                "still active",
+                "currently active",
+                "terms",
+            ], in: normalized) {
+            return RetrievalMemoryTypeIntent(
+                label: "contextual",
+                confidence: 0.78,
+                compatibleLabels: ["factual", "semantic"]
+            )
+        }
+
+        if understanding.isProcedural
+            || containsAnyNormalizedPhrase([
+                "how do i",
+                "how can i",
+                "how to",
+                "what steps",
+                "steps to",
+                "process to",
+                "set up",
+                "apply for",
+                "renew",
+                "register",
+                "submit",
+                "file an",
+                "file a",
+            ], in: normalized) {
+            return RetrievalMemoryTypeIntent(
+                label: "procedural",
+                confidence: 0.80,
+                compatibleLabels: ["factual", "contextual"]
+            )
+        }
+
+        if understanding.operations.contains(.recency)
+            || understanding.operations.contains(.ordering)
+            || containsAnyNormalizedPhrase([
+                "when did i",
+                "when was",
+                "what happened",
+                "last time",
+                "timeline",
+                "earliest",
+                "latest",
+                "first to last",
+            ], in: normalized) {
+            return RetrievalMemoryTypeIntent(
+                label: "episodic",
+                confidence: 0.50,
+                compatibleLabels: ["contextual", "factual"]
+            )
+        }
+
+        if understanding.operations.contains(.duration)
+            || understanding.operations.contains(.comparison) {
+            return RetrievalMemoryTypeIntent(
+                label: "episodic",
+                confidence: 0.50,
+                compatibleLabels: ["factual", "contextual"]
+            )
+        }
+
+        if containsAnyNormalizedPhrase([
+            "what is",
+            "what are",
+            "why",
+            "explain",
+            "difference between",
+            "how does",
+            "benefits",
+            "meaning of",
+            "concept",
+        ], in: normalized)
+            || !tokens.isDisjoint(with: ["definition", "definitions", "meaning", "concept", "explain", "benefits"]) {
+            return RetrievalMemoryTypeIntent(
+                label: "semantic",
+                confidence: 0.70,
+                compatibleLabels: ["factual", "contextual"]
+            )
+        }
+
+        return RetrievalMemoryTypeIntent(
+            label: "factual",
+            confidence: 0.50,
+            compatibleLabels: ["semantic", "contextual"]
+        )
+    }
+
+    private func memoryTypeIntentBonus(
+        intent: RetrievalMemoryTypeIntent,
+        metadata: StoredChunkMetadata
+    ) -> Double {
+        guard intent.isInformative else { return 0 }
+        let labels = retrievalMemoryTypeLabels(for: metadata)
+        guard !labels.isEmpty else { return 0 }
+
+        var bestFit = 0.0
+        for label in labels {
+            let relationship: Double
+            if label.name == intent.label {
+                relationship = 1.0
+            } else if intent.compatibleLabels.contains(label.name) {
+                relationship = 0.20
+            } else {
+                relationship = 0
+            }
+            bestFit = max(bestFit, relationship * label.confidence)
+        }
+        guard bestFit > 0 else { return 0 }
+
+        let base = intent.label == "factual" ? 0.002 : 0.005
+        return min(0.006, base * intent.confidence * bestFit)
+    }
+
+    private func retrievalMemoryTypeLabels(for metadata: StoredChunkMetadata) -> [(name: String, confidence: Double)] {
+        var labels: [String: Double] = [:]
+
+        if let label = normalizedRetrievalMemoryType(metadata.memoryType) {
+            let confidence = min(1, max(0.35, metadata.memoryTypeConfidence ?? 0.65))
+            labels[label] = max(labels[label] ?? 0, confidence)
+        }
+
+        if let kind = resolveMemoryKind(from: metadata),
+           let kindLabel = retrievalMemoryTypeLabel(for: kind) {
+            labels[kindLabel] = max(labels[kindLabel] ?? 0, 0.70)
+        }
+
+        return labels
+            .map { (name: $0.key, confidence: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.confidence == rhs.confidence {
+                    return lhs.name < rhs.name
+                }
+                return lhs.confidence > rhs.confidence
+            }
+    }
+
+    private func normalizedRetrievalMemoryType(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        switch normalized {
+        case "fact", "factual":
+            return "factual"
+        case "procedure", "procedural":
+            return "procedural"
+        case "episode", "episodic", "temporal":
+            return "episodic"
+        case "semantic":
+            return "semantic"
+        case "context", "contextual":
+            return "contextual"
+        default:
+            return nil
+        }
+    }
+
+    private func retrievalMemoryTypeLabel(for kind: MemoryKind) -> String? {
+        switch kind {
+        case .profile, .fact, .decision:
+            return "factual"
+        case .commitment, .procedure:
+            return "procedural"
+        case .episode:
+            return "episodic"
+        case .handoff:
+            return "contextual"
+        }
+    }
 
     private func fusionWeights(for queryText: String) -> (semantic: Double, lexical: Double, recency: Double) {
         if isTimeAnchoredQuery(queryText) {
