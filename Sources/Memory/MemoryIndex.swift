@@ -987,6 +987,52 @@ public actor MemoryIndex {
         }
     }
 
+    public func debugMemories(_ query: MemoryDebugQuery = MemoryDebugQuery()) async throws -> MemoryDebugPage {
+        do {
+            let page = try await storage.debugStoredMemories(
+                searchText: query.searchText,
+                limit: query.limit,
+                offset: query.offset,
+                sort: storageDebugSort(for: query.sort),
+                kinds: query.kinds.map { Set($0.map(\.rawValue)) },
+                statuses: query.statuses.map { Set($0.map(\.rawValue)) }
+            )
+            let records = page.records.compactMap { makeMemoryRecord(from: $0, score: nil) }
+            return MemoryDebugPage(
+                records: records,
+                totalCount: page.totalCount,
+                limit: query.limit,
+                offset: query.offset
+            )
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
+    public func setMemoryStatus(id: String, status: MemoryStatus) async throws -> MemoryRecord? {
+        do {
+            guard let existing = try await storage.fetchStoredMemory(id: id) else {
+                return nil
+            }
+
+            try await storage.updateStoredMemoryStatus(
+                id: id,
+                status: status.rawValue,
+                supersededByID: existing.supersededByID
+            )
+
+            guard let updated = try await storage.fetchStoredMemory(id: id) else {
+                return nil
+            }
+
+            try await materializeStoredMemory(updated)
+            let rematerialized = try await storage.fetchStoredMemory(id: id) ?? updated
+            return makeMemoryRecord(from: rematerialized, score: nil)
+        } catch {
+            throw normalizeError(error)
+        }
+    }
+
     public func save(
         text: String,
         kind: MemoryKind,
@@ -1587,6 +1633,19 @@ public actor MemoryIndex {
         }
     }
 
+    private func storageDebugSort(for sort: MemoryDebugSort) -> StoredMemoryDebugSort {
+        switch sort {
+        case .createdAtDescending:
+            return .createdAtDescending
+        case .updatedAtDescending:
+            return .updatedAtDescending
+        case .importanceDescending:
+            return .importanceDescending
+        case .mostAccessed:
+            return .mostAccessed
+        }
+    }
+
     private func makeMemoryRecord(
         from metadata: StoredChunkMetadata,
         score: SearchScoreBreakdown?
@@ -1607,6 +1666,7 @@ public actor MemoryIndex {
             canonicalKey: metadata.memoryCanonicalKey,
             importance: metadata.importance,
             confidence: nil,
+            source: metadata.source,
             accessCount: metadata.accessCount,
             createdAt: metadata.createdAt,
             eventAt: nil,
@@ -1647,6 +1707,7 @@ public actor MemoryIndex {
             canonicalKey: storedMemory.canonicalKey,
             importance: storedMemory.importance,
             confidence: storedMemory.confidence,
+            source: storedMemory.source,
             accessCount: storedMemory.accessCount,
             createdAt: storedMemory.createdAt,
             eventAt: storedMemory.eventAt,
@@ -1656,6 +1717,7 @@ public actor MemoryIndex {
             facetTags: Set(storedMemory.facetTags.compactMap(FacetTag.parse)),
             entities: storedMemory.entities.compactMap(makeMemoryEntity(from:)),
             topics: storedMemory.topics,
+            metadata: storedMemory.metadata,
             score: score
         )
     }

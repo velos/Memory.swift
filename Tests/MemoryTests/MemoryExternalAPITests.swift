@@ -4,6 +4,116 @@ import Testing
 
 struct MemoryExternalAPITests {
     @Test
+    func debugMemoriesPaginatesSearchesMetadataAndDoesNotRecordAccess() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let older = try await index.save(
+            text: "Alpha launch notes mention SQLite fallback.",
+            kind: .fact,
+            importance: 0.3,
+            createdAt: Date(timeIntervalSince1970: 100),
+            tags: ["launch"],
+            facetTags: [.tool],
+            entities: [
+                MemoryEntity(label: .tool, value: "SQLite", normalizedValue: "sqlite"),
+            ],
+            topics: ["storage"],
+            metadata: ["ticket": "DBG-1"]
+        )
+        let middle = try await index.save(
+            text: "Beta launch notes mention Core ML embeddings.",
+            kind: .decision,
+            importance: 0.8,
+            createdAt: Date(timeIntervalSince1970: 200),
+            metadata: ["ticket": "DBG-2"]
+        )
+        let newer = try await index.save(
+            text: "Gamma launch notes mention SwiftUI diagnostics.",
+            kind: .handoff,
+            importance: 0.6,
+            createdAt: Date(timeIntervalSince1970: 300),
+            metadata: ["ticket": "DBG-3"]
+        )
+
+        let firstPage = try await index.debugMemories(
+            MemoryDebugQuery(limit: 2, sort: .createdAtDescending)
+        )
+        #expect(firstPage.records.map(\.id) == [newer.id, middle.id])
+        #expect(firstPage.totalCount == 3)
+        #expect(firstPage.hasMore)
+
+        let secondPage = try await index.debugMemories(
+            MemoryDebugQuery(limit: 2, offset: 2, sort: .createdAtDescending)
+        )
+        #expect(secondPage.records.map(\.id) == [older.id])
+        #expect(secondPage.totalCount == 3)
+        #expect(secondPage.hasMore == false)
+
+        let metadataMatch = try await index.debugMemories(
+            MemoryDebugQuery(searchText: "DBG-1", limit: 10)
+        )
+        #expect(metadataMatch.records.map(\.id) == [older.id])
+        #expect(metadataMatch.records.first?.metadata["ticket"] == "DBG-1")
+        #expect(metadataMatch.records.first?.source == "memory_save")
+
+        let tagMatch = try await index.debugMemories(
+            MemoryDebugQuery(searchText: "sqlite storage", limit: 10)
+        )
+        #expect(tagMatch.records.map(\.id).contains(older.id))
+
+        let beforeAccessCount = try #require(
+            metadataMatch.records.first(where: { $0.id == older.id })
+        ).accessCount
+        _ = try await index.debugMemories(MemoryDebugQuery(searchText: "DBG-1", limit: 10))
+        let afterPage = try await index.debugMemories(MemoryDebugQuery(searchText: "DBG-1", limit: 10))
+        let afterAccessCount = try #require(
+            afterPage.records.first(where: { $0.id == older.id })
+        ).accessCount
+        #expect(afterAccessCount == beforeAccessCount)
+    }
+
+    @Test
+    func debugArchiveHidesDefaultListAndRefreshesDerivedMemoryStatus() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let memory = try await index.save(
+            text: "Archive this debug-only memory.",
+            kind: .fact
+        )
+
+        let archived = try #require(try await index.setMemoryStatus(id: memory.id, status: .archived))
+        #expect(archived.status == .archived)
+
+        let defaultPage = try await index.debugMemories(MemoryDebugQuery(limit: 10))
+        #expect(defaultPage.records.contains(where: { $0.id == memory.id }) == false)
+
+        let archivedPage = try await index.debugMemories(
+            MemoryDebugQuery(limit: 10, statuses: Set([.archived]))
+        )
+        let archivedRecord = try #require(archivedPage.records.first(where: { $0.id == memory.id }))
+        #expect(archivedRecord.status == .archived)
+
+        let rematerializedChunk = try await index.getChunk(id: archivedRecord.chunkID)
+        #expect(rematerializedChunk?.memoryStatus == .archived)
+    }
+
+    @Test
     func saveAndNonHybridRecallModesWork() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

@@ -30,6 +30,7 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - `MemoryNaturalLanguage`: NaturalLanguage-based embedding defaults, tokenizers, and query analysis
 - `MemoryCoreMLEmbedding`: CoreML embedding and reranker providers
 - `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging
+- `MemoryUI`: optional SwiftUI debug views for inspecting stored memories in app builds
 - `memory`: local CLI for indexing, querying, and benchmark bridge experiments
 - `memory_eval`: eval harness for storage, recall, query expansion, agent-memory behavior, and regression gates
 
@@ -136,6 +137,20 @@ Supported recall modes:
 - `.kind(_:)`
 
 `RecallFeatures` is an `OptionSet` for hybrid-stage toggles (`semantic`, `lexical`, `tags`, `expansion`, `rerank`, `planner`).
+
+## SwiftUI Debug View
+
+SwiftUI apps can opt into the `MemoryUI` product and mount a read-mostly memory inspector wherever debug UI belongs:
+
+```swift
+import Memory
+import MemoryUI
+import SwiftUI
+
+MemoryDebugView(index: index)
+```
+
+`MemoryDebugView` lists canonical memories with paging, lexical search, kind/status filters, sort controls, metadata detail views, and an archive action. The underlying `MemoryIndex.debugMemories(_:)` API is side-effect-free and does not increment memory access counts.
 
 ## Agent Integration API (`memory_search` + `memory_get`)
 

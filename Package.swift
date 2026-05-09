@@ -41,6 +41,7 @@ let package = Package(
         .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
         .library(name: "MemoryAppleIntelligence", targets: ["MemoryAppleIntelligence"]),
         .library(name: "MemoryCoreMLEmbedding", targets: ["MemoryCoreMLEmbedding"]),
+        .library(name: "MemoryUI", targets: ["MemoryUI"]),
         .executable(name: "memory", targets: ["memory_cli"]),
         .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
@@ -94,6 +95,11 @@ let package = Package(
                 .copy("Resources/vocab.txt"),
                 .copy("Resources/tokenizer.json"),
             ]
+        ),
+        .target(
+            name: "MemoryUI",
+            dependencies: ["Memory"],
+            path: "Sources/MemoryUI"
         ),
         .executableTarget(
             name: "memory_cli",
@@ -152,6 +158,11 @@ let package = Package(
             path: "Tests/MemoryCoreMLEmbeddingTests",
             swiftSettings: developerFrameworkSwiftSettings,
             linkerSettings: developerTestLinkerSettings
+        ),
+        .testTarget(
+            name: "MemoryUITests",
+            dependencies: ["Memory", "MemoryUI"],
+            path: "Tests/MemoryUITests"
         ),
         .testTarget(
             name: "MemoryEvalCLITests",

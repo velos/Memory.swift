@@ -476,6 +476,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
     public var canonicalKey: String?
     public var importance: Double
     public var confidence: Double?
+    public var source: String
     public var accessCount: Int
     public var createdAt: Date
     public var eventAt: Date?
@@ -485,6 +486,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
     public var facetTags: Set<FacetTag>
     public var entities: [MemoryEntity]
     public var topics: [String]
+    public var metadata: [String: String]
     public var score: SearchScoreBreakdown?
 
     public init(
@@ -498,6 +500,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         canonicalKey: String?,
         importance: Double,
         confidence: Double?,
+        source: String = "",
         accessCount: Int,
         createdAt: Date,
         eventAt: Date?,
@@ -507,6 +510,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         facetTags: Set<FacetTag> = [],
         entities: [MemoryEntity] = [],
         topics: [String] = [],
+        metadata: [String: String] = [:],
         score: SearchScoreBreakdown? = nil
     ) {
         self.id = id
@@ -519,6 +523,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         self.canonicalKey = canonicalKey
         self.importance = min(1, max(0, importance))
         self.confidence = confidence.map { min(1, max(0, $0)) }
+        self.source = source
         self.accessCount = max(0, accessCount)
         self.createdAt = createdAt
         self.eventAt = eventAt
@@ -528,6 +533,7 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         self.facetTags = facetTags
         self.entities = entities
         self.topics = topics
+        self.metadata = metadata
         self.score = score
     }
 }
@@ -565,6 +571,59 @@ public enum RecallSort: String, Codable, Sendable {
     case recent
     case importance
     case mostAccessed = "most_accessed"
+}
+
+public enum MemoryDebugSort: String, CaseIterable, Codable, Sendable, Hashable {
+    case createdAtDescending = "created_at_descending"
+    case updatedAtDescending = "updated_at_descending"
+    case importanceDescending = "importance_descending"
+    case mostAccessed = "most_accessed"
+}
+
+public struct MemoryDebugQuery: Sendable, Codable, Hashable {
+    public var searchText: String
+    public var limit: Int
+    public var offset: Int
+    public var sort: MemoryDebugSort
+    public var kinds: Set<MemoryKind>?
+    public var statuses: Set<MemoryStatus>?
+
+    public init(
+        searchText: String = "",
+        limit: Int = 25,
+        offset: Int = 0,
+        sort: MemoryDebugSort = .createdAtDescending,
+        kinds: Set<MemoryKind>? = nil,
+        statuses: Set<MemoryStatus>? = Set([.active, .resolved, .superseded])
+    ) {
+        self.searchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.limit = max(1, limit)
+        self.offset = max(0, offset)
+        self.sort = sort
+        self.kinds = kinds
+        self.statuses = statuses
+    }
+}
+
+public struct MemoryDebugPage: Sendable, Codable, Hashable {
+    public var records: [MemoryRecord]
+    public var totalCount: Int
+    public var limit: Int
+    public var offset: Int
+    public var hasMore: Bool
+
+    public init(
+        records: [MemoryRecord],
+        totalCount: Int,
+        limit: Int,
+        offset: Int
+    ) {
+        self.records = records
+        self.totalCount = max(0, totalCount)
+        self.limit = max(1, limit)
+        self.offset = max(0, offset)
+        self.hasMore = self.offset + records.count < self.totalCount
+    }
 }
 
 public struct RecallFeatures: OptionSet, Sendable, Hashable {
