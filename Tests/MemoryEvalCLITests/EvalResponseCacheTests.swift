@@ -352,6 +352,47 @@ struct EvalResponseCacheTests {
         #expect(decision.reason == "applied_guarded")
     }
 
+    @Test
+    func groundedExpansionGuardRequiresWeakLexicalCoverage() {
+        let terms = [
+            GroundedExpansionTerm(text: "deployment notes", score: 1.6, documentFrequency: 2, topEvidenceRank: 1, kind: .phrase),
+            GroundedExpansionTerm(text: "release checklist", score: 1.3, documentFrequency: 2, topEvidenceRank: 2, kind: .phrase),
+        ]
+        let decision = groundedExpansionDecision(
+            baselineScores: [
+                SearchScoreBreakdown(semantic: 0.035, lexical: 0.070, recency: 0, fused: 0.10, blended: 0.10),
+                SearchScoreBreakdown(semantic: 0.034, lexical: 0.069, recency: 0, fused: 0.098, blended: 0.098),
+                SearchScoreBreakdown(semantic: 0.030, lexical: 0.066, recency: 0, fused: 0.095, blended: 0.095),
+                SearchScoreBreakdown(semantic: 0.020, lexical: 0.040, recency: 0, fused: 0.070, blended: 0.070),
+            ],
+            terms: terms,
+            policy: .guarded
+        )
+
+        #expect(!decision.shouldApply)
+        #expect(decision.reason == "strong_lexical_coverage")
+    }
+
+    @Test
+    func groundedExpansionGuardRequiresSemanticFeedbackCluster() {
+        let terms = [
+            GroundedExpansionTerm(text: "deployment notes", score: 1.6, documentFrequency: 2, topEvidenceRank: 1, kind: .phrase),
+            GroundedExpansionTerm(text: "release checklist", score: 1.3, documentFrequency: 2, topEvidenceRank: 2, kind: .phrase),
+        ]
+        let decision = groundedExpansionDecision(
+            baselineScores: [
+                SearchScoreBreakdown(semantic: 0.036, lexical: 0.020, recency: 0, fused: 0.090, blended: 0.090),
+                SearchScoreBreakdown(semantic: 0.014, lexical: 0.018, recency: 0, fused: 0.080, blended: 0.080),
+                SearchScoreBreakdown(semantic: 0.012, lexical: 0.017, recency: 0, fused: 0.070, blended: 0.070),
+            ],
+            terms: terms,
+            policy: .guarded
+        )
+
+        #expect(!decision.shouldApply)
+        #expect(decision.reason == "weak_semantic_cluster")
+    }
+
     private func makeTemporaryDirectory(function: String = #function) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("memory-eval-tests")

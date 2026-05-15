@@ -53,6 +53,45 @@ but Hit@10 is lower, focus on ranking, context packing, and source preservation.
 When candidate-pool coverage is low, focus on query expansion and candidate
 generation.
 
+Corpus-grounded pseudo-relevance feedback now lives in the library search path
+behind `MemoryConfiguration.groundedQueryExpansion`. The conservative default is
+enabled for normal `coreml_default` evals: it mines terms from bounded top
+retrieved local documents, requires weak lexical coverage, a semantic feedback
+cluster, enough feedback evidence, and no strong rank-one result, then runs one
+weak lexical follow-up branch by default without extra query embeddings.
+Evidence-dense temporal/count/ordering queries skip grounded PRF because broad
+diagnostics showed added latency without ranking movement there.
+
+Validate the runtime path with normal retrieval diagnostics, without the
+eval-only `--grounded-expansion` flag:
+
+```bash
+swift run memory_eval retrieval-diagnostics \
+  --profile coreml_default \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --candidate-pool-depth 40 \
+  --context-token-budget 4096 \
+  --no-cache \
+  --no-index-cache
+```
+
+The diagnostic `--grounded-expansion` flag is still useful for eval-only
+what-if experiments, but product decisions should use the normal library path
+above so grounded PRF is not applied twice.
+
+Latest broad runtime grounded PRF diagnostics:
+
+- `general_v2`: Hit@10 and Recall@10 unchanged at `90.85%` and `90.67%`;
+  MRR@10 improved from `0.7440` to `0.7441`; nDCG@10 improved from `0.7843`
+  to `0.7844`; 1 rank improvement and 0 rank regressions.
+- `longmemeval_v2`: Hit@10 and Recall@10 unchanged at `89.50%` and `81.12%`;
+  MRR@10 and nDCG@10 unchanged at `0.6105` and `0.6195`; 0 rank changes.
+
+The `all` term mode failed broad no-harm on `general_v2` by reducing Hit@10 and
+Recall@10, and the initial `0.35` runtime lexical branch weight regressed one
+top-ranked `general_v2` case. Keep the default `phrase-entity` mode, one weak
+branch, and `0.20` branch weight unless fresh broad evidence says otherwise.
+
 The persistent `memory serve` bridge also accepts optional search params named
 `contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
 Benchmark adapters can pass `4096` plus `256` or `384` respectively to use the

@@ -247,6 +247,7 @@ public struct MemoryConfiguration: Sendable {
     public var lexicalCandidateLimit: Int
     public var fusionK: Double
     public var positionAwareBlending: PositionAwareBlending
+    public var groundedQueryExpansion: GroundedQueryExpansionConfiguration
     public var ftsTokenizer: (any Tokenizer)?
 
     public init(
@@ -265,6 +266,7 @@ public struct MemoryConfiguration: Sendable {
         lexicalCandidateLimit: Int = 500,
         fusionK: Double = 60,
         positionAwareBlending: PositionAwareBlending = .default,
+        groundedQueryExpansion: GroundedQueryExpansionConfiguration = .conservativeDefault,
         ftsTokenizer: (any Tokenizer)? = nil
     ) {
         self.databaseURL = databaseURL
@@ -282,6 +284,7 @@ public struct MemoryConfiguration: Sendable {
         self.lexicalCandidateLimit = max(1, lexicalCandidateLimit)
         self.fusionK = max(1, fusionK)
         self.positionAwareBlending = positionAwareBlending
+        self.groundedQueryExpansion = groundedQueryExpansion
         self.ftsTokenizer = ftsTokenizer
     }
 

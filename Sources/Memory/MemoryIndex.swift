@@ -671,12 +671,6 @@ public actor MemoryIndex {
             }
         }
 
-        events?(.stageTiming(stage: .semanticSearch, durationMs: semanticSearchDurationMs))
-        events?(.stageTiming(stage: .lexicalSearch, durationMs: lexicalSearchDurationMs))
-        events?(.semanticCandidates(count: semanticCandidateCount))
-        events?(.lexicalCandidates(count: lexicalCandidateCount))
-
-        let fusionStart = DispatchTime.now().uptimeNanoseconds
         let querySignals = queryMatchSignals(
             from: searchPlan.analysis,
             plan: recallPlan,
@@ -688,6 +682,7 @@ public actor MemoryIndex {
         let queryTags = query.includeTagScoring
             ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
             : []
+        let fusionStart = DispatchTime.now().uptimeNanoseconds
         var fused = try await fuseCandidates(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
@@ -697,7 +692,124 @@ public actor MemoryIndex {
             querySignals: querySignals,
             memoryTypeIntent: memoryTypeIntent
         )
-        events?(.stageTiming(stage: .fusion, durationMs: elapsedMilliseconds(since: fusionStart)))
+        var fusionDurationMs = elapsedMilliseconds(since: fusionStart)
+
+        if query.lexicalCandidateLimit > 0, configuration.groundedQueryExpansion.isEnabled {
+            let groundedPlan: GroundedQueryExpansionPlan
+            let groundedUnderstanding = queryUnderstanding ?? RecallQueryUnderstandingAnalyzer.analyze(normalizedText)
+            if groundedUnderstanding.isEvidenceDense {
+                groundedPlan = GroundedQueryExpansionPlan(
+                    terms: [],
+                    lexicalQueries: [],
+                    decision: GroundedQueryExpansionDecision(shouldApply: false, reason: "evidence_dense")
+                )
+            } else if fused.isEmpty {
+                groundedPlan = GroundedQueryExpansionPlan(
+                    terms: [],
+                    lexicalQueries: [],
+                    decision: GroundedQueryExpansionDecision(shouldApply: false, reason: "no_results")
+                )
+            } else if let skipReason = RuntimeGroundedQueryExpansion.scoreOnlySkipReason(baselineScores: fused.map(\.score)) {
+                groundedPlan = GroundedQueryExpansionPlan(
+                    terms: [],
+                    lexicalQueries: [],
+                    decision: GroundedQueryExpansionDecision(shouldApply: false, reason: skipReason)
+                )
+            } else {
+                let feedbackDocuments = await groundedFeedbackDocuments(
+                    from: fused,
+                    configuration: configuration.groundedQueryExpansion
+                )
+                groundedPlan = RuntimeGroundedQueryExpansion.makePlan(
+                    queryText: normalizedText,
+                    baselineScores: fused.map(\.score),
+                    feedbackDocuments: feedbackDocuments,
+                    configuration: configuration.groundedQueryExpansion
+                )
+            }
+
+            if groundedPlan.decision.shouldApply, !groundedPlan.lexicalQueries.isEmpty {
+                events?(
+                    .groundedExpansion(
+                        applied: true,
+                        queryCount: groundedPlan.lexicalQueries.count,
+                        termCount: groundedPlan.terms.count,
+                        reason: groundedPlan.decision.reason
+                    )
+                )
+
+                for (groundedIndex, groundedQuery) in groundedPlan.lexicalQueries.enumerated() {
+                    let branchIndex = searchPlan.expandedQueries.count + groundedIndex
+                    let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
+                    let lexicalHits = try await storage.lexicalSearch(
+                        query: ftsPreprocess(groundedQuery),
+                        limit: query.lexicalCandidateLimit,
+                        allowedChunkIDs: allowedChunkIDs,
+                        allowedMemoryTypes: allowedMemoryTypes
+                    )
+                    lexicalSearchDurationMs += elapsedMilliseconds(since: lexicalSearchStart)
+                    lexicalCandidateCount += lexicalHits.count
+                    accumulateRRF(
+                        for: lexicalHits,
+                        weight: configuration.groundedQueryExpansion.lexicalQueryWeight,
+                        into: &lexicalRRF
+                    )
+
+                    if shouldRunDocumentLexicalSearch(
+                        query: query,
+                        queryText: groundedQuery,
+                        branchIndex: branchIndex,
+                        expansionType: .lexical,
+                        lexicalHitCount: lexicalHits.count,
+                        lexicalProbeStrongSignal: lexicalProbe.strongSignal,
+                        usedBranches: documentLexicalBranchCount
+                    ) {
+                        documentLexicalBranchCount += 1
+                        let documentLexicalSearchStart = DispatchTime.now().uptimeNanoseconds
+                        let documentHits = try await storage.lexicalDocumentSearch(
+                            query: ftsPreprocess(groundedQuery),
+                            limit: documentLexicalCandidateLimit(for: query, branchIndex: branchIndex),
+                            allowedChunkIDs: allowedChunkIDs,
+                            allowedMemoryTypes: allowedMemoryTypes
+                        )
+                        lexicalSearchDurationMs += elapsedMilliseconds(since: documentLexicalSearchStart)
+                        lexicalCandidateCount += documentHits.count
+                        accumulateScoredRRF(
+                            for: documentHits,
+                            weight: configuration.groundedQueryExpansion.lexicalQueryWeight * documentLexicalWeight(branchIndex: branchIndex),
+                            into: &lexicalRRF
+                        )
+                    }
+                }
+
+                let refusionStart = DispatchTime.now().uptimeNanoseconds
+                fused = try await fuseCandidates(
+                    semanticRRF: semanticRRF,
+                    lexicalRRF: lexicalRRF,
+                    query: query,
+                    primaryQueryText: normalizedText,
+                    queryTags: queryTags,
+                    querySignals: querySignals,
+                    memoryTypeIntent: memoryTypeIntent
+                )
+                fusionDurationMs += elapsedMilliseconds(since: refusionStart)
+            } else {
+                events?(
+                    .groundedExpansion(
+                        applied: false,
+                        queryCount: 0,
+                        termCount: groundedPlan.terms.count,
+                        reason: groundedPlan.decision.reason
+                    )
+                )
+            }
+        }
+
+        events?(.stageTiming(stage: .semanticSearch, durationMs: semanticSearchDurationMs))
+        events?(.stageTiming(stage: .lexicalSearch, durationMs: lexicalSearchDurationMs))
+        events?(.semanticCandidates(count: semanticCandidateCount))
+        events?(.lexicalCandidates(count: lexicalCandidateCount))
+        events?(.stageTiming(stage: .fusion, durationMs: fusionDurationMs))
         events?(.fusedCandidates(count: fused.count))
 
         let rerankCount = effectiveRerankCount(query: query, fusedCount: fused.count)
@@ -1326,6 +1438,29 @@ public actor MemoryIndex {
             return 90
         }
         return 60
+    }
+
+    private func groundedFeedbackDocuments(
+        from results: [SearchResult],
+        configuration: GroundedQueryExpansionConfiguration
+    ) async -> [GroundedQueryExpansionDocument] {
+        var documents: [GroundedQueryExpansionDocument] = []
+        documents.reserveCapacity(min(configuration.maxFeedbackResults, results.count))
+
+        for (offset, result) in results.prefix(configuration.maxFeedbackResults).enumerated() {
+            let fullContent = await loadDocumentTextIfAvailable(for: result.documentPath) ?? result.content
+            documents.append(
+                RuntimeGroundedQueryExpansion.feedbackDocument(
+                    rank: offset + 1,
+                    title: result.title,
+                    documentPath: result.documentPath,
+                    snippet: result.snippet,
+                    content: fullContent
+                )
+            )
+        }
+
+        return documents
     }
 
     public func memoryGet(

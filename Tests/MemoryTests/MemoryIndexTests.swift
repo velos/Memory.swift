@@ -6,6 +6,7 @@ private final class SearchEventRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var completedCounts: [Int] = []
     private var expandedQueryCounts: [Int] = []
+    private var groundedExpansionEvents: [(applied: Bool, queryCount: Int, termCount: Int, reason: String?)] = []
 
     func record(_ event: SearchEvent) {
         lock.lock()
@@ -16,6 +17,8 @@ private final class SearchEventRecorder: @unchecked Sendable {
             completedCounts.append(count)
         case .expandedQueries(let count):
             expandedQueryCounts.append(count)
+        case let .groundedExpansion(applied, queryCount, termCount, reason):
+            groundedExpansionEvents.append((applied, queryCount, termCount, reason))
         default:
             break
         }
@@ -31,6 +34,12 @@ private final class SearchEventRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return expandedQueryCounts.last
+    }
+
+    var lastGroundedExpansionEvent: (applied: Bool, queryCount: Int, termCount: Int, reason: String?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return groundedExpansionEvents.last
     }
 }
 
@@ -735,6 +744,111 @@ struct MemoryIndexTests {
         let stats = await embeddingProvider.stats()
         #expect(stats.singleCalls == 0)
         #expect(stats.batchSizes == [1])
+    }
+
+    @Test
+    func groundedQueryExpansionPlansBoundedCorpusLocalQueries() {
+        let results = [
+            SearchResult(
+                chunkID: 1,
+                documentPath: "/tmp/deployment-rollout.md",
+                title: "Deployment rollout",
+                content: "Deployment rollout checklist and service cutover plan.",
+                snippet: "Deployment rollout checklist and service cutover plan.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.040, lexical: 0.010, recency: 0, fused: 0.090)
+            ),
+            SearchResult(
+                chunkID: 2,
+                documentPath: "/tmp/incident-response.md",
+                title: "Incident response",
+                content: "Incident response timeline and postmortem review notes.",
+                snippet: "Incident response timeline and postmortem review notes.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.039, lexical: 0.010, recency: 0, fused: 0.088)
+            ),
+            SearchResult(
+                chunkID: 3,
+                documentPath: "/tmp/customer-research.md",
+                title: "Customer research",
+                content: "Customer research interview summaries and synthesis notes.",
+                snippet: "Customer research interview summaries and synthesis notes.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.038, lexical: 0.010, recency: 0, fused: 0.086)
+            ),
+        ]
+
+        let plan = RuntimeGroundedQueryExpansion.makePlan(
+            queryText: "project question",
+            baselineResults: results,
+            configuration: GroundedQueryExpansionConfiguration(
+                maxFeedbackResults: 8,
+                maxTerms: 8,
+                termsPerQuery: 4,
+                maxQueries: 2,
+                termMode: .phraseEntity
+            )
+        )
+
+        #expect(plan.decision.shouldApply)
+        #expect(plan.lexicalQueries.count <= 2)
+        #expect(plan.terms.count <= 8)
+        #expect(plan.terms.contains { $0.text == "deployment rollout" })
+        #expect(plan.terms.contains { $0.text == "incident response" })
+        #expect(!plan.terms.contains { $0.text == "project" })
+        #expect(!plan.terms.contains { $0.text == "question" })
+    }
+
+    @Test
+    func groundedExpansionDoesNotRequestAdditionalSemanticEmbeddings() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deployment-rollout.md"),
+            "# Deployment rollout\n\nDeployment rollout checklist and service cutover plan."
+        )
+        try writeFile(
+            docs.appendingPathComponent("incident-response.md"),
+            "# Incident response\n\nIncident response timeline and postmortem review notes."
+        )
+        try writeFile(
+            docs.appendingPathComponent("customer-research.md"),
+            "# Customer research\n\nCustomer research interview summaries and synthesis notes."
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider(dimension: 1)
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        let events = SearchEventRecorder()
+        _ = try await index.search(
+            SearchQuery(
+                text: "project question",
+                limit: 5,
+                semanticCandidateLimit: 20,
+                lexicalCandidateLimit: 20,
+                rerankLimit: 0,
+                expansionLimit: 0
+            ),
+            events: events.record
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [1])
+        #expect(events.lastGroundedExpansionEvent?.applied == true)
+        #expect((events.lastGroundedExpansionEvent?.queryCount ?? 0) <= 2)
+        #expect((events.lastGroundedExpansionEvent?.termCount ?? 0) <= 8)
     }
 
     @Test

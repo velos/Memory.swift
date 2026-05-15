@@ -82,6 +82,43 @@ public struct SearchQuery: Sendable {
     }
 }
 
+public enum GroundedQueryExpansionTermMode: String, Sendable, Codable, Hashable {
+    case all
+    case singleToken = "single_token"
+    case phraseEntity = "phrase_entity"
+}
+
+public struct GroundedQueryExpansionConfiguration: Sendable, Codable, Hashable {
+    public var isEnabled: Bool
+    public var maxFeedbackResults: Int
+    public var maxTerms: Int
+    public var termsPerQuery: Int
+    public var maxQueries: Int
+    public var lexicalQueryWeight: Double
+    public var termMode: GroundedQueryExpansionTermMode
+
+    public init(
+        isEnabled: Bool = true,
+        maxFeedbackResults: Int = 8,
+        maxTerms: Int = 8,
+        termsPerQuery: Int = 4,
+        maxQueries: Int = 1,
+        lexicalQueryWeight: Double = 0.20,
+        termMode: GroundedQueryExpansionTermMode = .phraseEntity
+    ) {
+        self.isEnabled = isEnabled
+        self.maxFeedbackResults = max(1, min(maxFeedbackResults, 20))
+        self.maxTerms = max(1, min(maxTerms, 12))
+        self.termsPerQuery = max(1, min(termsPerQuery, 6))
+        self.maxQueries = max(1, min(maxQueries, 3))
+        self.lexicalQueryWeight = max(0, min(lexicalQueryWeight, 1.0))
+        self.termMode = termMode
+    }
+
+    public static let disabled = GroundedQueryExpansionConfiguration(isEnabled: false)
+    public static let conservativeDefault = GroundedQueryExpansionConfiguration()
+}
+
 public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
     public var semantic: Double
     public var lexical: Double
@@ -663,6 +700,7 @@ public enum SearchEvent: Sendable {
     case semanticCandidates(count: Int)
     case lexicalCandidates(count: Int)
     case fusedCandidates(count: Int)
+    case groundedExpansion(applied: Bool, queryCount: Int, termCount: Int, reason: String?)
     case reranked(count: Int)
     case memoryTypeIntent(label: String, confidence: Double)
     case providerFailure(stage: SearchStage, provider: String, message: String)

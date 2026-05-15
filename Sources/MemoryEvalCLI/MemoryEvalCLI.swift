@@ -5477,6 +5477,7 @@ private func runRetrievalDiagnostics(
     }
     if groundedExpansion {
         notes.append("Grounded pseudo-relevance feedback is eval-only: expansion terms are mined from baseline top results and rerun as weak lexical branches.")
+        notes.append("Guarded grounded PRF requires weak lexical coverage, a semantic feedback cluster, feedback evidence, and no strong rank-one result.")
         notes.append("Grounded PRF policy: \(groundedExpansionPolicy.rawValue); term mode: \(groundedExpansionTermMode.rawValue).")
     }
     if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
@@ -6403,6 +6404,12 @@ func groundedExpansionDecision(
         if groundedExpansionHasStrongRankOneConfidence(baselineScores) {
             return GroundedExpansionDecision(shouldApply: false, reason: "strong_rank1")
         }
+        guard groundedExpansionHasWeakLexicalCoverage(baselineScores) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "strong_lexical_coverage")
+        }
+        guard groundedExpansionHasSemanticFeedbackCluster(baselineScores) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "weak_semantic_cluster")
+        }
         guard groundedExpansionHasFeedbackEvidence(terms) else {
             return GroundedExpansionDecision(shouldApply: false, reason: "insufficient_feedback_evidence")
         }
@@ -6431,6 +6438,36 @@ private func groundedExpansionHasMultipleSignals(_ score: SearchScoreBreakdown) 
         return true
     }
     return score.tag + score.schema + score.temporal + score.status >= 0.03
+}
+
+private func groundedExpansionHasWeakLexicalCoverage(_ scores: [SearchScoreBreakdown]) -> Bool {
+    let topScores = Array(scores.prefix(8))
+    guard !topScores.isEmpty else { return false }
+
+    let lexicalDominantCount = topScores.filter { score in
+        score.lexical >= 0.05
+            && score.lexical >= max(score.semantic * 1.20, 0.02)
+    }.count
+    if lexicalDominantCount >= 3 {
+        return false
+    }
+
+    let lexicalMass = topScores.map(\.lexical).reduce(0, +)
+    let semanticMass = topScores.map(\.semantic).reduce(0, +)
+    return lexicalMass < max(0.08, semanticMass * 1.35)
+}
+
+private func groundedExpansionHasSemanticFeedbackCluster(_ scores: [SearchScoreBreakdown]) -> Bool {
+    let semanticScores = scores
+        .prefix(8)
+        .map(\.semantic)
+        .filter { $0 >= 0.02 }
+        .sorted(by: >)
+    guard let topSemantic = semanticScores.first, topSemantic >= 0.03 else {
+        return false
+    }
+    let clusteredCount = semanticScores.filter { $0 >= topSemantic * 0.70 }.count
+    return clusteredCount >= 2
 }
 
 private func groundedExpansionHasFeedbackEvidence(_ terms: [GroundedExpansionTerm]) -> Bool {
