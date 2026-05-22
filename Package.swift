@@ -1,5 +1,34 @@
 // swift-tools-version: 6.2
+import Foundation
 import PackageDescription
+
+// Some Apple Swift CLT/snapshot installs place Swift Testing in Developer
+// frameworks instead of the default SwiftPM search paths.
+let developerFrameworkSwiftSettings: [SwiftSetting] = [
+    "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+    "/Applications/Xcode.app/Contents/Developer/Library/Developer/Frameworks",
+].compactMap { path in
+    guard FileManager.default.fileExists(atPath: path) else { return nil }
+    return .unsafeFlags(["-F", path], .when(platforms: [.macOS]))
+}
+
+let developerFrameworkLinkerSettings: [LinkerSetting] = [
+    "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+    "/Applications/Xcode.app/Contents/Developer/Library/Developer/Frameworks",
+].compactMap { path in
+    guard FileManager.default.fileExists(atPath: path) else { return nil }
+    return .unsafeFlags(["-F", path, "-Xlinker", "-rpath", "-Xlinker", path], .when(platforms: [.macOS]))
+}
+
+let developerLibraryLinkerSettings: [LinkerSetting] = [
+    "/Library/Developer/CommandLineTools/Library/Developer/usr/lib",
+    "/Applications/Xcode.app/Contents/Developer/Library/Developer/usr/lib",
+].compactMap { path in
+    guard FileManager.default.fileExists(atPath: path) else { return nil }
+    return .unsafeFlags(["-L", path, "-Xlinker", "-rpath", "-Xlinker", path], .when(platforms: [.macOS]))
+}
+
+let developerTestLinkerSettings = developerFrameworkLinkerSettings + developerLibraryLinkerSettings
 
 let package = Package(
     name: "Memory.swift",
@@ -96,7 +125,9 @@ let package = Package(
                 "MemoryStorage",
                 "SQLiteSupport",
             ],
-            path: "Tests/MemoryTests"
+            path: "Tests/MemoryTests",
+            swiftSettings: developerFrameworkSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryIntegrationTests",
@@ -104,22 +135,30 @@ let package = Package(
                 "Memory",
                 "MemoryNaturalLanguage",
             ],
-            path: "Tests/MemoryIntegrationTests"
+            path: "Tests/MemoryIntegrationTests",
+            swiftSettings: developerFrameworkSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryPerformanceTests",
             dependencies: ["Memory"],
-            path: "Tests/MemoryPerformanceTests"
+            path: "Tests/MemoryPerformanceTests",
+            swiftSettings: developerFrameworkSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryCoreMLEmbeddingTests",
             dependencies: ["MemoryCoreMLEmbedding"],
-            path: "Tests/MemoryCoreMLEmbeddingTests"
+            path: "Tests/MemoryCoreMLEmbeddingTests",
+            swiftSettings: developerFrameworkSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryEvalCLITests",
             dependencies: ["memory_eval"],
-            path: "Tests/MemoryEvalCLITests"
+            path: "Tests/MemoryEvalCLITests",
+            swiftSettings: developerFrameworkSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
     ]
 )
