@@ -207,13 +207,12 @@ generalize across memory-like workloads before they are kept:
 - Prefer query-shape, score, metadata, date, entity/topic, and context-budget
   signals over dataset names, benchmark IDs, exact answers, or named people from
   a benchmark.
-- Domain synonyms are acceptable when they are broadly useful, such as
-  `RSU`/`equity incentive` or `Yue embroidery`/`Cantonese embroidery`; answer
-  memorization is not acceptable.
+- Do not add domain aliases from benchmark misses to runtime query expansion or
+  ranking unless there is a product-owned vocabulary source outside the
+  benchmark. Miss-derived aliases should stay in diagnostics, not shipped
+  retrieval behavior.
 - Do not add proper nouns, exact answer phrases, or benchmark-specific session
-  facts to `MemoryIndex` ranking logic. If a temporary lexical rescue term is
-  added to an expander, call it out and either generalize it or remove it before
-  PR review.
+  facts to `MemoryIndex` ranking logic.
 - A focused-slice win must be checked against at least one broader suite before
   treating it as an improvement. For retrieval changes, run the relevant focused
   slice plus `general_v2` or `longmemeval_v2`; for external AMB discoveries,

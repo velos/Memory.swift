@@ -1,6 +1,6 @@
 import Foundation
 
-public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
+public struct GenericStructuredQueryExpander: StructuredQueryExpander {
     public let identifier: String
 
     private let maxLexicalQueries: Int
@@ -11,7 +11,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     private let maxTopics: Int
 
     public init(
-        identifier: String = "heuristic-structured-query-expander",
+        identifier: String = "generic-structured-query-expander",
         maxLexicalQueries: Int = 2,
         maxSemanticQueries: Int = 2,
         maxHypotheticalDocuments: Int = 1,
@@ -40,6 +40,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         let normalizedEntities = normalizeEntities(analysis.entities, maxCount: maxEntities)
         let normalizedTopics = normalizeTopics(analysis.topics, maxCount: maxTopics)
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(trimmed)
         let normalizedFacetHints = normalizeFacetHints(
             mergedFacetHints(
                 analysis.facetHints,
@@ -53,6 +54,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             referenceDate: query.referenceDate,
             limit: min(maxLexicalQueries, limit)
         )
@@ -61,6 +63,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             limit: min(maxSemanticQueries, limit)
         )
         let hypotheticalDocuments = buildHypotheticalDocuments(
@@ -68,6 +71,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             analysis: analysis,
             entities: normalizedEntities,
             topics: normalizedTopics,
+            understanding: understanding,
             limit: min(maxHypotheticalDocuments, limit)
         )
 
@@ -86,6 +90,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         referenceDate: Date?,
         limit: Int
     ) -> [String] {
@@ -94,8 +99,12 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         var queries: [String] = []
         var seen: Set<String> = [comparisonKey(for: original)]
 
+        let tokenTerms = tokenLexicalTerms(from: original, entities: entities)
+        let rewriteTerms = shouldUseRewriteTerms(for: understanding)
+            ? GenericQueryRewriteLexicon.expansionTerms(for: understanding).filter(isUsefulRewriteTerm)
+            : []
         let prioritizedEntities = entities.prefix(2).map(\.value)
-        let salientTerms = salientLexicalTerms(from: original, entities: entities)
+        let salientTerms = Array(OrderedSet(tokenTerms + rewriteTerms))
         let prioritizedTopics = selectSalientTopics(
             from: topics,
             salientTerms: salientTerms
@@ -107,27 +116,37 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             OrderedSet(analysis.keyTerms.map(normalizeTopic).filter { !$0.isEmpty && !expansionNoiseTerms.contains($0) })
                 .prefix(4)
         )
-        let derivedPhrases = derivedSalientTerms(from: original)
-            .filter { $0.split(separator: " ").count >= 2 }
         let temporalAnchors = temporalAnchorTerms(from: original, referenceDate: referenceDate)
-
-        if let derivedPhrase = derivedPhrases.first {
-            appendCandidate(
-                compactJoined(prioritizedEntities + [derivedPhrase] + Array(temporalAnchors.prefix(6))),
-                to: &queries,
-                seen: &seen,
-                limit: limit
-            )
-        }
+        let evidenceSubjectRewrite = evidenceSubjectLexicalQuery(
+            tokenTerms: tokenTerms,
+            rewriteTerms: rewriteTerms,
+            topics: compactTopics,
+            understanding: understanding
+        )
 
         let keywordRewrite = compactJoined(
-            prioritizedEntities + Array(salientTerms.prefix(6)) + Array(temporalAnchors.prefix(8)) + prioritizedTerms
+            prioritizedEntities
+                + Array(tokenTerms.prefix(8))
+                + Array(rewriteTerms.prefix(16))
+                + Array(temporalAnchors.prefix(8))
+                + prioritizedTerms
         )
         appendCandidate(keywordRewrite, to: &queries, seen: &seen, limit: limit)
 
-        let focusedRewrite = compactJoined(
-            prioritizedEntities + Array(compactTopics.prefix(2)) + Array(temporalAnchors.prefix(6))
-        )
+        let focusedRewrite: String
+        if let evidenceSubjectRewrite {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + [evidenceSubjectRewrite]
+            )
+        } else {
+            focusedRewrite = compactJoined(
+                prioritizedEntities
+                    + Array(compactTopics.prefix(2))
+                    + Array(rewriteTerms.prefix(12))
+                    + Array(temporalAnchors.prefix(6))
+            )
+        }
         appendCandidate(focusedRewrite, to: &queries, seen: &seen, limit: limit)
 
         if queries.count < limit, let firstTopic = compactTopics.first, firstTopic.count > 6 {
@@ -137,11 +156,72 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         return queries
     }
 
+    private func evidenceSubjectLexicalQuery(
+        tokenTerms: [String],
+        rewriteTerms: [String],
+        topics: [String],
+        understanding: RecallQueryUnderstanding
+    ) -> String? {
+        guard understanding.isEvidenceDense,
+              !understanding.operations.contains(.currentState) else { return nil }
+
+        var selected: [String] = []
+        var seen: Set<String> = []
+
+        func appendTerm(_ raw: String) {
+            let tokens = raw
+                .split(separator: " ")
+                .map(String.init)
+                .map(normalizeQueryToken)
+                .map(canonicalEvidenceSubjectToken)
+                .filter { token in
+                    !token.isEmpty
+                        && !stopWords.contains(token)
+                        && !expansionNoiseTerms.contains(token)
+                        && !evidenceDenseOperatorTerms.contains(token)
+                }
+            let compact = compactJoined(tokens)
+            guard !compact.isEmpty else { return }
+            let key = comparisonKey(for: compact)
+            guard seen.insert(key).inserted else { return }
+            selected.append(compact)
+        }
+
+        for term in rewriteTerms {
+            appendTerm(term)
+        }
+        for term in tokenTerms {
+            appendTerm(term)
+        }
+        for topic in topics.prefix(2) {
+            appendTerm(topic)
+        }
+
+        guard !selected.isEmpty else { return nil }
+        return compactJoined(selected.prefix(8))
+    }
+
+    private func canonicalEvidenceSubjectToken(_ token: String) -> String {
+        guard token.count >= 4 else { return token }
+
+        if token.hasSuffix("ies"), token.count > 4 {
+            return String(token.dropLast(3)) + "y"
+        }
+        if token.hasSuffix("ches") || token.hasSuffix("shes") || token.hasSuffix("ses") || token.hasSuffix("xes") || token.hasSuffix("zes") {
+            return String(token.dropLast(2))
+        }
+        if token.hasSuffix("s"), !token.hasSuffix("ss"), !token.hasSuffix("us") {
+            return String(token.dropLast())
+        }
+        return token
+    }
+
     private func buildSemanticQueries(
         original: String,
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -162,6 +242,19 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
 
         var queries: [String] = []
         var seen: Set<String> = [comparisonKey(for: original)]
+
+        if let genericRewrite = GenericQueryRewriteLexicon.semanticRewrite(
+            for: understanding,
+            entities: entities,
+            topics: topics
+        ) {
+            appendCandidate(
+                genericRewrite,
+                to: &queries,
+                seen: &seen,
+                limit: limit
+            )
+        }
 
         if analysis.isHowToQuery {
             appendCandidate(
@@ -198,6 +291,7 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         analysis: QueryAnalysis,
         entities: [MemoryEntity],
         topics: [String],
+        understanding: RecallQueryUnderstanding,
         limit: Int
     ) -> [String] {
         guard limit > 0 else { return [] }
@@ -231,14 +325,15 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
     }
 
     private func salientLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
+        tokenLexicalTerms(from: original, entities: entities)
+    }
+
+    private func tokenLexicalTerms(from original: String, entities: [MemoryEntity]) -> [String] {
         let normalizedEntities = Set(entities.map(\.normalizedValue))
         let tokens = tokenize(original)
 
         var terms: [String] = []
         var seen: Set<String> = []
-        for derived in derivedSalientTerms(from: original) where seen.insert(derived).inserted {
-            terms.append(derived)
-        }
         for token in tokens {
             let normalized = normalizeQueryToken(token)
             guard !normalized.isEmpty else { continue }
@@ -410,6 +505,23 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             .map(\.topic)
     }
 
+    private func isUsefulRewriteTerm(_ term: String) -> Bool {
+        let tokens = term
+            .split(separator: " ")
+            .map(String.init)
+            .map(normalizeQueryToken)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return false }
+        return tokens.contains { !stopWords.contains($0) && !expansionNoiseTerms.contains($0) }
+    }
+
+    private func shouldUseRewriteTerms(for understanding: RecallQueryUnderstanding) -> Bool {
+        if understanding.isElliptical, understanding.coreTerms.count <= 1 {
+            return false
+        }
+        return true
+    }
+
     private func narrativeFocusPhrase(
         original: String,
         analysis: QueryAnalysis,
@@ -432,9 +544,12 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         entities: [MemoryEntity],
         topics: [String]
     ) -> Bool {
-        analysis.isHowToQuery
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(original)
+        let explicitTemporalOrAggregateRecall = understanding.isTemporalOrAggregate
+        return analysis.isHowToQuery
             || entities.isEmpty == false
-            || (isExplicitTemporalOrAggregateRecall(original) && !isPersonalFactLookup(analysis))
+            || understanding.operations.contains(.recommendation)
+            || (explicitTemporalOrAggregateRecall && !isPersonalFactLookup(analysis))
             || (!isPersonalFactLookup(analysis) && topics.contains { topic in topic.split(separator: " ").count >= 3 })
     }
 
@@ -458,143 +573,6 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
             "which date", "when did", "as of", "past month", "past two months",
         ]
         return phrases.contains { lower.contains($0) }
-    }
-
-    private func derivedSalientTerms(from query: String) -> [String] {
-        let lower = query.lowercased()
-        var terms: [String] = []
-        func append(_ term: String) {
-            guard !terms.contains(term) else { return }
-            terms.append(term)
-        }
-
-        if lower.contains("up to date") || lower.contains("out of date") {
-            append("update")
-        }
-        if lower.contains("license plates") || lower.contains("license plate") {
-            append("plates")
-        }
-        if lower.contains("turn in") || lower.contains("deliver") {
-            append("return")
-        }
-        if lower.contains("completed") || lower.contains("finished") {
-            append("finished")
-            if lower.contains("project") {
-                append("finished project")
-            }
-            if lower.contains("video") {
-                append("completed videos")
-            }
-            if lower.contains("writing") || lower.contains("poem") || lower.contains("short stor") {
-                append("writing progress")
-            }
-        }
-        if lower.contains("since starting") || lower.contains("since i started") || lower.contains("started writing") {
-            append("started")
-            append("progress so far")
-        }
-        if lower.contains("painting class") || lower.contains("painting classes") {
-            append("painting project")
-        }
-        if (lower.contains("trip") || lower.contains("trips")),
-           lower.contains("order of") || lower.contains("earliest to latest") || lower.contains("from earliest") {
-            append("trip travel itinerary")
-            append("travel sequence destination")
-        }
-        if lower.contains("fitness class") || lower.contains("fitness classes") || lower.contains("typical week") {
-            append("fitness class workout schedule")
-            append("exercise class weekly routine")
-        }
-        if lower.contains("art-related event") || lower.contains("art related event") {
-            append("art event museum gallery lecture")
-            append("art exhibition guided tour")
-        }
-        if (lower.contains("show") || lower.contains("movie")) && lower.contains("watch") {
-            append("movie show streaming recommendation")
-            append("watch comedy drama documentary")
-        }
-        if lower.contains("grocery store") && (lower.contains("spent") || lower.contains("spend")) {
-            append("grocery shopping store spending")
-            append("receipt purchase supermarket")
-        }
-        if lower.contains("current role") || lower.contains("working in my current") {
-            append("current job role position")
-            append("promotion title start date")
-        }
-        if lower.contains("present") && lower.contains("poster") && lower.contains("university") {
-            append("university research conference poster")
-            append("poster presentation thesis research")
-        }
-        if lower.contains("meal prep") && (lower.contains("recipe") || lower.contains("recipes")) {
-            append("meal prep recipe vegetables protein")
-            append("weekly meal plan ingredients")
-        }
-        if lower.contains("small gathering") && lower.contains("bake") {
-            append("baked dessert recipe gathering")
-            append("cake pastry small gathering")
-        }
-        if lower.contains("wake up") && lower.contains("tuesdays") && lower.contains("thursdays") {
-            append("tuesdays thursdays waking up 15 minutes earlier")
-            append("morning routine wake earlier")
-        }
-        if lower.contains("movie festival") || lower.contains("film festival") {
-            append("film festival screening q&a")
-            append("movie screening festival event")
-        }
-        if lower.contains("kitchen item") || lower.contains("kitchen items") {
-            append("kitchen appliance repair replacement")
-            append("fixed replaced donated kitchen items")
-        }
-        if lower.contains("streaming service") && lower.contains("most recently") {
-            append("streaming service subscription free trial")
-            append("watching series recently streaming")
-        }
-        if lower.contains("lunch last tuesday") || (lower.contains("met ") && lower.contains("lunch")) {
-            append("lunch meeting potential collaborator")
-            append("met contact workshop conversation")
-        }
-        if lower.contains("social media activity") || lower.contains("participated 5 days ago") {
-            append("social media challenge participated")
-            append("fitness challenge hashtag activity")
-        }
-        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
-           lower.contains("birthday gift") || lower.contains("birthday present") {
-            append("cantonese embroidery birthday gift recipient stitching technique")
-            append("embroidered artwork present gift intended for recipient")
-        }
-        if (lower.contains("yue embroidery") || lower.contains("cantonese embroidery")),
-           lower.contains("life-oriented") || lower.contains("life oriented") || lower.contains("creative attempt") {
-            append("cantonese embroidery everyday items creative practice mentor peer support")
-            append("traditional craft modern product design life-oriented creativity")
-        }
-        if lower.contains("yue embroidery") || lower.contains("cantonese embroidery") {
-            append("cantonese embroidery yue embroidery traditional craft")
-            append("cantonese embroidery mentor guidance creative practice")
-        }
-        if lower.contains("equity incentive") || lower.contains("equity incentives") || lower.contains("rsu") {
-            append("rsu grant notification equity incentive stock options vesting")
-            append("rsu agreement tax planning vesting operational mechanism")
-        }
-        if lower.contains("sports events") && lower.contains("order of") {
-            append("sports event race tournament")
-            append("run bike ride soccer event")
-        }
-        if (lower.contains("three trips") || lower.contains("order of the three trips")),
-           lower.contains("earliest") || lower.contains("latest") {
-            append("three trips travel sequence")
-            append("earliest latest trip itinerary")
-        }
-        if lower.contains("student loan"),
-           lower.contains("school"),
-           (lower.contains("not qualified")
-            || lower.contains("wasn't actually qualified")
-            || lower.contains("wasn’t actually qualified")
-            || lower.contains("wasn t actually qualified")
-            || lower.contains("eligible")) {
-            append("false certification discharge")
-            append("loan discharge")
-        }
-        return terms
     }
 
     private func heuristicallyInferredFacetHints(from query: String) -> [FacetHint] {
@@ -866,6 +844,17 @@ public struct HeuristicStructuredQueryExpander: StructuredQueryExpander {
         "latest", "first", "recent", "recently", "chronology",
     ]
 
+    private let evidenceDenseOperatorTerms: Set<String> = [
+        "ago", "amount", "amounts", "before", "after", "between", "chronology",
+        "combined", "count", "day", "days", "during", "earlier", "earliest",
+        "eight", "five", "first", "four", "frequency", "how", "last", "later", "latest", "least",
+        "month", "months", "money", "most", "number", "order", "ordered",
+        "ordering", "past", "recent", "recently", "seven", "since", "six",
+        "spend", "spent", "sum", "take", "taken", "ten", "three", "time",
+        "timeline", "times", "took", "total", "two", "week", "weeks", "year", "years",
+        "attend", "attended", "participate", "participated",
+    ]
+
     private let queryPunctuation = CharacterSet(charactersIn: ",:;!?()[]{}\"'`.")
 
     private let facetKeywords: [FacetTag: [String]] = [
@@ -913,3 +902,5 @@ private struct OrderedSet<Element: Hashable>: Sequence {
         Array(values.prefix(maxLength))
     }
 }
+
+public typealias HeuristicStructuredQueryExpander = GenericStructuredQueryExpander

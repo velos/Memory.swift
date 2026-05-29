@@ -53,6 +53,45 @@ but Hit@10 is lower, focus on ranking, context packing, and source preservation.
 When candidate-pool coverage is low, focus on query expansion and candidate
 generation.
 
+Corpus-grounded pseudo-relevance feedback now lives in the library search path
+behind `MemoryConfiguration.groundedQueryExpansion`. The conservative default is
+enabled for normal `coreml_default` evals: it mines terms from bounded top
+retrieved local documents, requires weak lexical coverage, a semantic feedback
+cluster, enough feedback evidence, and no strong rank-one result, then runs one
+weak lexical follow-up branch by default without extra query embeddings.
+Evidence-dense temporal/count/ordering queries skip grounded PRF because broad
+diagnostics showed added latency without ranking movement there.
+
+Validate the runtime path with normal retrieval diagnostics, without the
+eval-only `--grounded-expansion` flag:
+
+```bash
+swift run memory_eval retrieval-diagnostics \
+  --profile coreml_default \
+  --dataset-root ./Evals/longmemeval_v2 \
+  --candidate-pool-depth 40 \
+  --context-token-budget 4096 \
+  --no-cache \
+  --no-index-cache
+```
+
+The diagnostic `--grounded-expansion` flag is still useful for eval-only
+what-if experiments, but product decisions should use the normal library path
+above so grounded PRF is not applied twice.
+
+Latest broad runtime grounded PRF diagnostics:
+
+- `general_v2`: Hit@10 and Recall@10 unchanged at `90.85%` and `90.67%`;
+  MRR@10 improved from `0.7440` to `0.7441`; nDCG@10 improved from `0.7843`
+  to `0.7844`; 1 rank improvement and 0 rank regressions.
+- `longmemeval_v2`: Hit@10 and Recall@10 unchanged at `89.50%` and `81.12%`;
+  MRR@10 and nDCG@10 unchanged at `0.6105` and `0.6195`; 0 rank changes.
+
+The `all` term mode failed broad no-harm on `general_v2` by reducing Hit@10 and
+Recall@10, and the initial `0.35` runtime lexical branch weight regressed one
+top-ranked `general_v2` case. Keep the default `phrase-entity` mode, one weak
+branch, and `0.20` branch weight unless fresh broad evidence says otherwise.
+
 The persistent `memory serve` bridge also accepts optional search params named
 `contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
 Benchmark adapters can pass `4096` plus `256` or `384` respectively to use the
@@ -117,3 +156,55 @@ scoped lexical search:
   this should remain configurable for on-device 8k-context agents.
 - External benchmark adapters should remain local or live in the benchmark repo;
   Memory.swift should only absorb generic eval infrastructure and runtime fixes.
+
+## ChatGPT-Signed Codex Smoke Runs
+
+For local ballpark end-to-end runs with ChatGPT subscription access, this
+checkout has used a local `codex-chatgpt` LLM provider in the ignored AMB
+reference tree. It shells out to `codex exec`, uses the active Codex ChatGPT
+login, and asks Codex for structured JSON output. This is intentionally separate
+from the API-key `openai` provider: it is useful for local signal, not for
+public apples-to-apples AMB claims.
+
+Useful environment variables:
+
+```bash
+OMB_ANSWER_LLM=codex-chatgpt
+OMB_ANSWER_MODEL=gpt-5.5
+OMB_JUDGE_LLM=codex-chatgpt
+OMB_JUDGE_MODEL=gpt-5.4-mini
+OMB_CODEX_REASONING_EFFORT=low
+OMB_CODEX_VERBOSITY=low
+```
+
+Before running, verify the local auth state:
+
+```bash
+codex login status
+```
+
+Use a small `--query-limit` first. Each answer and each LLM-judge call starts a
+separate Codex session, so full 500-query LongMemEval runs consume far more
+ChatGPT/Codex message allowance than Gemini/API-key runs.
+
+Local 2026-05-09 LongMemEval `s` run:
+
+- Run path:
+  `references/agent-memory-benchmark/outputs/longmemeval/memory-swift-codex-chatgpt-full/rag/s.json`
+- Answer model: `codex-chatgpt:gpt-5.5:low`
+- Judge model: `codex-chatgpt:gpt-5.4-mini:low`
+- Result: 443/500 correct, 88.6% accuracy
+
+Failure analysis pointed mostly at fixed-context evidence survival and answer
+synthesis, not raw candidate generation. The corresponding retrieval-only run
+had Hit@10 93.2%, with-gold Hit@10 97.3%, and with-gold support-document
+Recall@10 93.4%.
+
+For AMB adapter work, prefer passing `memory serve` context-packaging params
+through the bridge instead of repacking full chunks only in Python:
+`contextTokenBudget`, `perDocumentTokenBudget`, and `contextPackingOrder`.
+Focused diagnostics on three multi-evidence failures showed document-level
+support Recall@10 improvements from 50.0% to 75.0%, 60.0% to 100.0%, and 66.7%
+to 83.3%. Those did not all convert to judged answer wins because some AMB gold
+matches are document-level while Memory.swift returns chunk-level context; a
+retrieved gold document can still expose the wrong chunk for a counting answer.

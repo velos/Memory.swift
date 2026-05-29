@@ -81,7 +81,6 @@ TEMPORAL_PATTERNS = [
     r"\bpast\b",
     r"\blast\b",
     r"\bthis year\b",
-    r"\btypical week\b",
     r"\bJanuary|February|March|April|May|June|July|August|September|October|November|December\b",
 ]
 

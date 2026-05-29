@@ -2,6 +2,47 @@ import Foundation
 import Testing
 @testable import Memory
 
+private final class SearchEventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completedCounts: [Int] = []
+    private var expandedQueryCounts: [Int] = []
+    private var groundedExpansionEvents: [(applied: Bool, queryCount: Int, termCount: Int, reason: String?)] = []
+
+    func record(_ event: SearchEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        switch event {
+        case .completed(let count):
+            completedCounts.append(count)
+        case .expandedQueries(let count):
+            expandedQueryCounts.append(count)
+        case let .groundedExpansion(applied, queryCount, termCount, reason):
+            groundedExpansionEvents.append((applied, queryCount, termCount, reason))
+        default:
+            break
+        }
+    }
+
+    var lastCompletedCount: Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return completedCounts.last
+    }
+
+    var lastExpandedQueryCount: Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return expandedQueryCounts.last
+    }
+
+    var lastGroundedExpansionEvent: (applied: Bool, queryCount: Int, termCount: Int, reason: String?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return groundedExpansionEvents.last
+    }
+}
+
 struct MemoryIndexTests {
     @Test
     func searchReturnsRelevantDocument() async throws {
@@ -32,6 +73,206 @@ struct MemoryIndexTests {
 
         #expect(results.isEmpty == false)
         #expect(results.first?.documentPath.contains("swift.md") == true)
+    }
+
+    @Test
+    func memoryTypeIntentAddsBoundedSoftScoreForMatchingDocuments() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("procedure.md"),
+            """
+            # How to renew a workshop permit
+            Submit the workshop permit renewal form online or by mail.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("fact.md"),
+            """
+            # Workshop permit overview
+            Workshop permits list the room, schedule, and safety contact.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How do I renew a workshop permit?",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 20,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        let procedural = try #require(results.first { $0.documentPath.hasSuffix("procedure.md") })
+        let factual = try #require(results.first { $0.documentPath.hasSuffix("fact.md") })
+        #expect(procedural.memoryType == "procedural")
+        #expect((procedural.score.type) > (factual.score.type))
+        #expect(procedural.score.type <= 0.012)
+    }
+
+    @Test
+    func additionalLexicalQueriesCanLiftRelevantDocument() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("export.md"),
+            "Backup transcript export instructions for conversation history."
+        )
+        try writeFile(
+            docs.appendingPathComponent("garden.md"),
+            "Tomatoes need sunlight and healthy soil."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let baseline = try await index.search(
+            SearchQuery(
+                text: "archive chats",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let expanded = try await index.search(
+            SearchQuery(
+                text: "archive chats",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                additionalLexicalQueries: ["backup transcript export"],
+                additionalLexicalQueryWeight: 0.35,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(!baseline.contains { $0.documentPath.hasSuffix("export.md") })
+        #expect(expanded.first?.documentPath.hasSuffix("export.md") == true)
+    }
+
+    @Test
+    func additionalLexicalQueryWeightStaysBelowOriginalQueryWeight() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("original.md"),
+            "Alpha project launch notes and status."
+        )
+        try writeFile(
+            docs.appendingPathComponent("additional.md"),
+            "Backup transcript export instructions."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "alpha project",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                originalQueryWeight: 2.0,
+                additionalLexicalQueries: ["backup transcript"],
+                additionalLexicalQueryWeight: 0.1,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.count >= 2)
+        #expect(results.first?.documentPath.hasSuffix("original.md") == true)
+    }
+
+    @Test
+    func emptyAdditionalLexicalQueriesPreserveCurrentBehavior() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("alpha.md"),
+            "Alpha project launch notes."
+        )
+        try writeFile(
+            docs.appendingPathComponent("bravo.md"),
+            "Bravo project launch notes."
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let baseline = try await index.search(
+            SearchQuery(
+                text: "project launch",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let emptyAdditional = try await index.search(
+            SearchQuery(
+                text: "project launch",
+                limit: 5,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 10,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                additionalLexicalQueries: [],
+                includeTagScoring: false
+            )
+        )
+
+        #expect(emptyAdditional.map(\.documentPath) == baseline.map(\.documentPath))
     }
 
     @Test
@@ -203,199 +444,6 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func rankOneLexicalExpansionHitSurvivesFusion() async throws {
-        let root = try makeTemporaryDirectory()
-        let docs = root.appendingPathComponent("docs")
-        let dbURL = root.appendingPathComponent("index.sqlite")
-
-        try writeFile(
-            docs.appendingPathComponent("false-certification.md"),
-            "False Certification Discharge. A student loan can be discharged when a school falsely certified eligibility for a loan."
-        )
-        for i in 0..<8 {
-            try writeFile(
-                docs.appendingPathComponent("distractor-\(i).md"),
-                "school attended lender eligible student loan qualified debt account repayment option \(i). school attended lender eligible student loan debt."
-            )
-        }
-
-        let config = MemoryConfiguration(
-            databaseURL: dbURL,
-            embeddingProvider: ConstantEmbeddingProvider(),
-            structuredQueryExpander: StaticStructuredQueryExpander(
-                lexicalQueries: ["false certification discharge"]
-            ),
-            tokenizer: DefaultTokenizer(),
-            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
-        )
-
-        let index = try MemoryIndex(configuration: config)
-        try await index.rebuildIndex(from: [docs])
-
-        let queryText = "The school I attended told the lender that I was eligible for a student loan but I was not qualified, can I get rid of this debt?"
-        let baselineResults = try await index.search(
-            SearchQuery(
-                text: queryText,
-                limit: 3,
-                semanticCandidateLimit: 0,
-                lexicalCandidateLimit: 50,
-                rerankLimit: 0,
-                expansionLimit: 0
-            )
-        )
-        #expect(baselineResults.first?.documentPath.contains("false-certification.md") != true)
-
-        let results = try await index.search(
-            SearchQuery(
-                text: queryText,
-                limit: 3,
-                semanticCandidateLimit: 0,
-                lexicalCandidateLimit: 50,
-                rerankLimit: 0,
-                expansionLimit: 3
-            )
-        )
-
-        #expect(results.first?.documentPath.contains("false-certification.md") == true)
-
-        let documentListSurfaceResults = try await index.search(
-            SearchQuery(
-                text: queryText,
-                limit: 18,
-                semanticCandidateLimit: 0,
-                lexicalCandidateLimit: 200,
-                rerankLimit: 0,
-                expansionLimit: 5,
-                includeTagScoring: false
-            )
-        )
-        #expect(documentListSurfaceResults.first?.documentPath.contains("false-certification.md") == true)
-
-        let references = try await index.memorySearch(
-            query: queryText,
-            limit: 3,
-            features: [.lexical, .expansion],
-            dedupeDocuments: true,
-            includeLineRanges: false
-        )
-        #expect(references.first?.documentPath.contains("false-certification.md") == true)
-    }
-
-    @Test
-    func memorySearchPreservesDirectLookupSessionContinuation() async throws {
-        let root = try makeTemporaryDirectory()
-        let docs = root.appendingPathComponent("docs")
-        let dbURL = root.appendingPathComponent("index.sqlite")
-
-        let queryText = "Which streaming service did I start using most recently?"
-        try writeFile(
-            docs.appendingPathComponent("answer_stream_1.md"),
-            """
-            \(queryText) \(queryText)
-            I was comparing streaming service options and asking for TV recommendations.
-            """
-        )
-        try writeFile(
-            docs.appendingPathComponent("answer_stream_2.md"),
-            """
-            streaming service start using most recently. I started a free StreamBox trial and finished watching a documentary series.
-            """
-        )
-
-        for index in 0..<8 {
-            try writeFile(
-                docs.appendingPathComponent("distractor-\(index).md"),
-                "\(queryText) unrelated catalog note \(index)"
-            )
-        }
-
-        let config = MemoryConfiguration(
-            databaseURL: dbURL,
-            embeddingProvider: ConstantEmbeddingProvider(),
-            tokenizer: DefaultTokenizer(),
-            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
-        )
-
-        let index = try MemoryIndex(configuration: config)
-        try await index.rebuildIndex(from: [docs])
-
-        let references = try await index.memorySearch(
-            query: queryText,
-            limit: 5,
-            features: [.lexical],
-            dedupeDocuments: true,
-            includeLineRanges: false
-        )
-
-        #expect(references.contains { $0.documentPath.contains("answer_stream_2.md") })
-    }
-
-    @Test
-    func primaryBranchProtectionKeepsBaselineDocumentRepresented() async throws {
-        let root = try makeTemporaryDirectory()
-        let docs = root.appendingPathComponent("docs")
-        let dbURL = root.appendingPathComponent("index.sqlite")
-
-        try writeFile(
-            docs.appendingPathComponent("primary.md"),
-            "alpha baseline source answer with original query anchors"
-        )
-        for index in 0..<8 {
-            try writeFile(
-                docs.appendingPathComponent("expansion-\(index).md"),
-                "gamma expansion distraction exact lure \(index). gamma expansion distraction exact lure."
-            )
-        }
-
-        let config = MemoryConfiguration(
-            databaseURL: dbURL,
-            embeddingProvider: ConstantEmbeddingProvider(),
-            structuredQueryExpander: StaticStructuredQueryExpander(
-                lexicalQueries: ["gamma expansion distraction exact lure"]
-            ),
-            tokenizer: DefaultTokenizer(),
-            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
-        )
-
-        let index = try MemoryIndex(configuration: config)
-        try await index.rebuildIndex(from: [docs])
-
-        let queryText = "alpha baseline source answer original branch details for quarterly memory planning review follow up"
-        let unprotected = try await index.search(
-            SearchQuery(
-                text: queryText,
-                limit: 1,
-                semanticCandidateLimit: 0,
-                lexicalCandidateLimit: 50,
-                rerankLimit: 0,
-                expansionLimit: 1,
-                originalQueryWeight: 0.1,
-                expansionQueryWeight: 50,
-                primaryBranchProtectionLimit: 0,
-                includeTagScoring: false
-            )
-        )
-        #expect(unprotected.first?.documentPath.contains("primary.md") != true)
-
-        let protected = try await index.search(
-            SearchQuery(
-                text: queryText,
-                limit: 1,
-                semanticCandidateLimit: 0,
-                lexicalCandidateLimit: 50,
-                rerankLimit: 0,
-                expansionLimit: 1,
-                originalQueryWeight: 0.1,
-                expansionQueryWeight: 50,
-                primaryBranchProtectionLimit: 1,
-                includeTagScoring: false
-            )
-        )
-
-        #expect(protected.first?.documentPath.contains("primary.md") == true)
-    }
-
-    @Test
     func distributedAnchorMatchesCanSurfaceThroughLexicalSearch() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -540,7 +588,7 @@ struct MemoryIndexTests {
         let docs = root.appendingPathComponent("docs")
         let dbURL = root.appendingPathComponent("index.sqlite")
 
-        let temporalQuery = "What was the social media activity I participated 5 days ago?"
+        let temporalQuery = "What project milestone did I note 5 days ago?"
         try writeFile(
             docs.appendingPathComponent("temporal.md"),
             "\(temporalQuery) \(temporalQuery) \(temporalQuery)"
@@ -550,7 +598,7 @@ struct MemoryIndexTests {
             "general observations and feedback collected during the quarterly planning session"
         )
 
-        let temporalExpander = RecordingStructuredQueryExpander(lexicalQueries: ["social media challenge fitness hashtag"])
+        let temporalExpander = RecordingStructuredQueryExpander(lexicalQueries: ["project milestone retrospective"])
         let temporalConfig = MemoryConfiguration(
             databaseURL: dbURL,
             embeddingProvider: ConstantEmbeddingProvider(),
@@ -575,13 +623,13 @@ struct MemoryIndexTests {
         #expect(temporalCalls == 1)
 
         let recommendationDB = root.appendingPathComponent("recommendation.sqlite")
-        let recommendationQuery = "Can you recommend a show or movie for me to watch tonight?"
+        let recommendationQuery = "Can you recommend a planning template for the release review?"
         try writeFile(
             docs.appendingPathComponent("recommendation.md"),
             "\(recommendationQuery) \(recommendationQuery) \(recommendationQuery)"
         )
 
-        let recommendationExpander = RecordingStructuredQueryExpander(lexicalQueries: ["netflix stand-up comedy specials storytelling"])
+        let recommendationExpander = RecordingStructuredQueryExpander(lexicalQueries: ["planning template release checklist"])
         let recommendationConfig = MemoryConfiguration(
             databaseURL: recommendationDB,
             embeddingProvider: ConstantEmbeddingProvider(),
@@ -699,6 +747,111 @@ struct MemoryIndexTests {
     }
 
     @Test
+    func groundedQueryExpansionPlansBoundedCorpusLocalQueries() {
+        let results = [
+            SearchResult(
+                chunkID: 1,
+                documentPath: "/tmp/deployment-rollout.md",
+                title: "Deployment rollout",
+                content: "Deployment rollout checklist and service cutover plan.",
+                snippet: "Deployment rollout checklist and service cutover plan.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.040, lexical: 0.010, recency: 0, fused: 0.090)
+            ),
+            SearchResult(
+                chunkID: 2,
+                documentPath: "/tmp/incident-response.md",
+                title: "Incident response",
+                content: "Incident response timeline and postmortem review notes.",
+                snippet: "Incident response timeline and postmortem review notes.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.039, lexical: 0.010, recency: 0, fused: 0.088)
+            ),
+            SearchResult(
+                chunkID: 3,
+                documentPath: "/tmp/customer-research.md",
+                title: "Customer research",
+                content: "Customer research interview summaries and synthesis notes.",
+                snippet: "Customer research interview summaries and synthesis notes.",
+                modifiedAt: Date(),
+                score: SearchScoreBreakdown(semantic: 0.038, lexical: 0.010, recency: 0, fused: 0.086)
+            ),
+        ]
+
+        let plan = RuntimeGroundedQueryExpansion.makePlan(
+            queryText: "project question",
+            baselineResults: results,
+            configuration: GroundedQueryExpansionConfiguration(
+                maxFeedbackResults: 8,
+                maxTerms: 8,
+                termsPerQuery: 4,
+                maxQueries: 2,
+                termMode: .phraseEntity
+            )
+        )
+
+        #expect(plan.decision.shouldApply)
+        #expect(plan.lexicalQueries.count <= 2)
+        #expect(plan.terms.count <= 8)
+        #expect(plan.terms.contains { $0.text == "deployment rollout" })
+        #expect(plan.terms.contains { $0.text == "incident response" })
+        #expect(!plan.terms.contains { $0.text == "project" })
+        #expect(!plan.terms.contains { $0.text == "question" })
+    }
+
+    @Test
+    func groundedExpansionDoesNotRequestAdditionalSemanticEmbeddings() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("deployment-rollout.md"),
+            "# Deployment rollout\n\nDeployment rollout checklist and service cutover plan."
+        )
+        try writeFile(
+            docs.appendingPathComponent("incident-response.md"),
+            "# Incident response\n\nIncident response timeline and postmortem review notes."
+        )
+        try writeFile(
+            docs.appendingPathComponent("customer-research.md"),
+            "# Customer research\n\nCustomer research interview summaries and synthesis notes."
+        )
+
+        let embeddingProvider = CountingEmbeddingProvider(dimension: 1)
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: embeddingProvider,
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+        await embeddingProvider.resetStats()
+
+        let events = SearchEventRecorder()
+        _ = try await index.search(
+            SearchQuery(
+                text: "project question",
+                limit: 5,
+                semanticCandidateLimit: 20,
+                lexicalCandidateLimit: 20,
+                rerankLimit: 0,
+                expansionLimit: 0
+            ),
+            events: events.record
+        )
+
+        let stats = await embeddingProvider.stats()
+        #expect(stats.singleCalls == 0)
+        #expect(stats.batchSizes == [1])
+        #expect(events.lastGroundedExpansionEvent?.applied == true)
+        #expect((events.lastGroundedExpansionEvent?.queryCount ?? 0) <= 2)
+        #expect((events.lastGroundedExpansionEvent?.termCount ?? 0) <= 8)
+    }
+
+    @Test
     func scopedLexicalCoverageCanSkipSemanticEmbedding() async throws {
         let root = try makeTemporaryDirectory()
         let docs = root.appendingPathComponent("docs")
@@ -783,21 +936,21 @@ struct MemoryIndexTests {
     @Test
     func heuristicStructuredExpanderKeepsGenericFactLookupsLexicalOnly() async throws {
         let expander = HeuristicStructuredQueryExpander()
-        let query = SearchQuery(text: "What time do I wake up on Tuesdays and Thursdays?")
+        let query = SearchQuery(text: "What time do I review notes on Tuesdays and Thursdays?")
         let analysis = QueryAnalysis(
             entities: [],
-            keyTerms: ["time", "wake", "tuesdays", "thursdays"],
+            keyTerms: ["time", "review", "notes", "tuesdays", "thursdays"],
             facetHints: [
                 FacetHint(tag: .factAboutUser, confidence: 0.84, isExplicit: true)
             ],
-            topics: ["time wake tuesdays", "wake tuesdays thursdays", "tuesdays thursdays"],
+            topics: ["time review notes", "review notes tuesdays", "tuesdays thursdays"],
             isHowToQuery: false
         )
 
         let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
 
         #expect(expansion.lexicalQueries.isEmpty == false)
-        #expect(expansion.lexicalQueries.contains(where: { $0.contains("wake") && $0.contains("thursdays") }))
+        #expect(expansion.lexicalQueries.contains(where: { $0.contains("review") && $0.contains("thursdays") }))
         #expect(expansion.lexicalQueries.contains(where: { $0.contains("fact about user") }) == false)
         #expect(expansion.semanticQueries.isEmpty)
         #expect(expansion.hypotheticalDocuments.isEmpty)
@@ -828,65 +981,7 @@ struct MemoryIndexTests {
     }
 
     @Test
-    func heuristicStructuredExpanderAddsFalseCertificationStudentLoanDomainAliases() async throws {
-        let expander = HeuristicStructuredQueryExpander()
-        let query = SearchQuery(
-            text: "The school I attended told the lender that I was eligible for a student loan but I wasn't actually qualified, is there any way to get rid of this debt?"
-        )
-        let analysis = QueryAnalysis(
-            entities: [],
-            keyTerms: ["school", "attended", "lender", "eligible", "student", "loan"],
-            facetHints: [],
-            topics: ["school attended told", "attended told lender", "student loan debt"],
-            isHowToQuery: false
-        )
-
-        let expansion = try await expander.expand(query: query, analysis: analysis, limit: 5)
-
-        #expect(expansion.lexicalQueries.contains(where: { $0.contains("false certification discharge") }))
-    }
-
-    @Test
-    func heuristicStructuredExpanderAddsEmbroideryDomainAliases() async throws {
-        let expander = HeuristicStructuredQueryExpander()
-
-        let birthdayExpansion = try await expander.expand(
-            query: SearchQuery(
-                text: "Whose birthday gift is the Cantonese embroidery piece, completed in the summer of 2025, intended for?"
-            ),
-            analysis: QueryAnalysis(
-                entities: [],
-                keyTerms: ["birthday", "gift", "cantonese", "embroidery", "summer"],
-                facetHints: [],
-                topics: ["cantonese embroidery birthday gift", "summer 2025"],
-                isHowToQuery: false
-            ),
-            limit: 5
-        )
-        let birthdayLexical = birthdayExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(birthdayLexical.contains("cantonese embroidery birthday gift recipient"))
-        #expect(birthdayLexical.contains("stitching technique"))
-
-        let creativeExpansion = try await expander.expand(
-            query: SearchQuery(
-                text: "What is the most crucial driving factor behind the successful initiation and continuation of the life-oriented creative attempts in Yue embroidery?"
-            ),
-            analysis: QueryAnalysis(
-                entities: [],
-                keyTerms: ["driving", "factor", "life-oriented", "creative", "yue", "embroidery"],
-                facetHints: [],
-                topics: ["life-oriented creative attempts", "yue embroidery"],
-                isHowToQuery: false
-            ),
-            limit: 5
-        )
-        let creativeLexical = creativeExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(creativeLexical.contains("everyday items creative practice"))
-        #expect(creativeLexical.contains("traditional craft modern product design"))
-    }
-
-    @Test
-    func heuristicStructuredExpanderAddsGenericLongHorizonRecallTerms() async throws {
+    func heuristicStructuredExpanderKeepsRecallTermsWithoutDomainAliases() async throws {
         let expander = HeuristicStructuredQueryExpander()
         let completionAnalysis = QueryAnalysis(
             entities: [],
@@ -902,8 +997,10 @@ struct MemoryIndexTests {
             limit: 5
         )
         let completionLexical = completionExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(completionLexical.contains("finished project"))
-        #expect(completionLexical.contains("painting project"))
+        #expect(completionLexical.contains("completed"))
+        #expect(completionLexical.contains("painting"))
+        #expect(completionLexical.contains("classes"))
+        #expect(completionExpansion.semanticQueries.isEmpty == false)
 
         let tripExpansion = try await expander.expand(
             query: SearchQuery(text: "What is the order of the three trips I took in the past three months?"),
@@ -917,8 +1014,13 @@ struct MemoryIndexTests {
             limit: 5
         )
         let tripLexical = tripExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(tripLexical.contains("trip travel itinerary"))
-        #expect(tripLexical.contains("travel sequence destination"))
+        #expect(tripLexical.contains("order"))
+        #expect(tripLexical.contains("trips"))
+        #expect(tripLexical.contains("past"))
+        #expect(tripLexical.contains("months"))
+        #expect(tripLexical.contains("got back") == false)
+        #expect(tripLexical.contains("earliest") == false)
+        #expect(tripLexical.contains("latest") == false)
 
         let groceryExpansion = try await expander.expand(
             query: SearchQuery(text: "Which grocery store did I spend the most money at in the past month?"),
@@ -932,8 +1034,47 @@ struct MemoryIndexTests {
             limit: 5
         )
         let groceryLexical = groceryExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(groceryLexical.contains("grocery shopping"))
-        #expect(groceryLexical.contains("receipt purchase"))
+        #expect(groceryLexical.contains("grocery"))
+        #expect(groceryLexical.contains("store"))
+        #expect(groceryLexical.contains("most money"))
+        #expect(groceryLexical.contains("past month"))
+
+        let eventGapExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many days before the conference demo did I attend the planning workshop?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["days", "conference", "demo", "planning", "workshop"],
+                facetHints: [FacetHint(tag: .timeSensitive, confidence: 0.8, isExplicit: true)],
+                topics: ["conference demo", "planning workshop"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let eventGapLexical = eventGapExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(eventGapLexical.contains("days"))
+        #expect(eventGapLexical.contains("before"))
+        #expect(eventGapLexical.contains("conference"))
+        #expect(eventGapLexical.contains("workshop"))
+        #expect(eventGapExpansion.semanticQueries.isEmpty == false)
+
+        let deliveryExpansion = try await expander.expand(
+            query: SearchQuery(text: "How many days did it take for my laptop backpack to arrive after I bought it?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["laptop", "backpack", "arrive", "bought"],
+                facetHints: [FacetHint(tag: .factAboutUser, confidence: 0.8, isExplicit: true)],
+                topics: ["laptop backpack", "delivery timing"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let deliveryLexical = deliveryExpansion.lexicalQueries.joined(separator: " | ")
+        #expect(deliveryLexical.contains("laptop"))
+        #expect(deliveryLexical.contains("backpack"))
+        #expect(deliveryLexical.contains("arrive"))
+        #expect(deliveryLexical.contains("bought"))
+        #expect(deliveryExpansion.semanticQueries.isEmpty)
+        #expect(deliveryExpansion.hypotheticalDocuments.isEmpty)
 
         let kitchenExpansion = try await expander.expand(
             query: SearchQuery(text: "How many kitchen items did I replace or fix?"),
@@ -947,53 +1088,10 @@ struct MemoryIndexTests {
             limit: 5
         )
         let kitchenLexical = kitchenExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(kitchenLexical.contains("kitchen appliance"))
-        #expect(kitchenLexical.contains("repair replacement"))
-
-        let artExpansion = try await expander.expand(
-            query: SearchQuery(text: "How many different art-related events did I attend in the past month?"),
-            analysis: QueryAnalysis(
-                entities: [],
-                keyTerms: ["art", "related", "events", "past", "month"],
-                facetHints: [],
-                topics: ["art-related events", "past month"],
-                isHowToQuery: false
-            ),
-            limit: 5
-        )
-        let artLexical = artExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(artLexical.contains("art event"))
-        #expect(artLexical.contains("museum gallery"))
-
-        let roleExpansion = try await expander.expand(
-            query: SearchQuery(text: "How long have I been working in my current role?"),
-            analysis: QueryAnalysis(
-                entities: [],
-                keyTerms: ["working", "current", "role"],
-                facetHints: [],
-                topics: ["current role"],
-                isHowToQuery: false
-            ),
-            limit: 5
-        )
-        let roleLexical = roleExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(roleLexical.contains("current job role"))
-        #expect(roleLexical.contains("promotion title"))
-
-        let socialExpansion = try await expander.expand(
-            query: SearchQuery(text: "What was the social media activity I participated 5 days ago?"),
-            analysis: QueryAnalysis(
-                entities: [],
-                keyTerms: ["social", "media", "activity", "participated"],
-                facetHints: [],
-                topics: ["social media activity"],
-                isHowToQuery: false
-            ),
-            limit: 5
-        )
-        let socialLexical = socialExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(socialLexical.contains("social media challenge"))
-        #expect(socialLexical.contains("fitness challenge hashtag"))
+        #expect(kitchenLexical.contains("kitchen"))
+        #expect(kitchenLexical.contains("items"))
+        #expect(kitchenLexical.contains("replace"))
+        #expect(kitchenLexical.contains("fix"))
 
         let recommendationExpansion = try await expander.expand(
             query: SearchQuery(text: "Can you recommend a show or movie for me to watch tonight?"),
@@ -1007,8 +1105,11 @@ struct MemoryIndexTests {
             limit: 5
         )
         let recommendationLexical = recommendationExpansion.lexicalQueries.joined(separator: " | ")
-        #expect(recommendationLexical.contains("movie show streaming recommendation"))
-        #expect(recommendationLexical.contains("watch comedy drama documentary"))
+        #expect(recommendationLexical.contains("recommend"))
+        #expect(recommendationLexical.contains("show"))
+        #expect(recommendationLexical.contains("movie"))
+        #expect(recommendationExpansion.semanticQueries.isEmpty == false)
+        #expect(recommendationExpansion.hypotheticalDocuments.isEmpty == false)
 
         let referenceDate = try #require(ISO8601DateFormatter().date(from: "2023-05-30T00:00:00Z"))
         let lastWeekExpansion = try await expander.expand(
@@ -1027,6 +1128,738 @@ struct MemoryIndexTests {
         )
         let lastWeekLexical = lastWeekExpansion.lexicalQueries.joined(separator: " | ")
         #expect(lastWeekLexical.contains("2023-05-22") || lastWeekLexical.contains("may 22"))
+    }
+
+    @Test
+    func genericStructuredExpanderUsesShapeBasedRewrites() async throws {
+        let expander = GenericStructuredQueryExpander()
+        let expansion = try await expander.expand(
+            query: SearchQuery(text: "Where should I mail the signed form?"),
+            analysis: QueryAnalysis(
+                keyTerms: ["mail", "signed", "form"],
+                topics: ["mail submission"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+
+        let lexical = expansion.lexicalQueries.joined(separator: " ")
+        #expect(expander.identifier == "generic-structured-query-expander")
+        #expect(lexical.contains("mail"))
+        #expect(lexical.contains("instructions") == false)
+        #expect(lexical.contains("requirements") == false)
+        #expect(lexical.contains("dmv") == false)
+
+        let ellipticalExpansion = try await expander.expand(
+            query: SearchQuery(text: "What are the costs?"),
+            analysis: QueryAnalysis(
+                keyTerms: ["costs"],
+                topics: ["costs"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+        let ellipticalLexical = ellipticalExpansion.lexicalQueries.joined(separator: " ")
+        #expect(ellipticalLexical.contains("costs"))
+        #expect(ellipticalLexical.contains("price") == false)
+        #expect(ellipticalLexical.contains("payment") == false)
+    }
+
+    @Test
+    func genericRewriteLexiconAvoidsHandWrittenLifestyleAliases() {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "Can you suggest fitness magazine subscriptions?"
+        )
+        let terms = GenericQueryRewriteLexicon.expansionTerms(for: understanding)
+
+        #expect(terms.contains("fitness"))
+        #expect(terms.contains("magazine"))
+        #expect(terms.contains("subscription"))
+        #expect(terms.contains("exercise") == false)
+        #expect(terms.contains("periodical") == false)
+        #expect(terms.contains("memberships") == false)
+
+        let cookingUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "How many cuisines have I tried cooking?"
+        )
+        let cookingTerms = GenericQueryRewriteLexicon.expansionTerms(for: cookingUnderstanding)
+        #expect(cookingTerms.contains("cuisine"))
+        #expect(cookingTerms.contains("cooking"))
+        #expect(cookingTerms.contains("recipes") == false)
+        #expect(cookingTerms.contains("dishes") == false)
+    }
+
+    @Test
+    func genericRewriteLexiconAddsInflectionalVariantsForRecallTerms() {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "What order were the trips, festivals, and classes?"
+        )
+        let terms = GenericQueryRewriteLexicon.expansionTerms(for: understanding)
+
+        #expect(terms.contains("trip"))
+        #expect(terms.contains("festival"))
+        #expect(terms.contains("class"))
+    }
+
+    @Test
+    func ordinalRecallCuesAreEvidenceDenseWithoutBroadChoiceFirstExpansion() {
+        let ordinalSeries = RecallQueryUnderstandingAnalyzer.analyze(
+            "Who finished first, second, and third in the workshop?"
+        )
+        #expect(ordinalSeries.operations.contains(.ordering))
+        #expect(ordinalSeries.temporalIntent == .timeAnchored)
+        #expect(ordinalSeries.isEvidenceDense)
+
+        let completionChoice = RecallQueryUnderstandingAnalyzer.analyze(
+            "Which task did I complete first, drafting the memo or filing the report?"
+        )
+        #expect(completionChoice.operations.contains(.ordering))
+        #expect(completionChoice.temporalIntent == .timeAnchored)
+        #expect(completionChoice.isEvidenceDense)
+
+        let broadChoice = RecallQueryUnderstandingAnalyzer.analyze(
+            "Which trip did I take first, the family vacation or the solo weekend?"
+        )
+        #expect(broadChoice.operations.contains(.ordering) == false)
+    }
+
+    @Test
+    func genericRewriteLexiconAvoidsHandWrittenMediaAliases() {
+        let mediaUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "Can you recommend a show or movie to watch?"
+        )
+        let mediaTerms = GenericQueryRewriteLexicon.expansionTerms(for: mediaUnderstanding)
+
+        #expect(mediaTerms.contains("movie"))
+        #expect(mediaTerms.contains("film") == false)
+        #expect(mediaTerms.contains("special") == false)
+
+        let festivalUnderstanding = RecallQueryUnderstandingAnalyzer.analyze(
+            "How many movie festivals did I attend?"
+        )
+        let festivalTerms = GenericQueryRewriteLexicon.expansionTerms(for: festivalUnderstanding)
+
+        #expect(festivalTerms.contains("festival"))
+        #expect(festivalTerms.contains("fest") == false)
+        #expect(festivalTerms.contains("event") == false)
+    }
+
+    @Test
+    func searchAdjustmentSetSupportsNamedAblationsWithoutBenchmarkIdentifiers() {
+        let enabled = MemorySearchAdjustmentSet.enabled(from: [
+            MemorySearchAdjustmentSet.disableEnvironmentKey: "evidence_support semantic-preservation unknown-token unrelated-case",
+        ])
+
+        #expect(enabled.contains(.evidenceSupport) == false)
+        #expect(enabled.contains(.semanticPreservation) == false)
+        #expect(enabled.contains(.aggregateSupportContinuations))
+        #expect(enabled.contains(.currentStateLexicalPreservation))
+        #expect(enabled.contains(.memoryTypeIntent))
+
+        let only = MemorySearchAdjustmentSet.enabled(from: [
+            MemorySearchAdjustmentSet.onlyEnvironmentKey: "aggregate-support-continuations",
+        ])
+
+        #expect(only == [.aggregateSupportContinuations])
+    }
+
+    @Test
+    func runtimeRetrievalCodeDoesNotContainBenchmarkRescueIdentifiers() throws {
+        let fileManager = FileManager.default
+        let packageRoot = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        let sourceRoot = packageRoot.appendingPathComponent("Sources/Memory")
+        let longMemoryBenchmarkName = ["long", "memeval"].joined()
+        let queryExpansionFocusedName = [
+            "query",
+            "expansion",
+            ["res", "cue"].joined(),
+        ].joined(separator: "_")
+        let docAnswerIDPrefix = ["doc", "answer"].joined(separator: "-")
+        let generalDocumentIDPrefix = ["general", "v2__"].joined(separator: "-")
+        let gptQueryIDPrefix = "q" + "-" + ["gpt", "4_"].joined()
+        let genericQueryIDPrefix = "q" + "-"
+        let forbiddenPatterns: [String] = [
+            longMemoryBenchmarkName,
+            queryExpansionFocusedName,
+            docAnswerIDPrefix,
+            generalDocumentIDPrefix,
+            gptQueryIDPrefix,
+            genericQueryIDPrefix,
+            "tokenSynonyms",
+            "serviceUsageLexicalQuery",
+            "completedTravelEventLexicalQuery",
+            "negatedQualificationRelief",
+            "proceduralRetentionChoice",
+            "qualificationNegationTerms",
+            "got back today",
+        ]
+
+        var isDirectory: ObjCBool = false
+        #expect(fileManager.fileExists(atPath: sourceRoot.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+
+        let enumerator = fileManager.enumerator(
+            at: sourceRoot,
+            includingPropertiesForKeys: nil
+        )
+        var hits: [String] = []
+        while let fileURL = enumerator?.nextObject() as? URL {
+            guard fileURL.pathExtension == "swift" else { continue }
+            let relativePath = fileURL.path.replacingOccurrences(of: packageRoot.path + "/", with: "")
+            let contents = try String(contentsOf: fileURL, encoding: .utf8)
+            for pattern in forbiddenPatterns where contents.range(of: pattern, options: [.caseInsensitive]) != nil {
+                hits.append("\(relativePath): \(pattern)")
+            }
+        }
+
+        #expect(
+            hits.isEmpty,
+            "Runtime retrieval code contains benchmark-shaped identifiers: \(hits.joined(separator: ", "))"
+        )
+    }
+
+    @Test
+    func comparisonRecallCanIncludeTemporallyAdjacentEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("hitchhiker-start.md"),
+            """
+            # Session hitchhiker-start
+
+            Date: 2024/01/16 (Tue) 09:00
+
+            I started reading 'The Hitchhiker's Guide to the Galaxy' today and wanted similar comic science fiction books.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("nightingale-finished.md"),
+            """
+            # Session nightingale-finished
+
+            Date: 2024/01/15 (Mon) 20:00
+
+            I finished reading 'The Nightingale' today, one day before the next reading milestone, and recorded how many days passed between the two books.
+            """
+        )
+
+        for index in 0..<10 {
+            try writeFile(
+                docs.appendingPathComponent("distractor-\(index).md"),
+                """
+                # Session distractor-\(index)
+
+                Date: 2024/03/\(String(format: "%02d", index + 1)) (Fri) 10:00
+
+                I started reading 'The Nightingale' while tracking how many days passed between reading goals and book club plans.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How many days passed between the day I finished reading 'The Nightingale' and the day I started reading 'The Hitchhiker's Guide to the Galaxy'?",
+                limit: 10,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 80,
+                rerankLimit: 0,
+                expansionLimit: 0,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(results.contains { $0.documentPath.hasSuffix("hitchhiker-start.md") })
+        #expect(results.contains { $0.documentPath.hasSuffix("nightingale-finished.md") })
+    }
+
+    @Test
+    func memorySearchCanIncludeTemporallyAdjacentAggregateEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("book-pair-1.md"),
+            """
+            # First book milestone
+
+            Date: 2024/01/15 (Mon) 20:00
+
+            I finished reading The Nightingale and wrote down that the next book milestone started one day later.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("book-pair-2.md"),
+            """
+            # Second book milestone
+
+            Date: 2024/01/16 (Tue) 09:00
+
+            I started reading The Hitchhiker's Guide to the Galaxy after finishing The Nightingale.
+            """
+        )
+
+        for index in 0..<12 {
+            try writeFile(
+                docs.appendingPathComponent("book-distractor-\(index).md"),
+                """
+                # Reading distractor \(index)
+
+                Date: 2024/03/\(String(format: "%02d", index + 1)) (Fri) 10:00
+
+                I tracked reading goals, book club plans, and how many days passed between unrelated milestones.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "How many days passed between finishing The Nightingale and starting The Hitchhiker's Guide to the Galaxy?",
+            limit: 10,
+            features: [.lexical],
+            dedupeDocuments: true
+        )
+
+        #expect(references.contains { $0.documentPath.hasSuffix("book-pair-1.md") })
+        #expect(references.contains { $0.documentPath.hasSuffix("book-pair-2.md") })
+    }
+
+    @Test
+    func memorySearchWidensCandidatePoolForEvidenceDenseQueries() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<130 {
+            try writeFile(
+                docs.appendingPathComponent("timeline-note-\(index).md"),
+                """
+                # Timeline note \(index)
+
+                Date: 2024/04/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                The alpha stage and beta stage project notes record how many days passed between the checkpoints.
+                """
+            )
+        }
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let ordinaryEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "alpha beta project notes",
+            limit: 10,
+            features: [.lexical],
+            events: { event in ordinaryEvents.record(event) }
+        )
+
+        let aggregateEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How many alpha beta project notes are tracked this month?",
+            limit: 10,
+            features: [.lexical],
+            events: { event in aggregateEvents.record(event) }
+        )
+
+        let evidenceDenseEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How many days passed between the alpha stage and beta stage checkpoints?",
+            limit: 10,
+            features: [.lexical],
+            events: { event in evidenceDenseEvents.record(event) }
+        )
+
+        #expect(ordinaryEvents.lastCompletedCount == 60)
+        #expect(aggregateEvents.lastCompletedCount == 90)
+        #expect(evidenceDenseEvents.lastCompletedCount == 120)
+    }
+
+    @Test
+    func evidenceDenseExpansionCanRecoverFocusedSubjectCandidates() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<70 {
+            try writeFile(
+                docs.appendingPathComponent("noise-trip-\(index).md"),
+                """
+                # Noisy trip note \(index)
+
+                Date: 2024/05/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                This note discusses the latest order for a future itinerary and past month planning details.
+                """
+            )
+        }
+
+        try writeFile(
+            docs.appendingPathComponent("distributed-trip-journal.md"),
+            """
+            # Distributed trip journal
+
+            Date: 2024/05/29 (Wed) 09:00
+
+            The spring trip journal covered trail planning and campground ideas.
+
+            The second trip entry compared campsite access and hiking routes.
+
+            The third trip entry summarized backpack, tent, and bear-safety decisions.
+
+            The final trip recap connected the outdoor plans into one travel timeline.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 24, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "What is the order of the trips I took in the past three months?",
+            limit: 80,
+            features: [.lexical, .expansion]
+        )
+
+        #expect(references.contains { $0.documentPath.hasSuffix("distributed-trip-journal.md") })
+    }
+
+    @Test
+    func evidenceDenseCompletedTravelExpansionRecoversCompletedTripNotes() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        for index in 0..<60 {
+            try writeFile(
+                docs.appendingPathComponent("future-trip-plan-\(index).md"),
+                """
+                # Future trip plan \(index)
+
+                Date: 2024/05/\(String(format: "%02d", (index % 28) + 1)) (Mon) 09:00
+
+                This note discusses the latest order for a future trip itinerary and past month planning.
+                """
+            )
+        }
+
+        try writeFile(
+            docs.appendingPathComponent("completed-coastal-trip.md"),
+            """
+            # Completed coastal trip
+
+            Date: 2024/03/12 (Tue) 09:00
+
+            I just got back from a coastal trip today and logged the route, meals, and photo stops.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("completed-mountain-trip.md"),
+            """
+            # Completed mountain trip
+
+            Date: 2024/04/18 (Thu) 09:00
+
+            I just got back from a mountain trip today and wrote down the trails and campground notes.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("completed-city-trip.md"),
+            """
+            # Completed city trip
+
+            Date: 2024/05/20 (Mon) 09:00
+
+            I just got back from a city trip today and saved the museum and restaurant highlights.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 24, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let references = try await index.memorySearch(
+            query: "What is the order of the three trips I took in the past three months?",
+            limit: 80,
+            features: [.lexical, .expansion]
+        )
+
+        let paths = references.map(\.documentPath)
+        #expect(paths.contains { $0.hasSuffix("completed-coastal-trip.md") })
+        #expect(paths.contains { $0.hasSuffix("completed-mountain-trip.md") })
+        #expect(paths.contains { $0.hasSuffix("completed-city-trip.md") })
+    }
+
+    @Test
+    func evidenceDenseServiceExpansionAvoidsInjectedUsageAliases() async throws {
+        let expander = HeuristicStructuredQueryExpander()
+        let expansion = try await expander.expand(
+            query: SearchQuery(text: "How many different delivery services have I used recently?"),
+            analysis: QueryAnalysis(
+                entities: [],
+                keyTerms: ["delivery", "services", "used", "recently"],
+                facetHints: [],
+                topics: ["delivery services"],
+                isHowToQuery: false
+            ),
+            limit: 5
+        )
+
+        let lexical = expansion.lexicalQueries.joined(separator: " ")
+        #expect(lexical.contains("delivery"))
+        #expect(lexical.contains("service"))
+        #expect(lexical.contains("lately") == false)
+        #expect(lexical.contains("relying") == false)
+        #expect(lexical.contains("convenience") == false)
+        #expect(lexical.contains("quickcart") == false)
+    }
+
+    @Test
+    func superlativeMoneyAggregatesPreserveOriginalQuerySurface() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 32, overlapTokenCount: 0)
+            )
+        )
+
+        let superlativeEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "Which grocery store did I spend the most money at in the past month?",
+            limit: 10,
+            events: superlativeEvents.record
+        )
+        #expect(superlativeEvents.lastExpandedQueryCount == 0)
+
+        let aggregateEvents = SearchEventRecorder()
+        _ = try await index.memorySearch(
+            query: "How much total money did I spend on workshops in March?",
+            limit: 10,
+            events: aggregateEvents.record
+        )
+        #expect((aggregateEvents.lastExpandedQueryCount ?? 0) > 0)
+    }
+
+    @Test
+    func expansionDoesNotBuryCurrentStateOrProceduralMatches() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("subscription-current.md"),
+            """
+            # Subscription current state
+
+            My current magazine subscription status is active and renews monthly.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("subscription-history.md"),
+            """
+            # Subscription history
+
+            I canceled an old trial subscription last year and changed the payment method.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("equipment-choice.md"),
+            """
+            # Equipment storage and return choice
+
+            When deciding whether to keep equipment, the instructions say the equipment can be stored only temporarily and may need to be returned or delivered.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("equipment-display.md"),
+            """
+            # Equipment display
+
+            Decorative equipment can be displayed on shelves and cleaned with a soft cloth.
+            """
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: ConstantEmbeddingProvider(),
+                structuredQueryExpander: GenericStructuredQueryExpander(),
+                tokenizer: DefaultTokenizer(),
+                chunker: DefaultChunker(targetTokenCount: 120, overlapTokenCount: 0)
+            )
+        )
+        try await index.rebuildIndex(from: [docs])
+
+        let currentResults = try await index.search(
+            SearchQuery(
+                text: "What is my current magazine subscription status?",
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+        let proceduralResults = try await index.search(
+            SearchQuery(
+                text: "Should I keep or return the equipment?",
+                limit: 3,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5,
+                includeTagScoring: false
+            )
+        )
+
+        #expect(currentResults.first?.documentPath.hasSuffix("subscription-current.md") == true)
+        #expect(proceduralResults.first?.documentPath.hasSuffix("equipment-choice.md") == true)
+    }
+
+    @Test
+    func proceduralEllipsisCanUseDocumentStructureWithoutDomainAliases() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("mail-in-application.md"),
+            """
+            # Mail-in application
+
+            By mail: submit the signed application form with proof of identity and the required fee.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("office-mailroom.md"),
+            """
+            # Office mailroom notes
+
+            The team checks the office mail twice a day and logs incoming packages.
+            """
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: GenericStructuredQueryExpander(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "Can I do it by mail?",
+                limit: 2,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5
+            )
+        )
+
+        #expect(results.first?.documentPath.hasSuffix("mail-in-application.md") == true)
+        #expect((results.first?.score.schema ?? 0) > 0)
+    }
+
+    @Test
+    func temporalAggregateQueriesPreferNumericEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let docs = root.appendingPathComponent("docs")
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        try writeFile(
+            docs.appendingPathComponent("workshop-spend.md"),
+            """
+            # March workshop spending
+
+            On March 1 I paid $42 for the design workshop. On March 8 I spent $35 on the follow-up workshop.
+            """
+        )
+        try writeFile(
+            docs.appendingPathComponent("workshop-notes.md"),
+            """
+            # Workshop notes
+
+            The workshop covered facilitation, planning, and group exercises without discussing costs.
+            """
+        )
+
+        let config = MemoryConfiguration(
+            databaseURL: dbURL,
+            embeddingProvider: ConstantEmbeddingProvider(),
+            structuredQueryExpander: GenericStructuredQueryExpander(),
+            tokenizer: DefaultTokenizer(),
+            chunker: DefaultChunker(targetTokenCount: 100, overlapTokenCount: 0)
+        )
+
+        let index = try MemoryIndex(configuration: config)
+        try await index.rebuildIndex(from: [docs])
+
+        let results = try await index.search(
+            SearchQuery(
+                text: "How much total money did I spend on workshops in March?",
+                limit: 2,
+                semanticCandidateLimit: 0,
+                lexicalCandidateLimit: 30,
+                rerankLimit: 0,
+                expansionLimit: 5
+            )
+        )
+
+        #expect(results.first?.documentPath.hasSuffix("workshop-spend.md") == true)
+        #expect((results.first?.score.temporal ?? 0) > 0)
     }
 
     @Test

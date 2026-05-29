@@ -631,86 +631,327 @@ public actor AppleIntelligenceContentTagger: ContentTagger {
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Structured retrieval expansion output.")
-private struct StructuredQueryExpansionGeneration {
-    @Guide(description: "Lexical BM25-oriented query rewrites.", .maximumCount(2))
+private struct StructuredQueryExpansionGeneration: Generable, Sendable {
     var lexicalQueries: [String]
-
-    @Guide(description: "Semantic dense-retrieval query rewrites.", .maximumCount(2))
     var semanticQueries: [String]
-
-    @Guide(description: "One hypothetical retrieval snippet.", .maximumCount(1))
     var hypotheticalDocuments: [String]
-
-    @Guide(description: "Facet hints for broad routing.", .maximumCount(4))
     var facetHints: [GeneratedFacetHint]
-
-    @Guide(description: "Entity hints for retrieval.", .maximumCount(6))
     var entities: [GeneratedMemoryEntity]
-
-    @Guide(description: "Short normalized topic phrases.", .maximumCount(6))
     var topics: [String]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "Structured retrieval expansion output.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "lexicalQueries",
+                    description: "Lexical BM25-oriented query rewrites.",
+                    type: [String].self,
+                    guides: [.maximumCount(2)]
+                ),
+                GenerationSchema.Property(
+                    name: "semanticQueries",
+                    description: "Semantic dense-retrieval query rewrites.",
+                    type: [String].self,
+                    guides: [.maximumCount(2)]
+                ),
+                GenerationSchema.Property(
+                    name: "hypotheticalDocuments",
+                    description: "One hypothetical retrieval snippet.",
+                    type: [String].self,
+                    guides: [.maximumCount(1)]
+                ),
+                GenerationSchema.Property(
+                    name: "facetHints",
+                    description: "Facet hints for broad routing.",
+                    type: [GeneratedFacetHint].self,
+                    guides: [.maximumCount(4)]
+                ),
+                GenerationSchema.Property(
+                    name: "entities",
+                    description: "Entity hints for retrieval.",
+                    type: [GeneratedMemoryEntity].self,
+                    guides: [.maximumCount(6)]
+                ),
+                GenerationSchema.Property(
+                    name: "topics",
+                    description: "Short normalized topic phrases.",
+                    type: [String].self,
+                    guides: [.maximumCount(6)]
+                ),
+            ]
+        )
+    }
+
+    init(
+        lexicalQueries: [String],
+        semanticQueries: [String],
+        hypotheticalDocuments: [String],
+        facetHints: [GeneratedFacetHint],
+        entities: [GeneratedMemoryEntity],
+        topics: [String]
+    ) {
+        self.lexicalQueries = lexicalQueries
+        self.semanticQueries = semanticQueries
+        self.hypotheticalDocuments = hypotheticalDocuments
+        self.facetHints = facetHints
+        self.entities = entities
+        self.topics = topics
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            lexicalQueries: try content.value([String].self, forProperty: "lexicalQueries"),
+            semanticQueries: try content.value([String].self, forProperty: "semanticQueries"),
+            hypotheticalDocuments: try content.value([String].self, forProperty: "hypotheticalDocuments"),
+            facetHints: try content.value([GeneratedFacetHint].self, forProperty: "facetHints"),
+            entities: try content.value([GeneratedMemoryEntity].self, forProperty: "entities"),
+            topics: try content.value([String].self, forProperty: "topics")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "lexicalQueries": lexicalQueries,
+            "semanticQueries": semanticQueries,
+            "hypotheticalDocuments": hypotheticalDocuments,
+            "facetHints": facetHints,
+            "entities": entities,
+            "topics": topics,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "A retrieval facet hint.")
-private struct GeneratedFacetHint {
-    @Guide(description: "Facet tag raw value.")
+private struct GeneratedFacetHint: Generable, Sendable {
     var tag: String
-
-    @Guide(description: "Confidence between 0 and 1.")
     var confidence: Double?
-
-    @Guide(description: "Whether the facet was explicit in the query.")
     var isExplicit: Bool?
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "A retrieval facet hint.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "tag",
+                    description: "Facet tag raw value.",
+                    type: String.self
+                ),
+                GenerationSchema.Property(
+                    name: "confidence",
+                    description: "Confidence between 0 and 1.",
+                    type: Double?.self
+                ),
+                GenerationSchema.Property(
+                    name: "isExplicit",
+                    description: "Whether the facet was explicit in the query.",
+                    type: Bool?.self
+                ),
+            ]
+        )
+    }
+
+    init(tag: String, confidence: Double?, isExplicit: Bool?) {
+        self.tag = tag
+        self.confidence = confidence
+        self.isExplicit = isExplicit
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            tag: try content.value(String.self, forProperty: "tag"),
+            confidence: try content.value(Double?.self, forProperty: "confidence"),
+            isExplicit: try content.value(Bool?.self, forProperty: "isExplicit")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "tag": tag,
+            "confidence": confidence,
+            "isExplicit": isExplicit,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "A structured entity hint for retrieval.")
-private struct GeneratedMemoryEntity {
-    @Guide(description: "Entity label raw value.")
+private struct GeneratedMemoryEntity: Generable, Sendable {
     var label: String
-
-    @Guide(description: "Original entity value.")
     var value: String
-
-    @Guide(description: "Optional normalized entity value.")
     var normalizedValue: String?
-
-    @Guide(description: "Confidence between 0 and 1.")
     var confidence: Double?
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "A structured entity hint for retrieval.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "label",
+                    description: "Entity label raw value.",
+                    type: String.self
+                ),
+                GenerationSchema.Property(
+                    name: "value",
+                    description: "Original entity value.",
+                    type: String.self
+                ),
+                GenerationSchema.Property(
+                    name: "normalizedValue",
+                    description: "Optional normalized entity value.",
+                    type: String?.self
+                ),
+                GenerationSchema.Property(
+                    name: "confidence",
+                    description: "Confidence between 0 and 1.",
+                    type: Double?.self
+                ),
+            ]
+        )
+    }
+
+    init(label: String, value: String, normalizedValue: String?, confidence: Double?) {
+        self.label = label
+        self.value = value
+        self.normalizedValue = normalizedValue
+        self.confidence = confidence
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            label: try content.value(String.self, forProperty: "label"),
+            value: try content.value(String.self, forProperty: "value"),
+            normalizedValue: try content.value(String?.self, forProperty: "normalizedValue"),
+            confidence: try content.value(Double?.self, forProperty: "confidence")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "label": label,
+            "value": value,
+            "normalizedValue": normalizedValue,
+            "confidence": confidence,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Ranked candidate chunk IDs for retrieval.")
-private struct RerankGeneration {
-    @Guide(
-        description: "Candidate chunk IDs in descending relevance order.",
-        .minimumCount(1),
-        .maximumCount(64)
-    )
+private struct RerankGeneration: Generable, Sendable {
     var rankedChunkIDs: [String]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "Ranked candidate chunk IDs for retrieval.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "rankedChunkIDs",
+                    description: "Candidate chunk IDs in descending relevance order.",
+                    type: [String].self,
+                    guides: [.minimumCount(1), .maximumCount(64)]
+                ),
+            ]
+        )
+    }
+
+    init(rankedChunkIDs: [String]) {
+        self.rankedChunkIDs = rankedChunkIDs
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            rankedChunkIDs: try content.value([String].self, forProperty: "rankedChunkIDs")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "rankedChunkIDs": rankedChunkIDs,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Content tags for retrieval ranked by usefulness.")
-private struct ContentTaggingGenerationWithRelevance {
-    @Guide(
-        description: "Content tags sorted by descending usefulness.",
-        .minimumCount(1),
-        .maximumCount(24)
-    )
+private struct ContentTaggingGenerationWithRelevance: Generable, Sendable {
     var tags: [ContentTaggingTagWithRelevance]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "Content tags for retrieval ranked by usefulness.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "tags",
+                    description: "Content tags sorted by descending usefulness.",
+                    type: [ContentTaggingTagWithRelevance].self,
+                    guides: [.minimumCount(1), .maximumCount(24)]
+                ),
+            ]
+        )
+    }
+
+    init(tags: [ContentTaggingTagWithRelevance]) {
+        self.tags = tags
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            tags: try content.value([ContentTaggingTagWithRelevance].self, forProperty: "tags")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "tags": tags,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "A retrieval tag with optional relevance.")
-private struct ContentTaggingTagWithRelevance {
-    @Guide(description: "Lowercase concise retrieval tag.")
+private struct ContentTaggingTagWithRelevance: Generable, Sendable {
     var name: String
-
-    @Guide(description: "Optional integer relevance from 1 (weak) to 5 (strong).")
     var relevance: Int?
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "A retrieval tag with optional relevance.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "name",
+                    description: "Lowercase concise retrieval tag.",
+                    type: String.self
+                ),
+                GenerationSchema.Property(
+                    name: "relevance",
+                    description: "Optional integer relevance from 1 (weak) to 5 (strong).",
+                    type: Int?.self
+                ),
+            ]
+        )
+    }
+
+    init(name: String, relevance: Int?) {
+        self.name = name
+        self.relevance = relevance
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            name: try content.value(String.self, forProperty: "name"),
+            relevance: try content.value(Int?.self, forProperty: "relevance")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "name": name,
+            "relevance": relevance,
+        ])
+    }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -720,9 +961,39 @@ private struct GeneratedContentTag: Sendable {
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
-@Generable(description: "Content tags for retrieval ranked by usefulness.")
-private struct ContentTaggingGeneration {
+private struct ContentTaggingGeneration: Generable, Sendable {
     var tags: [String]
+
+    static var generationSchema: GenerationSchema {
+        GenerationSchema(
+            type: Self.self,
+            description: "Content tags for retrieval ranked by usefulness.",
+            properties: [
+                GenerationSchema.Property(
+                    name: "tags",
+                    description: "Content tags sorted by descending usefulness.",
+                    type: [String].self,
+                    guides: [.minimumCount(1), .maximumCount(24)]
+                ),
+            ]
+        )
+    }
+
+    init(tags: [String]) {
+        self.tags = tags
+    }
+
+    init(_ content: GeneratedContent) throws {
+        self.init(
+            tags: try content.value([String].self, forProperty: "tags")
+        )
+    }
+
+    var generatedContent: GeneratedContent {
+        GeneratedContent(properties: [
+            "tags": tags,
+        ])
+    }
 }
 
 private struct AppleIntelligenceGenerationTimeoutError: Error, LocalizedError {

@@ -39,7 +39,8 @@ public struct SearchQuery: Sendable {
     public var expansionLimit: Int
     public var originalQueryWeight: Double
     public var expansionQueryWeight: Double
-    public var primaryBranchProtectionLimit: Int?
+    public var additionalLexicalQueries: [String]
+    public var additionalLexicalQueryWeight: Double
     public var referenceDate: Date?
     public var documentPathPrefix: String?
     public var contextID: ContextID?
@@ -54,7 +55,8 @@ public struct SearchQuery: Sendable {
         expansionLimit: Int = 5,
         originalQueryWeight: Double = 2.0,
         expansionQueryWeight: Double = 1.0,
-        primaryBranchProtectionLimit: Int? = nil,
+        additionalLexicalQueries: [String] = [],
+        additionalLexicalQueryWeight: Double = 0.35,
         referenceDate: Date? = nil,
         documentPathPrefix: String? = nil,
         contextID: ContextID? = nil,
@@ -68,13 +70,53 @@ public struct SearchQuery: Sendable {
         self.expansionLimit = max(0, expansionLimit)
         self.originalQueryWeight = max(0.1, originalQueryWeight)
         self.expansionQueryWeight = max(0.1, expansionQueryWeight)
-        self.primaryBranchProtectionLimit = primaryBranchProtectionLimit.map { max(0, $0) }
+        self.additionalLexicalQueries = additionalLexicalQueries
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.additionalLexicalQueryWeight = max(0, additionalLexicalQueryWeight)
         self.referenceDate = referenceDate
         let trimmedDocumentPathPrefix = documentPathPrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.documentPathPrefix = trimmedDocumentPathPrefix?.isEmpty == false ? trimmedDocumentPathPrefix : nil
         self.contextID = contextID
         self.includeTagScoring = includeTagScoring
     }
+}
+
+public enum GroundedQueryExpansionTermMode: String, Sendable, Codable, Hashable {
+    case all
+    case singleToken = "single_token"
+    case phraseEntity = "phrase_entity"
+}
+
+public struct GroundedQueryExpansionConfiguration: Sendable, Codable, Hashable {
+    public var isEnabled: Bool
+    public var maxFeedbackResults: Int
+    public var maxTerms: Int
+    public var termsPerQuery: Int
+    public var maxQueries: Int
+    public var lexicalQueryWeight: Double
+    public var termMode: GroundedQueryExpansionTermMode
+
+    public init(
+        isEnabled: Bool = true,
+        maxFeedbackResults: Int = 8,
+        maxTerms: Int = 8,
+        termsPerQuery: Int = 4,
+        maxQueries: Int = 1,
+        lexicalQueryWeight: Double = 0.20,
+        termMode: GroundedQueryExpansionTermMode = .phraseEntity
+    ) {
+        self.isEnabled = isEnabled
+        self.maxFeedbackResults = max(1, min(maxFeedbackResults, 20))
+        self.maxTerms = max(1, min(maxTerms, 12))
+        self.termsPerQuery = max(1, min(termsPerQuery, 6))
+        self.maxQueries = max(1, min(maxQueries, 3))
+        self.lexicalQueryWeight = max(0, min(lexicalQueryWeight, 1.0))
+        self.termMode = termMode
+    }
+
+    public static let disabled = GroundedQueryExpansionConfiguration(isEnabled: false)
+    public static let conservativeDefault = GroundedQueryExpansionConfiguration()
 }
 
 public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
@@ -85,9 +127,24 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
     public var schema: Double
     public var temporal: Double
     public var status: Double
+    public var type: Double
     public var fused: Double
     public var rerank: Double
     public var blended: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case semantic
+        case lexical
+        case recency
+        case tag
+        case schema
+        case temporal
+        case status
+        case type
+        case fused
+        case rerank
+        case blended
+    }
 
     public init(
         semantic: Double,
@@ -97,6 +154,7 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
         schema: Double = 0,
         temporal: Double = 0,
         status: Double = 0,
+        type: Double = 0,
         fused: Double,
         rerank: Double = 0,
         blended: Double? = nil
@@ -108,9 +166,40 @@ public struct SearchScoreBreakdown: Sendable, Codable, Hashable {
         self.schema = schema
         self.temporal = temporal
         self.status = status
+        self.type = type
         self.fused = fused
         self.rerank = rerank
         self.blended = blended ?? fused
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.semantic = try container.decode(Double.self, forKey: .semantic)
+        self.lexical = try container.decode(Double.self, forKey: .lexical)
+        self.recency = try container.decode(Double.self, forKey: .recency)
+        self.tag = try container.decodeIfPresent(Double.self, forKey: .tag) ?? 0
+        self.schema = try container.decodeIfPresent(Double.self, forKey: .schema) ?? 0
+        self.temporal = try container.decodeIfPresent(Double.self, forKey: .temporal) ?? 0
+        self.status = try container.decodeIfPresent(Double.self, forKey: .status) ?? 0
+        self.type = try container.decodeIfPresent(Double.self, forKey: .type) ?? 0
+        self.fused = try container.decode(Double.self, forKey: .fused)
+        self.rerank = try container.decodeIfPresent(Double.self, forKey: .rerank) ?? 0
+        self.blended = try container.decodeIfPresent(Double.self, forKey: .blended) ?? fused
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(semantic, forKey: .semantic)
+        try container.encode(lexical, forKey: .lexical)
+        try container.encode(recency, forKey: .recency)
+        try container.encode(tag, forKey: .tag)
+        try container.encode(schema, forKey: .schema)
+        try container.encode(temporal, forKey: .temporal)
+        try container.encode(status, forKey: .status)
+        try container.encode(type, forKey: .type)
+        try container.encode(fused, forKey: .fused)
+        try container.encode(rerank, forKey: .rerank)
+        try container.encode(blended, forKey: .blended)
     }
 }
 
@@ -124,6 +213,8 @@ public struct SearchResult: Sendable {
     public var memoryID: String?
     public var memoryKind: MemoryKind?
     public var memoryStatus: MemoryStatus?
+    public var memoryType: String?
+    public var memoryTypeConfidence: Double?
     public var score: SearchScoreBreakdown
 
     public init(
@@ -136,6 +227,8 @@ public struct SearchResult: Sendable {
         memoryID: String? = nil,
         memoryKind: MemoryKind? = nil,
         memoryStatus: MemoryStatus? = nil,
+        memoryType: String? = nil,
+        memoryTypeConfidence: Double? = nil,
         score: SearchScoreBreakdown
     ) {
         self.chunkID = chunkID
@@ -147,6 +240,8 @@ public struct SearchResult: Sendable {
         self.memoryID = memoryID
         self.memoryKind = memoryKind
         self.memoryStatus = memoryStatus
+        self.memoryType = memoryType
+        self.memoryTypeConfidence = memoryTypeConfidence
         self.score = score
     }
 }
@@ -526,6 +621,8 @@ public struct MemorySearchReference: Sendable, Codable, Hashable {
     public let memoryID: String?
     public let memoryKind: MemoryKind?
     public let memoryStatus: MemoryStatus?
+    public let memoryType: String?
+    public let memoryTypeConfidence: Double?
     public let score: SearchScoreBreakdown
 }
 
@@ -603,7 +700,9 @@ public enum SearchEvent: Sendable {
     case semanticCandidates(count: Int)
     case lexicalCandidates(count: Int)
     case fusedCandidates(count: Int)
+    case groundedExpansion(applied: Bool, queryCount: Int, termCount: Int, reason: String?)
     case reranked(count: Int)
+    case memoryTypeIntent(label: String, confidence: Double)
     case providerFailure(stage: SearchStage, provider: String, message: String)
     case stageTiming(stage: SearchStage, durationMs: Double)
     case completed(count: Int)

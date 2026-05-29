@@ -84,6 +84,23 @@ enum ContextPackingOrder: String, Codable, ExpressibleByArgument {
     case score
 }
 
+enum GroundedExpansionApplicationPolicy: String, Codable, ExpressibleByArgument {
+    case always
+    case guarded
+}
+
+enum GroundedExpansionTermMode: String, Codable, ExpressibleByArgument {
+    case all
+    case singleToken = "single-token"
+    case phraseEntity = "phrase-entity"
+}
+
+enum GroundedExpansionTermKind: String, Codable, Hashable {
+    case single
+    case phrase
+    case entity
+}
+
 private enum EvalError: LocalizedError {
     case invalidDataset(String)
 
@@ -538,12 +555,26 @@ private struct RetrievalDiagnosticsReport: Codable {
     var candidatePoolRecall: Double
     var candidateOnlyMissRate: Double
     var candidateGenerationMissRate: Double
+    var diagnosticSurfaceCounts: [String: Int]
+    var queryShapeCounts: [String: Int]
     var avgContextTokens: Double
     var avgPackedDocuments: Double
     var emptyRetrievalRate: Double
     var latencyStats: RecallLatencyStats?
     var stageLatencyStats: RecallStageLatencyStats?
     var candidateCountStats: RecallCandidateCountStats?
+    var queryIntentCounts: [String: Int]
+    var intentMatchedRetrievedRate: Double
+    var avgTypeScoreDelta: Double
+    var maxTypeScoreDelta: Double
+    var groundedMetricsByK: [RecallPerKMetric]?
+    var groundedExpansionPolicy: GroundedExpansionApplicationPolicy?
+    var groundedExpansionTermMode: GroundedExpansionTermMode?
+    var groundedApplicationCounts: [String: Int]?
+    var groundedDiagnosticSurfaceCounts: [String: Int]?
+    var groundedDeltaCounts: [String: Int]?
+    var groundedTermCounts: [String: Int]?
+    var groundedQueryShapeDeltaCounts: [String: Int]?
     var queryResults: [RetrievalDiagnosticQueryResult]
     var notes: [String]
 }
@@ -556,6 +587,8 @@ private struct RetrievalDiagnosticQueryResult: Codable {
     var candidateMatchedRelevantDocumentIds: [String]
     var firstCandidateRelevantRank: Int?
     var candidateRecall: Double
+    var diagnosticSurface: String
+    var queryShape: [String]
     var retrievedDocumentIds: [String]
     var matchedRelevantDocumentIds: [String]
     var firstRelevantRank: Int?
@@ -569,10 +602,31 @@ private struct RetrievalDiagnosticQueryResult: Codable {
     var scoreSortedRecallByK: [Int: Double]
     var scoreSortedMRRByK: [Int: Double]
     var scoreSortedNDCGByK: [Int: Double]
+    var groundedExpansionTerms: [GroundedExpansionTerm]
+    var groundedExpansionQueries: [String]
+    var groundedExpansionApplied: Bool
+    var groundedExpansionSkipReason: String?
+    var groundedRetrievedDocumentIds: [String]
+    var groundedMatchedRelevantDocumentIds: [String]
+    var groundedFirstRelevantRank: Int?
+    var groundedHitByK: [Int: Bool]
+    var groundedRecallByK: [Int: Double]
+    var groundedMRRByK: [Int: Double]
+    var groundedNDCGByK: [Int: Double]
+    var groundedDiagnosticSurface: String?
+    var groundedDeltaLabel: String?
     var contextTokens: Int
     var latencyMs: Double
     var stageTimings: RecallQueryStageTimings?
     var candidateCounts: RecallQueryCandidateCounts?
+    var queryIntent: String?
+    var queryIntentConfidence: Double?
+    var candidateTypeDistribution: [String: Int]
+    var retrievedTypeDistribution: [String: Int]
+    var intentMatchedCandidateCount: Int
+    var intentMatchedRetrievedCount: Int
+    var avgTypeScoreDelta: Double
+    var maxTypeScoreDelta: Double
     var difficulty: String?
     var retrieved: [RetrievalDiagnosticRetrievedDocument]
 }
@@ -582,10 +636,42 @@ private struct RetrievalDiagnosticRetrievedDocument: Codable {
     var documentId: String
     var documentPath: String
     var chunkID: Int64
+    var memoryType: String?
+    var memoryTypeConfidence: Double?
     var contextTokens: Int
     var truncated: Bool
     var score: SearchScoreBreakdown
     var preview: String
+}
+
+struct GroundedExpansionTerm: Codable, Hashable {
+    var text: String
+    var score: Double
+    var documentFrequency: Int
+    var topEvidenceRank: Int
+    var kind: GroundedExpansionTermKind
+
+    init(
+        text: String,
+        score: Double,
+        documentFrequency: Int,
+        topEvidenceRank: Int,
+        kind: GroundedExpansionTermKind = .single
+    ) {
+        self.text = text
+        self.score = score
+        self.documentFrequency = documentFrequency
+        self.topEvidenceRank = topEvidenceRank
+        self.kind = kind
+    }
+}
+
+struct GroundedFeedbackDocument {
+    var rank: Int
+    var title: String?
+    var filenameStem: String
+    var snippet: String
+    var leadingContent: String
 }
 
 private struct PerQueryRecallMetrics {
@@ -593,6 +679,11 @@ private struct PerQueryRecallMetrics {
     var recallByK: [Int: Double]
     var mrrByK: [Int: Double]
     var ndcgByK: [Int: Double]
+}
+
+struct GroundedExpansionDecision {
+    var shouldApply: Bool
+    var reason: String
 }
 
 private struct QueryExpansionCaseResult: Codable {
@@ -1392,6 +1483,7 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var timingsByStage: [SearchStage: Double] = [:]
     private var counts = RecallQueryCandidateCounts()
+    private var typeIntent: (label: String, confidence: Double)?
 
     func record(_ event: SearchEvent) {
         lock.lock()
@@ -1408,6 +1500,8 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
             counts.fusedCandidates = count
         case let .reranked(count):
             counts.rerankedCandidates = count
+        case let .memoryTypeIntent(label, confidence):
+            typeIntent = (label, confidence)
         case let .stageTiming(stage, durationMs):
             timingsByStage[stage, default: 0] += durationMs
         default:
@@ -1438,6 +1532,13 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
         let snapshot = counts
         lock.unlock()
         return snapshot.hasData ? snapshot : nil
+    }
+
+    func memoryTypeIntent() -> (label: String, confidence: Double)? {
+        lock.lock()
+        let snapshot = typeIntent
+        lock.unlock()
+        return snapshot
     }
 }
 
@@ -1523,6 +1624,9 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.json.")
     var output: String?
 
+    @Option(name: .long, help: "Comma-separated recall adjustment groups to disable for ablation runs.")
+    var disableRecallAdjustments: String?
+
     @Flag(
         name: .long,
         inversion: .prefixedNo,
@@ -1541,6 +1645,19 @@ struct RunCommand: AsyncParsableCommand {
     var verbose = false
 
     mutating func run() async throws {
+        let recallAdjustmentDisableKey = "MEMORY_RECALL_DISABLE_ADJUSTMENTS"
+        let originalDisabledAdjustments = ProcessInfo.processInfo.environment[recallAdjustmentDisableKey]
+        if let disableRecallAdjustments {
+            setenv(recallAdjustmentDisableKey, disableRecallAdjustments, 1)
+        }
+        defer {
+            if let originalDisabledAdjustments {
+                setenv(recallAdjustmentDisableKey, originalDisabledAdjustments, 1)
+            } else {
+                unsetenv(recallAdjustmentDisableKey)
+            }
+        }
+
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
         let ks = try parseKValues(kValues)
@@ -1598,6 +1715,9 @@ struct RunCommand: AsyncParsableCommand {
     ) async throws -> URL {
         let storageReport: StorageSuiteReport
         var notes: [String] = []
+        if let disableRecallAdjustments {
+            notes.append("Recall adjustment ablation disabled: \(disableRecallAdjustments).")
+        }
         if dataset.storageCases.isEmpty {
             storageReport = makeEmptyStorageSuiteReport()
             notes.append("No storage cases were provided; storage suite skipped.")
@@ -1805,6 +1925,9 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Output JSON file path. Defaults to <dataset-root>/runs/<timestamp>-<profile>.retrieval-diagnostics.json.")
     var output: String?
 
+    @Option(name: .long, help: "Comma-separated recall adjustment groups to disable for ablation diagnostics.")
+    var disableRecallAdjustments: String?
+
     @Flag(
         name: .long,
         inversion: .prefixedNo,
@@ -1822,7 +1945,29 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     @Flag(name: .long, help: "Print per-query details.")
     var verbose = false
 
+    @Flag(name: .long, help: "Run eval-only grounded pseudo-relevance feedback after baseline retrieval.")
+    var groundedExpansion = false
+
+    @Option(name: .long, help: "Grounded PRF application policy: always or guarded.")
+    var groundedExpansionPolicy: GroundedExpansionApplicationPolicy = .guarded
+
+    @Option(name: .long, help: "Grounded PRF candidate mode: all, single-token, or phrase-entity.")
+    var groundedExpansionTermMode: GroundedExpansionTermMode = .phraseEntity
+
     mutating func run() async throws {
+        let recallAdjustmentDisableKey = "MEMORY_RECALL_DISABLE_ADJUSTMENTS"
+        let originalDisabledAdjustments = ProcessInfo.processInfo.environment[recallAdjustmentDisableKey]
+        if let disableRecallAdjustments {
+            setenv(recallAdjustmentDisableKey, disableRecallAdjustments, 1)
+        }
+        defer {
+            if let originalDisabledAdjustments {
+                setenv(recallAdjustmentDisableKey, originalDisabledAdjustments, 1)
+            } else {
+                unsetenv(recallAdjustmentDisableKey)
+            }
+        }
+
         let datasetRootURL = URL(fileURLWithPath: NSString(string: datasetRoot).expandingTildeInPath).standardizedFileURL
         let dataset = try loadDataset(root: datasetRootURL)
         guard !dataset.recallDocuments.isEmpty, !dataset.recallQueries.isEmpty else {
@@ -1865,6 +2010,9 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
             root: runRoot,
             indexCacheEnabled: indexCache,
             verbose: verbose,
+            groundedExpansion: groundedExpansion,
+            groundedExpansionPolicy: groundedExpansionPolicy,
+            groundedExpansionTermMode: groundedExpansionTermMode,
             responseCache: responseCache
         )
 
@@ -1902,6 +2050,21 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
         print("Candidate Recall@pool: \(percent(report.candidatePoolRecall))")
         print("Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))")
         print("Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))")
+        print("Diagnostic surfaces: \(compactCountSummary(report.diagnosticSurfaceCounts))")
+        print("Query shapes: \(compactCountSummary(report.queryShapeCounts))")
+        if let groundedMetrics = report.groundedMetricsByK,
+           let maxGroundedMetric = groundedMetrics.max(by: { $0.k < $1.k }) {
+            print("Grounded Hit@\(maxGroundedMetric.k): \(percent(maxGroundedMetric.hitRate))")
+            print("Grounded Recall@\(maxGroundedMetric.k): \(percent(maxGroundedMetric.recall))")
+            print("Grounded MRR@\(maxGroundedMetric.k): \(format(maxGroundedMetric.mrr))")
+            print("Grounded nDCG@\(maxGroundedMetric.k): \(format(maxGroundedMetric.ndcg))")
+        }
+        if let groundedDeltaCounts = report.groundedDeltaCounts {
+            print("Grounded deltas: \(compactCountSummary(groundedDeltaCounts))")
+        }
+        if let groundedSurfaces = report.groundedDiagnosticSurfaceCounts {
+            print("Grounded surfaces: \(compactCountSummary(groundedSurfaces))")
+        }
         print("Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))")
         print("Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))")
         print("Context packing order: \(report.contextPackingOrder.rawValue)")
@@ -2562,7 +2725,7 @@ private func recallDiagnosticTaxonomy(
     let temporalNeedles = [
         "how many", "what time", "when", "which day", "date", "day", "week",
         "month", "year", "before", "after", "since", "during", "past", "last",
-        "currently", "now", "typical week"
+        "currently", "now"
     ]
     if normalizedTypes.contains("temporal") || temporalNeedles.contains(where: lower.contains) {
         labels.append("temporal/count")
@@ -4601,6 +4764,18 @@ private func runAgentMemorySuite(
     var reciprocalRanks: [Double] = []
     var latencies: [Double] = []
 
+    let templateDatabaseURL = workspace.root
+        .appendingPathComponent("agent-memory-template", isDirectory: true)
+        .appendingPathComponent("index.sqlite")
+    try FileManager.default.createDirectory(
+        at: templateDatabaseURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    var templateConfiguration = try buildConfiguration(profile: profile, suite: .storage, databaseURL: templateDatabaseURL)
+    if let responseCache {
+        installProviderResponseCachingIfNeeded(configuration: &templateConfiguration, responseCache: responseCache)
+    }
+
     for scenario in scenarios {
         let started = Date()
         let caseDatabaseURL = workspace.root
@@ -4612,10 +4787,8 @@ private func runAgentMemorySuite(
             withIntermediateDirectories: true
         )
 
-        var config = try buildConfiguration(profile: profile, suite: .storage, databaseURL: caseDatabaseURL)
-        if let responseCache {
-            installProviderResponseCachingIfNeeded(configuration: &config, responseCache: responseCache)
-        }
+        var config = templateConfiguration
+        config.databaseURL = caseDatabaseURL
         let index = try MemoryIndex(configuration: config)
 
         var setupRecords: [MemoryRecord] = []
@@ -4627,6 +4800,11 @@ private func runAgentMemorySuite(
         let extracted = try await index.extract(from: messages, limit: 20)
         let ingestResult = try await index.ingest(extracted)
         let allRecords = try await fetchAllMemoryRecords(index: index)
+        var scoringRecordsByID = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.id, $0) })
+        for record in ingestResult.records {
+            scoringRecordsByID[record.id] = record
+        }
+        let scoringRecords = Array(scoringRecordsByID.values)
 
         let expectedMemories = scenario.expectedMemories ?? []
         let expectedWriteCount = scenario.expectedWriteCount ?? expectedMemories.count
@@ -4637,7 +4815,7 @@ private func runAgentMemorySuite(
 
         let matchedExpectedWrites = countMatchedExpectedMemories(
             expectedMemories,
-            records: allRecords,
+            records: scoringRecords,
             context: "agent-memory scenario \(scenario.id)"
         )
         totalMatchedExpectedWrites += min(expectedWriteCount, matchedExpectedWrites)
@@ -4651,7 +4829,7 @@ private func runAgentMemorySuite(
 
         let activeStateCorrect = try activeStateMatchesExpected(
             expectedMemories,
-            records: allRecords,
+            records: scoringRecords,
             context: "agent-memory scenario \(scenario.id)"
         )
         if let activeStateCorrect {
@@ -5235,6 +5413,9 @@ private func runRetrievalDiagnostics(
     root: URL,
     indexCacheEnabled: Bool,
     verbose: Bool,
+    groundedExpansion: Bool,
+    groundedExpansionPolicy: GroundedExpansionApplicationPolicy,
+    groundedExpansionTermMode: GroundedExpansionTermMode,
     responseCache: EvalResponseCache?
 ) async throws -> RetrievalDiagnosticsReport {
     let indexSeed = recallIndexCacheSeed(profile: profile, documents: documents)
@@ -5293,6 +5474,11 @@ private func runRetrievalDiagnostics(
     }
     if contextPackingOrder == .score {
         notes.append("Packed documents are ordered by blended score before context budgeting.")
+    }
+    if groundedExpansion {
+        notes.append("Grounded pseudo-relevance feedback is eval-only: expansion terms are mined from baseline top results and rerun as weak lexical branches.")
+        notes.append("Guarded grounded PRF requires weak lexical coverage, a semantic feedback cluster, feedback evidence, and no strong rank-one result.")
+        notes.append("Grounded PRF policy: \(groundedExpansionPolicy.rawValue); term mode: \(groundedExpansionTermMode.rawValue).")
     }
     if let rerankerNote = try await ensureFunctionalRerankerIfNeeded(
         profile: profile,
@@ -5355,9 +5541,13 @@ private func runRetrievalDiagnostics(
     var queryResults: [RetrievalDiagnosticQueryResult] = []
     var perKAccumulator: [Int: (hit: Double, recall: Double, mrr: Double, ndcg: Double)] = [:]
     var scoreSortedPerKAccumulator: [Int: (hit: Double, recall: Double, mrr: Double, ndcg: Double)] = [:]
+    var groundedPerKAccumulator: [Int: (hit: Double, recall: Double, mrr: Double, ndcg: Double)] = [:]
     for k in kValues {
         perKAccumulator[k] = (0, 0, 0, 0)
         scoreSortedPerKAccumulator[k] = (0, 0, 0, 0)
+        if groundedExpansion {
+            groundedPerKAccumulator[k] = (0, 0, 0, 0)
+        }
     }
 
     var progress = DeterminateProgress(label: "retrieval-diagnostics", total: queries.count)
@@ -5400,6 +5590,18 @@ private func runRetrievalDiagnostics(
         )
         let retrievedDocumentIDs = packed.documents.map(\.documentId)
         let scoreSortedDocumentIDs = scoreSortedRetrievalDiagnosticDocuments(packed.documents).map(\.documentId)
+        let typeIntent = searchStageCollector.memoryTypeIntent()
+        let candidateTypeDistribution = retrievalDiagnosticTypeDistribution(references)
+        let retrievedTypeDistribution = retrievalDiagnosticTypeDistribution(packed.documents)
+        let intentMatchedCandidateCount = typeIntent.map { intent in
+            references.filter { retrievalDiagnosticTypeMatchesIntent($0.memoryType, intent: intent.label) }.count
+        } ?? 0
+        let intentMatchedRetrievedCount = typeIntent.map { intent in
+            packed.documents.filter { retrievalDiagnosticTypeMatchesIntent($0.memoryType, intent: intent.label) }.count
+        } ?? 0
+        let typeScoreDeltas = packed.documents.map(\.score.type)
+        let avgTypeScoreDelta = typeScoreDeltas.isEmpty ? 0 : typeScoreDeltas.reduce(0, +) / Double(typeScoreDeltas.count)
+        let maxTypeScoreDelta = typeScoreDeltas.max() ?? 0
 
         let rankedMetrics = computePerQueryRecallMetrics(
             rankedDocumentIDs: retrievedDocumentIDs,
@@ -5434,6 +5636,125 @@ private func runRetrievalDiagnostics(
         let matchedRelevant = Array(Set(retrievedDocumentIDs).intersection(relevant)).sorted()
         let firstRank = firstRelevantRank(in: retrievedDocumentIDs, relevant: relevant, maxK: maxK)
         let scoreSortedFirstRank = firstRelevantRank(in: scoreSortedDocumentIDs, relevant: relevant, maxK: maxK)
+        let hitAtMax = rankedMetrics.hitByK[maxK] == true
+        let recallAtMax = rankedMetrics.recallByK[maxK] ?? 0
+        let diagnosticSurface = retrievalDiagnosticSurface(
+            retrievedDocumentIds: retrievedDocumentIDs,
+            hitAtMaxK: hitAtMax,
+            recallAtMaxK: recallAtMax,
+            relevantCount: relevant.count,
+            candidateRecall: candidateRecall,
+            firstCandidateRelevantRank: firstCandidateRank,
+            firstRelevantRank: firstRank
+        )
+
+        var groundedTerms: [GroundedExpansionTerm] = []
+        var groundedQueries: [String] = []
+        var groundedApplied = false
+        var groundedSkipReason: String?
+        var groundedRetrievedDocumentIDs: [String] = []
+        var groundedMatchedRelevant: [String] = []
+        var groundedFirstRank: Int?
+        var groundedMetrics = PerQueryRecallMetrics(hitByK: [:], recallByK: [:], mrrByK: [:], ndcgByK: [:])
+        var groundedSurface: String?
+        var groundedLabel: String?
+
+        if groundedExpansion {
+            let groundedFeedbackDocuments = try await makeGroundedFeedbackDocuments(
+                references: Array(references.prefix(20)),
+                index: index
+            )
+            groundedTerms = groundedExpansionTerms(
+                query: queryCase.query,
+                documents: groundedFeedbackDocuments,
+                termMode: groundedExpansionTermMode
+            )
+            groundedQueries = groundedExpansionQueries(from: groundedTerms)
+
+            let groundedDecision = groundedExpansionDecision(
+                baselineScores: references.map(\.score),
+                terms: groundedTerms,
+                policy: groundedExpansionPolicy
+            )
+            groundedApplied = groundedDecision.shouldApply
+            groundedSkipReason = groundedApplied ? nil : groundedDecision.reason
+
+            if groundedQueries.isEmpty || !groundedApplied {
+                groundedRetrievedDocumentIDs = retrievedDocumentIDs
+                groundedMatchedRelevant = matchedRelevant
+                groundedFirstRank = firstRank
+                groundedMetrics = rankedMetrics
+                groundedSurface = diagnosticSurface
+                groundedLabel = "unchanged"
+            } else {
+                let groundedReferences = try await index.memorySearch(
+                    query: queryCase.query,
+                    limit: effectiveCandidatePoolDepth,
+                    features: recallFeatures(for: config),
+                    dedupeDocuments: true,
+                    includeLineRanges: true,
+                    additionalLexicalQueries: groundedQueries,
+                    additionalLexicalQueryWeight: 0.35
+                )
+                let groundedPacked = try await packRetrievalDiagnosticContext(
+                    references: groundedReferences,
+                    index: index,
+                    queryText: queryCase.query,
+                    documentIDByPath: documentIDByPath,
+                    tokenBudget: contextTokenBudget,
+                    perDocumentTokenBudget: perDocumentTokenBudget,
+                    contextPackingOrder: contextPackingOrder
+                )
+                groundedRetrievedDocumentIDs = groundedPacked.documents.map(\.documentId)
+                groundedMetrics = computePerQueryRecallMetrics(
+                    rankedDocumentIDs: groundedRetrievedDocumentIDs,
+                    relevant: relevant,
+                    kValues: kValues
+                )
+
+                let groundedCandidateDocumentIDs = groundedReferences.compactMap { documentIDByPath[$0.documentPath] }
+                let groundedCandidateMatchedRelevant = Array(Set(groundedCandidateDocumentIDs).intersection(relevant)).sorted()
+                let groundedCandidateRecall = Double(groundedCandidateMatchedRelevant.count) / Double(relevant.count)
+                let groundedFirstCandidateRank = firstRelevantRank(
+                    in: groundedCandidateDocumentIDs,
+                    relevant: relevant,
+                    maxK: effectiveCandidatePoolDepth
+                )
+                groundedMatchedRelevant = Array(Set(groundedRetrievedDocumentIDs).intersection(relevant)).sorted()
+                groundedFirstRank = firstRelevantRank(in: groundedRetrievedDocumentIDs, relevant: relevant, maxK: maxK)
+                let groundedHitAtMax = groundedMetrics.hitByK[maxK] == true
+                let groundedRecallAtMax = groundedMetrics.recallByK[maxK] ?? 0
+                groundedSurface = retrievalDiagnosticSurface(
+                    retrievedDocumentIds: groundedRetrievedDocumentIDs,
+                    hitAtMaxK: groundedHitAtMax,
+                    recallAtMaxK: groundedRecallAtMax,
+                    relevantCount: relevant.count,
+                    candidateRecall: groundedCandidateRecall,
+                    firstCandidateRelevantRank: groundedFirstCandidateRank,
+                    firstRelevantRank: groundedFirstRank
+                )
+                groundedLabel = groundedDeltaLabel(
+                    baselineMetrics: rankedMetrics,
+                    groundedMetrics: groundedMetrics,
+                    baselineFirstRank: firstRank,
+                    groundedFirstRank: groundedFirstRank,
+                    maxK: maxK
+                )
+            }
+
+            for k in kValues {
+                groundedPerKAccumulator[k, default: (0, 0, 0, 0)].hit += groundedMetrics.hitByK[k] == true ? 1 : 0
+                groundedPerKAccumulator[k, default: (0, 0, 0, 0)].recall += groundedMetrics.recallByK[k] ?? 0
+                groundedPerKAccumulator[k, default: (0, 0, 0, 0)].mrr += groundedMetrics.mrrByK[k] ?? 0
+                groundedPerKAccumulator[k, default: (0, 0, 0, 0)].ndcg += groundedMetrics.ndcgByK[k] ?? 0
+            }
+        }
+
+        let queryShape = genericRetrievalQueryShape(
+            query: queryCase.query,
+            relevantCount: relevant.count,
+            memoryTypes: queryCase.memoryTypes ?? []
+        )
         queryResults.append(
             RetrievalDiagnosticQueryResult(
                 id: queryCase.id,
@@ -5443,6 +5764,8 @@ private func runRetrievalDiagnostics(
                 candidateMatchedRelevantDocumentIds: candidateMatchedRelevant,
                 firstCandidateRelevantRank: firstCandidateRank,
                 candidateRecall: candidateRecall,
+                diagnosticSurface: diagnosticSurface,
+                queryShape: queryShape,
                 retrievedDocumentIds: Array(retrievedDocumentIDs.prefix(maxK)),
                 matchedRelevantDocumentIds: matchedRelevant,
                 firstRelevantRank: firstRank,
@@ -5456,18 +5779,39 @@ private func runRetrievalDiagnostics(
                 scoreSortedRecallByK: scoreSortedMetrics.recallByK,
                 scoreSortedMRRByK: scoreSortedMetrics.mrrByK,
                 scoreSortedNDCGByK: scoreSortedMetrics.ndcgByK,
+                groundedExpansionTerms: groundedTerms,
+                groundedExpansionQueries: groundedQueries,
+                groundedExpansionApplied: groundedApplied,
+                groundedExpansionSkipReason: groundedSkipReason,
+                groundedRetrievedDocumentIds: Array(groundedRetrievedDocumentIDs.prefix(maxK)),
+                groundedMatchedRelevantDocumentIds: groundedMatchedRelevant,
+                groundedFirstRelevantRank: groundedFirstRank,
+                groundedHitByK: groundedMetrics.hitByK,
+                groundedRecallByK: groundedMetrics.recallByK,
+                groundedMRRByK: groundedMetrics.mrrByK,
+                groundedNDCGByK: groundedMetrics.ndcgByK,
+                groundedDiagnosticSurface: groundedSurface,
+                groundedDeltaLabel: groundedLabel,
                 contextTokens: packed.contextTokens,
                 latencyMs: queryLatencyMs,
                 stageTimings: searchStageCollector.queryTimings(),
                 candidateCounts: searchStageCollector.queryCounts(),
+                queryIntent: typeIntent?.label,
+                queryIntentConfidence: typeIntent?.confidence,
+                candidateTypeDistribution: candidateTypeDistribution,
+                retrievedTypeDistribution: retrievedTypeDistribution,
+                intentMatchedCandidateCount: intentMatchedCandidateCount,
+                intentMatchedRetrievedCount: intentMatchedRetrievedCount,
+                avgTypeScoreDelta: avgTypeScoreDelta,
+                maxTypeScoreDelta: maxTypeScoreDelta,
                 difficulty: queryCase.difficulty,
                 retrieved: packed.documents
             )
         )
 
         if verbose {
-            let hitAtMax = rankedMetrics.hitByK[maxK] == true ? "hit" : "miss"
-            print("[retrieval-diagnostics] \(queryCase.id): \(hitAtMax) @\(maxK), contextTokens=\(packed.contextTokens)")
+            let hitLabel = hitAtMax ? "hit" : "miss"
+            print("[retrieval-diagnostics] \(queryCase.id): \(hitLabel) @\(maxK), surface=\(diagnosticSurface), contextTokens=\(packed.contextTokens)")
         }
         progress.advance(detail: verbose ? queryCase.id : nil)
     }
@@ -5507,6 +5851,23 @@ private func runRetrievalDiagnostics(
             ndcg: sums.ndcg / Double(totalQueries)
         )
     }
+    let groundedMetricsByK: [RecallPerKMetric]? = groundedExpansion ? kValues.map { k in
+        let sums = groundedPerKAccumulator[k, default: (0, 0, 0, 0)]
+        return RecallPerKMetric(
+            k: k,
+            hitRate: totalQueries == 0 ? 0 : sums.hit / Double(totalQueries),
+            recall: totalQueries == 0 ? 0 : sums.recall / Double(totalQueries),
+            mrr: totalQueries == 0 ? 0 : sums.mrr / Double(totalQueries),
+            ndcg: totalQueries == 0 ? 0 : sums.ndcg / Double(totalQueries)
+        )
+    } : nil
+    let groundedApplicationCounts = groundedExpansion
+        ? countStrings(queryResults.map { result in
+            result.groundedExpansionApplied
+                ? "applied"
+                : "skipped:\(result.groundedExpansionSkipReason ?? "unknown")"
+        })
+        : nil
     let totalContextTokens = queryResults.map(\.contextTokens).reduce(0, +)
     let totalPackedDocuments = queryResults.map(\.retrieved.count).reduce(0, +)
     let emptyRetrievalCount = queryResults.filter { $0.retrievedDocumentIds.isEmpty }.count
@@ -5518,9 +5879,33 @@ private func runRetrievalDiagnostics(
     let candidateGenerationMissCount = queryResults.filter {
         $0.candidateMatchedRelevantDocumentIds.isEmpty
     }.count
+    let diagnosticSurfaceCounts = countStrings(queryResults.map(\.diagnosticSurface))
+    let queryShapeCounts = countStrings(queryResults.flatMap(\.queryShape))
+    let queryIntentCounts = countStrings(queryResults.compactMap(\.queryIntent))
+    let intentMatchedRetrievedCount = queryResults.filter { $0.intentMatchedRetrievedCount > 0 }.count
+    let avgTypeScoreDelta = queryResults.isEmpty
+        ? 0
+        : queryResults.map(\.avgTypeScoreDelta).reduce(0, +) / Double(queryResults.count)
+    let maxTypeScoreDelta = queryResults.map(\.maxTypeScoreDelta).max() ?? 0
+    let groundedDiagnosticSurfaceCounts = groundedExpansion
+        ? countStrings(queryResults.compactMap(\.groundedDiagnosticSurface))
+        : nil
+    let groundedDeltaCounts = groundedExpansion
+        ? countStrings(queryResults.compactMap(\.groundedDeltaLabel))
+        : nil
+    let groundedTermCounts = groundedExpansion
+        ? countStrings(queryResults.flatMap { $0.groundedExpansionTerms.map(\.text) })
+        : nil
+    let groundedQueryShapeDeltaCounts = groundedExpansion
+        ? countStrings(queryResults.flatMap { result in
+            result.queryShape.map { shape in
+                "\(shape):\(result.groundedDeltaLabel ?? "unchanged")"
+            }
+        })
+        : nil
 
     return RetrievalDiagnosticsReport(
-        schemaVersion: 2,
+        schemaVersion: 5,
         createdAt: Date(),
         profile: profile,
         datasetRoot: datasetRoot.path,
@@ -5537,15 +5922,158 @@ private func runRetrievalDiagnostics(
         candidatePoolRecall: totalQueries == 0 ? 0 : totalCandidateRecall / Double(totalQueries),
         candidateOnlyMissRate: totalQueries == 0 ? 0 : Double(candidateOnlyMissCount) / Double(totalQueries),
         candidateGenerationMissRate: totalQueries == 0 ? 0 : Double(candidateGenerationMissCount) / Double(totalQueries),
+        diagnosticSurfaceCounts: diagnosticSurfaceCounts,
+        queryShapeCounts: queryShapeCounts,
         avgContextTokens: totalQueries == 0 ? 0 : Double(totalContextTokens) / Double(totalQueries),
         avgPackedDocuments: totalQueries == 0 ? 0 : Double(totalPackedDocuments) / Double(totalQueries),
         emptyRetrievalRate: totalQueries == 0 ? 0 : Double(emptyRetrievalCount) / Double(totalQueries),
         latencyStats: computeLatencyStats(retrievalDiagnosticResults: queryResults),
         stageLatencyStats: computeRecallStageLatencyStats(retrievalDiagnosticResults: queryResults),
         candidateCountStats: computeRecallCandidateCountStats(retrievalDiagnosticResults: queryResults),
+        queryIntentCounts: queryIntentCounts,
+        intentMatchedRetrievedRate: totalQueries == 0 ? 0 : Double(intentMatchedRetrievedCount) / Double(totalQueries),
+        avgTypeScoreDelta: avgTypeScoreDelta,
+        maxTypeScoreDelta: maxTypeScoreDelta,
+        groundedMetricsByK: groundedMetricsByK,
+        groundedExpansionPolicy: groundedExpansion ? groundedExpansionPolicy : nil,
+        groundedExpansionTermMode: groundedExpansion ? groundedExpansionTermMode : nil,
+        groundedApplicationCounts: groundedApplicationCounts,
+        groundedDiagnosticSurfaceCounts: groundedDiagnosticSurfaceCounts,
+        groundedDeltaCounts: groundedDeltaCounts,
+        groundedTermCounts: groundedTermCounts,
+        groundedQueryShapeDeltaCounts: groundedQueryShapeDeltaCounts,
         queryResults: queryResults.sorted { $0.id < $1.id },
         notes: notes
     )
+}
+
+private func retrievalDiagnosticSurface(
+    retrievedDocumentIds: [String],
+    hitAtMaxK: Bool,
+    recallAtMaxK: Double,
+    relevantCount: Int,
+    candidateRecall: Double,
+    firstCandidateRelevantRank: Int?,
+    firstRelevantRank: Int?
+) -> String {
+    if retrievedDocumentIds.isEmpty {
+        return "empty_retrieval"
+    }
+    if !hitAtMaxK, candidateRecall <= 0, firstCandidateRelevantRank == nil {
+        return "candidate_generation_miss"
+    }
+    if !hitAtMaxK, candidateRecall > 0 || firstCandidateRelevantRank != nil {
+        return "ranking_or_packing_miss"
+    }
+    if hitAtMaxK, relevantCount > 1, recallAtMaxK < 1 {
+        return "partial_multi_evidence"
+    }
+    if hitAtMaxK, let firstRelevantRank, firstRelevantRank > 1 {
+        return "rank_headroom"
+    }
+    return "covered"
+}
+
+private func groundedDeltaLabel(
+    baselineMetrics: PerQueryRecallMetrics,
+    groundedMetrics: PerQueryRecallMetrics,
+    baselineFirstRank: Int?,
+    groundedFirstRank: Int?,
+    maxK: Int
+) -> String {
+    let baselineHit = baselineMetrics.hitByK[maxK] == true
+    let groundedHit = groundedMetrics.hitByK[maxK] == true
+
+    if !baselineHit, groundedHit {
+        return "fixed"
+    }
+    if baselineHit, !groundedHit {
+        return "regressed"
+    }
+    guard baselineHit, groundedHit else {
+        return "unchanged"
+    }
+
+    if let baselineFirstRank, let groundedFirstRank {
+        if groundedFirstRank < baselineFirstRank {
+            return "rank_improved"
+        }
+        if groundedFirstRank > baselineFirstRank {
+            return "rank_worsened"
+        }
+    }
+
+    let baselineMRR = baselineMetrics.mrrByK[maxK] ?? 0
+    let groundedMRR = groundedMetrics.mrrByK[maxK] ?? 0
+    if groundedMRR > baselineMRR + 0.0001 {
+        return "rank_improved"
+    }
+    if groundedMRR + 0.0001 < baselineMRR {
+        return "rank_worsened"
+    }
+    return "unchanged"
+}
+
+private func genericRetrievalQueryShape(
+    query: String,
+    relevantCount: Int,
+    memoryTypes: [String]
+) -> [String] {
+    let lower = query.lowercased()
+    var labels: [String] = []
+
+    if lower.contains("how many") || lower.contains("number of") || lower.contains("count") {
+        labels.append("count")
+    }
+    if lower.contains("how much") || lower.contains("total") || lower.contains("combined")
+        || ["spent", "spend", "paid", "cost", "price", "money"].contains(where: lower.contains) {
+        labels.append("sum")
+    }
+    if lower.contains("how long") || lower.contains("days ago") || lower.contains("days passed")
+        || lower.contains("since ") {
+        labels.append("duration")
+    }
+    if lower.contains("order of") || lower.contains("earliest") || lower.contains("latest")
+        || lower.contains("first to last") {
+        labels.append("ordering")
+    }
+    if ["when", "before", "after", "between", "recently", "current", "yesterday", "today", "tomorrow"].contains(where: lower.contains)
+        || lower.range(of: #"\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\b"#, options: .regularExpression) != nil {
+        labels.append("temporal")
+    }
+    if ["recommend", "suggestion", "suggestions", "tips", "what to watch", "what to read"].contains(where: lower.contains) {
+        labels.append("recommendation")
+    }
+    if lower.hasPrefix("how ") || lower.hasPrefix("can i ") || lower.hasPrefix("what do ") || lower.hasPrefix("where do ") {
+        if ["apply", "submit", "form", "proof", "document", "fee", "mail", "online", "register", "change", "copy"].contains(where: lower.contains) {
+            labels.append("procedural")
+        }
+    }
+    if relevantCount > 1 || lower.contains(" all ") || lower.contains("different") || lower.contains(" and ") {
+        labels.append("multi_evidence")
+    }
+    if [" it ", " that ", " this ", " they ", " them ", " those "].contains(where: lower.contains) {
+        labels.append("contextual_ellipsis")
+    }
+
+    for memoryType in memoryTypes {
+        let normalized = memoryType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { continue }
+        labels.append("type:\(normalized)")
+    }
+
+    let deduped = labels.reduce(into: [String]()) { partialResult, label in
+        if !partialResult.contains(label) {
+            partialResult.append(label)
+        }
+    }
+    return deduped.isEmpty ? ["lexical_semantic"] : deduped
+}
+
+private func countStrings<S: Sequence>(_ values: S) -> [String: Int] where S.Element == String {
+    values.reduce(into: [:]) { counts, value in
+        counts[value, default: 0] += 1
+    }
 }
 
 private func computeLatencyStats(retrievalDiagnosticResults: [RetrievalDiagnosticQueryResult]) -> RecallLatencyStats? {
@@ -5575,6 +6103,54 @@ private func computeRecallCandidateCountStats(retrievalDiagnosticResults: [Retri
         rerankedCandidates: computeCountStats(samples: retrievalDiagnosticResults.compactMap(\.candidateCounts?.rerankedCandidates))
     )
     return report.hasData ? report : nil
+}
+
+private func retrievalDiagnosticTypeDistribution(_ references: [MemorySearchReference]) -> [String: Int] {
+    countStrings(references.map { retrievalDiagnosticMemoryTypeLabel($0.memoryType) })
+}
+
+private func retrievalDiagnosticTypeDistribution(_ documents: [RetrievalDiagnosticRetrievedDocument]) -> [String: Int] {
+    countStrings(documents.map { retrievalDiagnosticMemoryTypeLabel($0.memoryType) })
+}
+
+private func retrievalDiagnosticTypeMatchesIntent(_ rawType: String?, intent: String) -> Bool {
+    let type = retrievalDiagnosticMemoryTypeLabel(rawType)
+    switch intent {
+    case "procedural":
+        return type == "procedural" || type == "factual"
+    case "episodic":
+        return type == "episodic" || type == "contextual" || type == "factual"
+    case "semantic":
+        return type == "semantic" || type == "factual"
+    case "contextual":
+        return type == "contextual" || type == "factual" || type == "semantic"
+    case "factual":
+        return type == "factual" || type == "semantic" || type == "contextual"
+    default:
+        return type == intent
+    }
+}
+
+private func retrievalDiagnosticMemoryTypeLabel(_ rawType: String?) -> String {
+    guard let rawType else { return "unknown" }
+    let normalized = rawType
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "-", with: "_")
+    switch normalized {
+    case "fact", "factual":
+        return "factual"
+    case "procedure", "procedural":
+        return "procedural"
+    case "episode", "episodic", "temporal":
+        return "episodic"
+    case "semantic":
+        return "semantic"
+    case "context", "contextual":
+        return "contextual"
+    default:
+        return normalized.isEmpty ? "unknown" : normalized
+    }
 }
 
 private func packRetrievalDiagnosticContext(
@@ -5620,6 +6196,8 @@ private func packRetrievalDiagnosticContext(
                 documentId: documentID,
                 documentPath: reference.documentPath,
                 chunkID: reference.chunkID,
+                memoryType: reference.memoryType,
+                memoryTypeConfidence: reference.memoryTypeConfidence,
                 contextTokens: availableTokens,
                 truncated: truncated,
                 score: reference.score,
@@ -5663,6 +6241,409 @@ private func scoreSortedRetrievalDiagnosticDocuments(
         )
     }
 }
+
+private func makeGroundedFeedbackDocuments(
+    references: [MemorySearchReference],
+    index: MemoryIndex
+) async throws -> [GroundedFeedbackDocument] {
+    var documents: [GroundedFeedbackDocument] = []
+    documents.reserveCapacity(min(20, references.count))
+
+    for (offset, reference) in references.prefix(20).enumerated() {
+        let fullContent: String
+        do {
+            fullContent = try await index.memoryGet(path: reference.documentPath).content
+        } catch {
+            fullContent = try await retrievalDiagnosticContextText(reference: reference, index: index)
+        }
+        let rawFilenameStem = URL(fileURLWithPath: reference.documentPath)
+            .deletingPathExtension()
+            .lastPathComponent
+        let filenameStem = groundedExpansionFilenameStem(rawFilenameStem)
+        let leadingContent = groundedExpansionFeedbackContent(from: fullContent)
+        documents.append(
+            GroundedFeedbackDocument(
+                rank: offset + 1,
+                title: groundedExpansionTitle(reference.title),
+                filenameStem: filenameStem,
+                snippet: groundedExpansionFeedbackContent(from: reference.snippet),
+                leadingContent: String(leadingContent.prefix(700))
+            )
+        )
+    }
+
+    return documents
+}
+
+private func groundedExpansionFilenameStem(_ stem: String) -> String {
+    let lowered = stem.lowercased()
+    if lowered.range(of: #"^(?:answer|session|doc)[-_].*\d"#, options: .regularExpression) != nil {
+        return ""
+    }
+    return stem
+}
+
+private func groundedExpansionTitle(_ title: String?) -> String? {
+    guard let title else { return nil }
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.range(of: #"^#*\s*session\s+(?:answer|doc|session)[-_]"#, options: [.regularExpression, .caseInsensitive]) != nil {
+        return nil
+    }
+    return trimmed
+}
+
+private func groundedExpansionFeedbackContent(from content: String) -> String {
+    content.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.range(of: #"^#*\s*session\s+(?:answer|doc|session)[-_]"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return false
+            }
+            if trimmed.range(of: #"^date\s*:"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return false
+            }
+            if trimmed.range(of: #"^##\s*turn\s+\d+\s*\((?:user|assistant)\)"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                return false
+            }
+            return true
+        }
+        .joined(separator: "\n")
+}
+
+func groundedExpansionTerms(
+    query: String,
+    documents: [GroundedFeedbackDocument],
+    maxTerms: Int = 8,
+    termMode: GroundedExpansionTermMode = .all
+) -> [GroundedExpansionTerm] {
+    guard maxTerms > 0, !documents.isEmpty else { return [] }
+    guard !isShortAmbiguousGroundedExpansionQuery(query) else { return [] }
+
+    let originalTerms = Set(normalizedGroundedExpansionTokens(query).map(groundedExpansionComparisonKey(for:)))
+    let documentCount = documents.count
+    var scores: [String: Double] = [:]
+    var documentFrequency: [String: Set<Int>] = [:]
+    var topEvidenceRank: [String: Int] = [:]
+    var kindByTerm: [String: GroundedExpansionTermKind] = [:]
+    var appearsInTopTitleOrFilename: Set<String> = []
+
+    for document in documents {
+        let rankWeight = 1.0 / log2(Double(document.rank) + 2.0)
+        let sectionCandidates: [(text: String, weight: Double, topTitleOrFilename: Bool)] = [
+            (document.title ?? "", 1.5, document.rank == 1),
+            (document.filenameStem, 1.2, document.rank == 1),
+            (document.snippet, 1.0, false),
+            (String(document.leadingContent.prefix(700)), 0.6, false),
+        ]
+
+        for section in sectionCandidates {
+            let candidates = groundedExpansionCandidates(
+                section.text,
+                originalTerms: originalTerms,
+                termMode: termMode
+            )
+            guard !candidates.isEmpty else { continue }
+            for (candidate, kind) in candidates {
+                scores[candidate, default: 0] += section.weight * rankWeight
+                documentFrequency[candidate, default: []].insert(document.rank)
+                topEvidenceRank[candidate] = min(topEvidenceRank[candidate] ?? document.rank, document.rank)
+                kindByTerm[candidate] = mergedGroundedExpansionTermKind(
+                    kindByTerm[candidate],
+                    kind
+                )
+                if section.topTitleOrFilename {
+                    appearsInTopTitleOrFilename.insert(candidate)
+                }
+            }
+        }
+    }
+
+    let maxDocumentFrequency = Double(documentCount) * 0.45
+    return scores.compactMap { term, score -> GroundedExpansionTerm? in
+        let frequency = documentFrequency[term]?.count ?? 0
+        if Double(frequency) > maxDocumentFrequency,
+           !appearsInTopTitleOrFilename.contains(term) {
+            return nil
+        }
+        return GroundedExpansionTerm(
+            text: term,
+            score: score,
+            documentFrequency: frequency,
+            topEvidenceRank: topEvidenceRank[term] ?? Int.max,
+            kind: kindByTerm[term] ?? .single
+        )
+    }
+    .sorted { lhs, rhs in
+        if lhs.score != rhs.score {
+            return lhs.score > rhs.score
+        }
+        if lhs.topEvidenceRank != rhs.topEvidenceRank {
+            return lhs.topEvidenceRank < rhs.topEvidenceRank
+        }
+        if lhs.documentFrequency != rhs.documentFrequency {
+            return lhs.documentFrequency > rhs.documentFrequency
+        }
+        return lhs.text < rhs.text
+    }
+    .prefix(maxTerms)
+    .map { $0 }
+}
+
+func groundedExpansionDecision(
+    baselineScores: [SearchScoreBreakdown],
+    terms: [GroundedExpansionTerm],
+    policy: GroundedExpansionApplicationPolicy
+) -> GroundedExpansionDecision {
+    guard !terms.isEmpty else {
+        return GroundedExpansionDecision(shouldApply: false, reason: "no_terms")
+    }
+    switch policy {
+    case .always:
+        return GroundedExpansionDecision(shouldApply: true, reason: "applied")
+    case .guarded:
+        if groundedExpansionHasStrongRankOneConfidence(baselineScores) {
+            return GroundedExpansionDecision(shouldApply: false, reason: "strong_rank1")
+        }
+        guard groundedExpansionHasWeakLexicalCoverage(baselineScores) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "strong_lexical_coverage")
+        }
+        guard groundedExpansionHasSemanticFeedbackCluster(baselineScores) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "weak_semantic_cluster")
+        }
+        guard groundedExpansionHasFeedbackEvidence(terms) else {
+            return GroundedExpansionDecision(shouldApply: false, reason: "insufficient_feedback_evidence")
+        }
+        return GroundedExpansionDecision(shouldApply: true, reason: "applied_guarded")
+    }
+}
+
+private func groundedExpansionHasStrongRankOneConfidence(_ scores: [SearchScoreBreakdown]) -> Bool {
+    guard let top = scores.first else { return false }
+    guard groundedExpansionHasMultipleSignals(top) else { return false }
+    if top.blended >= 0.12 {
+        return true
+    }
+    guard scores.count > 1 else {
+        return false
+    }
+    let second = scores[1]
+    let margin = top.blended - second.blended
+    let relativeMargin = margin / max(abs(top.blended), 0.0001)
+    return top.blended >= 0.105
+        && relativeMargin >= 0.18
+}
+
+private func groundedExpansionHasMultipleSignals(_ score: SearchScoreBreakdown) -> Bool {
+    if score.semantic >= 0.02, score.lexical >= 0.02 {
+        return true
+    }
+    return score.tag + score.schema + score.temporal + score.status >= 0.03
+}
+
+private func groundedExpansionHasWeakLexicalCoverage(_ scores: [SearchScoreBreakdown]) -> Bool {
+    let topScores = Array(scores.prefix(8))
+    guard !topScores.isEmpty else { return false }
+
+    let lexicalDominantCount = topScores.filter { score in
+        score.lexical >= 0.05
+            && score.lexical >= max(score.semantic * 1.20, 0.02)
+    }.count
+    if lexicalDominantCount >= 3 {
+        return false
+    }
+
+    let lexicalMass = topScores.map(\.lexical).reduce(0, +)
+    let semanticMass = topScores.map(\.semantic).reduce(0, +)
+    return lexicalMass < max(0.08, semanticMass * 1.35)
+}
+
+private func groundedExpansionHasSemanticFeedbackCluster(_ scores: [SearchScoreBreakdown]) -> Bool {
+    let semanticScores = scores
+        .prefix(8)
+        .map(\.semantic)
+        .filter { $0 >= 0.02 }
+        .sorted(by: >)
+    guard let topSemantic = semanticScores.first, topSemantic >= 0.03 else {
+        return false
+    }
+    let clusteredCount = semanticScores.filter { $0 >= topSemantic * 0.70 }.count
+    return clusteredCount >= 2
+}
+
+private func groundedExpansionHasFeedbackEvidence(_ terms: [GroundedExpansionTerm]) -> Bool {
+    let topEvidenceTerms = terms.filter { term in
+        term.topEvidenceRank <= 5 && term.score >= 1.0
+    }
+    guard topEvidenceTerms.count >= 2 else { return false }
+    return topEvidenceTerms.contains { term in
+        term.kind != .single || term.documentFrequency >= 2 || term.topEvidenceRank <= 2
+    }
+}
+
+func groundedExpansionQueries(from terms: [GroundedExpansionTerm]) -> [String] {
+    let chunks = stride(from: 0, to: min(8, terms.count), by: 4).compactMap { start -> String? in
+        let end = min(start + 4, terms.count)
+        let query = terms[start..<end].map(\.text).joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty ? nil : query
+    }
+    return Array(chunks.prefix(2))
+}
+
+private func groundedExpansionCandidates(
+    _ text: String,
+    originalTerms: Set<String>,
+    termMode: GroundedExpansionTermMode
+) -> [String: GroundedExpansionTermKind] {
+    let tokens = groundedExpansionTokenMatches(text)
+    var candidates: [String: GroundedExpansionTermKind] = [:]
+
+    for token in tokens where shouldKeepGroundedExpansionToken(token.normalized, originalTerms: originalTerms) {
+        let kind: GroundedExpansionTermKind = isEntityLikeGroundedExpansionToken(token.raw) ? .entity : .single
+        guard groundedExpansionTermMode(termMode, allows: kind) else { continue }
+        candidates[token.normalized] = mergedGroundedExpansionTermKind(candidates[token.normalized], kind)
+    }
+
+    for length in 2...3 where tokens.count >= length {
+        for start in 0...(tokens.count - length) {
+            let phraseTokens = Array(tokens[start..<(start + length)])
+            guard phraseTokens.allSatisfy({ shouldKeepGroundedExpansionToken($0.normalized, originalTerms: originalTerms) }) else {
+                continue
+            }
+            guard groundedExpansionTermMode(termMode, allows: .phrase) else { continue }
+            let phrase = phraseTokens.map(\.normalized).joined(separator: " ")
+            candidates[phrase] = mergedGroundedExpansionTermKind(candidates[phrase], .phrase)
+        }
+    }
+
+    return candidates
+}
+
+private struct GroundedExpansionTokenMatch {
+    var raw: String
+    var normalized: String
+}
+
+private func groundedExpansionTermMode(
+    _ mode: GroundedExpansionTermMode,
+    allows kind: GroundedExpansionTermKind
+) -> Bool {
+    switch mode {
+    case .all:
+        return true
+    case .singleToken:
+        return kind == .single || kind == .entity
+    case .phraseEntity:
+        return kind == .phrase || kind == .entity
+    }
+}
+
+private func mergedGroundedExpansionTermKind(
+    _ current: GroundedExpansionTermKind?,
+    _ candidate: GroundedExpansionTermKind
+) -> GroundedExpansionTermKind {
+    guard let current else { return candidate }
+    let priority: [GroundedExpansionTermKind: Int] = [
+        .single: 0,
+        .entity: 1,
+        .phrase: 2,
+    ]
+    return (priority[candidate] ?? 0) > (priority[current] ?? 0) ? candidate : current
+}
+
+private func normalizedGroundedExpansionTokens(_ text: String) -> [String] {
+    groundedExpansionTokenMatches(text).map(\.normalized)
+}
+
+private func groundedExpansionTokenMatches(_ text: String) -> [GroundedExpansionTokenMatch] {
+    let pattern = #"[A-Za-z][A-Za-z0-9'-]*|\d+"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.matches(in: text, range: range).compactMap { match in
+        guard let tokenRange = Range(match.range, in: text) else { return nil }
+        let raw = String(text[tokenRange])
+        let token = raw
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_'-"))
+        return token.isEmpty ? nil : GroundedExpansionTokenMatch(raw: raw, normalized: token)
+    }
+}
+
+private func isEntityLikeGroundedExpansionToken(_ raw: String) -> Bool {
+    let scalars = Array(raw.unicodeScalars)
+    guard scalars.count > 1 else { return false }
+    let uppercase = CharacterSet.uppercaseLetters
+    let lowercase = CharacterSet.lowercaseLetters
+    let hasUppercase = scalars.contains { uppercase.contains($0) }
+    guard hasUppercase else { return false }
+
+    let first = scalars[0]
+    let hasInternalUppercase = scalars.dropFirst().contains { uppercase.contains($0) }
+    let hasLowercase = scalars.contains { lowercase.contains($0) }
+    let allCaps = !hasLowercase && scalars.filter { uppercase.contains($0) }.count >= 2
+    return hasInternalUppercase || allCaps || (uppercase.contains(first) && raw.contains("-"))
+}
+
+private func shouldKeepGroundedExpansionToken(
+    _ token: String,
+    originalTerms: Set<String>
+) -> Bool {
+    let key = groundedExpansionComparisonKey(for: token)
+    guard token.count > 1 else { return false }
+    guard token.range(of: #"^\d+$"#, options: .regularExpression) == nil else { return false }
+    guard token.range(of: #"\d"#, options: .regularExpression) == nil else { return false }
+    guard token.range(of: #"^[a-f0-9]{6,}$"#, options: [.regularExpression, .caseInsensitive]) == nil else {
+        return false
+    }
+    guard !token.contains("'") else { return false }
+    guard !groundedExpansionStopwords.contains(token) else { return false }
+    guard !originalTerms.contains(key) else { return false }
+    return true
+}
+
+private func groundedExpansionComparisonKey(for term: String) -> String {
+    var key = term.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    if key.count > 3, key.hasSuffix("s") {
+        key.removeLast()
+    }
+    return key
+}
+
+private func isShortAmbiguousGroundedExpansionQuery(_ query: String) -> Bool {
+    let tokens = normalizedGroundedExpansionTokens(query)
+    guard tokens.count <= 5 else { return false }
+    let content = tokens.filter { !groundedExpansionStopwords.contains($0) }
+    guard !content.isEmpty, content.count <= 2 else { return false }
+    let genericTerms: Set<String> = [
+        "cost", "costs", "detail", "details", "info", "information", "item", "items",
+        "note", "notes", "one", "option", "options", "place", "plan", "plans",
+        "price", "prices", "status", "task", "tasks", "thing", "things", "time",
+    ]
+    return content.allSatisfy { genericTerms.contains($0) }
+}
+
+private let groundedExpansionStopwords: Set<String> = [
+    "a", "about", "above", "after", "again", "against", "all", "also", "am", "an",
+    "and", "any", "are", "as", "at", "be", "because", "been", "before", "being",
+    "between", "both", "but", "by", "can", "could", "did", "do", "does", "doing",
+    "down", "during", "each", "few", "for", "from", "further", "had", "has", "have",
+    "having", "he", "her", "here", "hers", "him", "his", "how", "i", "if", "in",
+    "into", "is", "it", "its", "just", "me", "more", "most", "my", "no", "nor",
+    "not", "now", "of", "off", "on", "once", "only", "or", "other", "our", "out",
+    "over", "own", "same", "she", "should", "so", "some", "such", "than", "that",
+    "the", "their", "them", "then", "there", "these", "they", "this", "those",
+    "through", "to", "too", "under", "until", "up", "very", "was", "we", "were",
+    "what", "when", "where", "which", "while", "who", "whom", "why", "will",
+    "with", "would", "you", "your",
+    "answer", "assistant", "consider", "date", "detail", "details", "enjoy",
+    "find", "get", "give", "good", "got", "great",
+    "abs", "im", "info", "information", "like", "looking", "make", "need",
+    "new", "provide", "recommend", "remember", "session", "sessions",
+    "something", "specific", "sure", "thing", "things", "thinking", "th",
+    "trying", "turn", "turns", "user", "using", "want", "way", "wondering",
+    "mon", "monday", "tue", "tues", "tuesday", "wed", "wednesday", "thu", "thur",
+    "thurs", "thursday", "fri", "friday", "sat", "saturday", "sun", "sunday",
+]
 
 private func compareScores(
     lhs: SearchScoreBreakdown,
@@ -6615,6 +7596,12 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         "- Candidate Recall@pool: \(percent(report.candidatePoolRecall))",
         "- Candidate-only miss rate: \(percent(report.candidateOnlyMissRate))",
         "- Candidate-generation miss rate: \(percent(report.candidateGenerationMissRate))",
+        "- Diagnostic surfaces: \(compactCountSummary(report.diagnosticSurfaceCounts))",
+        "- Query shapes: \(compactCountSummary(report.queryShapeCounts))",
+        "- Query intents: \(compactCountSummary(report.queryIntentCounts))",
+        "- Intent-matched retrieved rate: \(percent(report.intentMatchedRetrievedRate))",
+        "- Avg type score delta: \(format(report.avgTypeScoreDelta))",
+        "- Max type score delta: \(format(report.maxTypeScoreDelta))",
         "- Avg context tokens: \(String(format: "%.1f", report.avgContextTokens))",
         "- Avg packed documents: \(String(format: "%.1f", report.avgPackedDocuments))",
         "- Empty retrieval rate: \(percent(report.emptyRetrievalRate))",
@@ -6631,6 +7618,26 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("- Score-sorted packed Recall@\(maxKScoreSortedMetric.k): \(percent(maxKScoreSortedMetric.recall))")
         lines.append("- Score-sorted packed MRR@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.mrr))")
         lines.append("- Score-sorted packed nDCG@\(maxKScoreSortedMetric.k): \(format(maxKScoreSortedMetric.ndcg))")
+    }
+    if let groundedMetric = report.groundedMetricsByK?.max(by: { $0.k < $1.k }) {
+        if let policy = report.groundedExpansionPolicy,
+           let termMode = report.groundedExpansionTermMode {
+            lines.append("- Grounded policy: `\(policy.rawValue)`")
+            lines.append("- Grounded term mode: `\(termMode.rawValue)`")
+        }
+        lines.append("- Grounded Hit@\(groundedMetric.k): \(percent(groundedMetric.hitRate))")
+        lines.append("- Grounded Recall@\(groundedMetric.k): \(percent(groundedMetric.recall))")
+        lines.append("- Grounded MRR@\(groundedMetric.k): \(format(groundedMetric.mrr))")
+        lines.append("- Grounded nDCG@\(groundedMetric.k): \(format(groundedMetric.ndcg))")
+    }
+    if let groundedApplicationCounts = report.groundedApplicationCounts {
+        lines.append("- Grounded applications: \(compactCountSummary(groundedApplicationCounts))")
+    }
+    if let groundedDeltaCounts = report.groundedDeltaCounts {
+        lines.append("- Grounded deltas: \(compactCountSummary(groundedDeltaCounts))")
+    }
+    if let groundedSurfaceCounts = report.groundedDiagnosticSurfaceCounts {
+        lines.append("- Grounded diagnostic surfaces: \(compactCountSummary(groundedSurfaceCounts))")
     }
 
     if !report.notes.isEmpty {
@@ -6668,6 +7675,21 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         }
     }
 
+    if let groundedMetrics = report.groundedMetricsByK, !groundedMetrics.isEmpty {
+        let baseByK = Dictionary(uniqueKeysWithValues: report.metricsByK.map { ($0.k, $0) })
+        lines.append("")
+        lines.append("## Grounded Expansion Metrics")
+        lines.append("")
+        lines.append("| K | Baseline Hit | Grounded Hit | Hit Delta | Baseline Recall | Grounded Recall | Recall Delta | Baseline MRR | Grounded MRR | MRR Delta | Baseline nDCG | Grounded nDCG | nDCG Delta |")
+        lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for metric in groundedMetrics.sorted(by: { $0.k < $1.k }) {
+            let base = baseByK[metric.k]
+            lines.append(
+                "| \(metric.k) | \(percent(base?.hitRate ?? 0)) | \(percent(metric.hitRate)) | \(percent(metric.hitRate - (base?.hitRate ?? 0))) | \(percent(base?.recall ?? 0)) | \(percent(metric.recall)) | \(percent(metric.recall - (base?.recall ?? 0))) | \(format(base?.mrr ?? 0)) | \(format(metric.mrr)) | \(format(metric.mrr - (base?.mrr ?? 0))) | \(format(base?.ndcg ?? 0)) | \(format(metric.ndcg)) | \(format(metric.ndcg - (base?.ndcg ?? 0))) |"
+            )
+        }
+    }
+
     if let latencyStats = report.latencyStats {
         lines.append("")
         lines.append("## Retrieval Latency")
@@ -6679,6 +7701,100 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("| mean | \(String(format: "%.1f", latencyStats.meanMs)) ms |")
         lines.append("| min | \(String(format: "%.1f", latencyStats.minMs)) ms |")
         lines.append("| max | \(String(format: "%.1f", latencyStats.maxMs)) ms |")
+    }
+
+    if !report.diagnosticSurfaceCounts.isEmpty {
+        lines.append("")
+        lines.append("## Diagnostic Surfaces")
+        lines.append("")
+        lines.append("| Surface | Queries |")
+        lines.append("|---|---:|")
+        for (surface, count) in sortedCountPairs(report.diagnosticSurfaceCounts) {
+            lines.append("| `\(surface)` | \(count) |")
+        }
+    }
+
+    if !report.queryShapeCounts.isEmpty {
+        lines.append("")
+        lines.append("## Query Shapes")
+        lines.append("")
+        lines.append("| Shape | Queries |")
+        lines.append("|---|---:|")
+        for (shape, count) in sortedCountPairs(report.queryShapeCounts) {
+            lines.append("| `\(shape)` | \(count) |")
+        }
+    }
+
+    if !report.queryIntentCounts.isEmpty {
+        lines.append("")
+        lines.append("## Memory Type Intent")
+        lines.append("")
+        lines.append("| Intent | Queries |")
+        lines.append("|---|---:|")
+        for (intent, count) in sortedCountPairs(report.queryIntentCounts) {
+            lines.append("| `\(intent)` | \(count) |")
+        }
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|---|---:|")
+        lines.append("| intent_matched_retrieved_rate | \(percent(report.intentMatchedRetrievedRate)) |")
+        lines.append("| avg_type_score_delta | \(format(report.avgTypeScoreDelta)) |")
+        lines.append("| max_type_score_delta | \(format(report.maxTypeScoreDelta)) |")
+    }
+
+    if let groundedSurfaceCounts = report.groundedDiagnosticSurfaceCounts, !groundedSurfaceCounts.isEmpty {
+        lines.append("")
+        lines.append("## Grounded Diagnostic Surfaces")
+        lines.append("")
+        lines.append("| Surface | Queries |")
+        lines.append("|---|---:|")
+        for (surface, count) in sortedCountPairs(groundedSurfaceCounts) {
+            lines.append("| `\(surface)` | \(count) |")
+        }
+    }
+
+    if let groundedDeltaCounts = report.groundedDeltaCounts, !groundedDeltaCounts.isEmpty {
+        lines.append("")
+        lines.append("## Grounded Deltas")
+        lines.append("")
+        lines.append("| Delta | Queries |")
+        lines.append("|---|---:|")
+        for (label, count) in sortedCountPairs(groundedDeltaCounts) {
+            lines.append("| `\(label)` | \(count) |")
+        }
+    }
+
+    if let groundedApplicationCounts = report.groundedApplicationCounts, !groundedApplicationCounts.isEmpty {
+        lines.append("")
+        lines.append("## Grounded Application Decisions")
+        lines.append("")
+        lines.append("| Decision | Queries |")
+        lines.append("|---|---:|")
+        for (decision, count) in sortedCountPairs(groundedApplicationCounts) {
+            lines.append("| `\(markdownTableCell(decision))` | \(count) |")
+        }
+    }
+
+    if let groundedTermCounts = report.groundedTermCounts, !groundedTermCounts.isEmpty {
+        lines.append("")
+        lines.append("## Top Grounded Terms")
+        lines.append("")
+        lines.append("| Term | Queries |")
+        lines.append("|---|---:|")
+        for (term, count) in sortedCountPairs(groundedTermCounts).prefix(40) {
+            lines.append("| `\(markdownTableCell(term))` | \(count) |")
+        }
+    }
+
+    if let groundedShapeDeltas = report.groundedQueryShapeDeltaCounts, !groundedShapeDeltas.isEmpty {
+        lines.append("")
+        lines.append("## Query Shape Deltas")
+        lines.append("")
+        lines.append("| Shape Delta | Queries |")
+        lines.append("|---|---:|")
+        for (shapeDelta, count) in sortedCountPairs(groundedShapeDeltas).prefix(60) {
+            lines.append("| `\(markdownTableCell(shapeDelta))` | \(count) |")
+        }
     }
 
     if let stageStats = report.stageLatencyStats {
@@ -6715,11 +7831,11 @@ private func makeRetrievalDiagnosticsMarkdown(_ report: RetrievalDiagnosticsRepo
         lines.append("")
         lines.append("## Misses (\(misses.count) at k=\(maxK))")
         lines.append("")
-        lines.append("| Query | Difficulty | Context Tokens | First Candidate | Relevant | Candidate Relevant | Retrieved |")
-        lines.append("|---|---|---:|---:|---|---|---|")
+        lines.append("| Query | Surface | Shape | Difficulty | Context Tokens | First Candidate | Relevant | Candidate Relevant | Retrieved |")
+        lines.append("|---|---|---|---|---:|---:|---|---|---|")
         for miss in misses.prefix(40) {
             lines.append(
-                "| `\(markdownTableCell(miss.id))` | \(markdownTableCell(miss.difficulty ?? "-")) | \(miss.contextTokens) | \(miss.firstCandidateRelevantRank.map(String.init) ?? "-") | \(markdownTableCell(miss.relevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.candidateMatchedRelevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.retrievedDocumentIds.prefix(maxK).joined(separator: ", "))) |"
+                "| `\(markdownTableCell(miss.id))` | `\(markdownTableCell(miss.diagnosticSurface))` | \(markdownTableCell(miss.queryShape.joined(separator: ", "))) | \(markdownTableCell(miss.difficulty ?? "-")) | \(miss.contextTokens) | \(miss.firstCandidateRelevantRank.map(String.init) ?? "-") | \(markdownTableCell(miss.relevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.candidateMatchedRelevantDocumentIds.joined(separator: ", "))) | \(markdownTableCell(miss.retrievedDocumentIds.prefix(maxK).joined(separator: ", "))) |"
             )
         }
     }
@@ -7030,6 +8146,23 @@ private func markdownTableCell(_ value: String) -> String {
     value
         .replacingOccurrences(of: "|", with: "/")
         .replacingOccurrences(of: "\n", with: " ")
+}
+
+private func sortedCountPairs(_ counts: [String: Int]) -> [(String, Int)] {
+    counts.sorted { lhs, rhs in
+        if lhs.value == rhs.value {
+            return lhs.key < rhs.key
+        }
+        return lhs.value > rhs.value
+    }
+}
+
+private func compactCountSummary(_ counts: [String: Int], limit: Int = 6) -> String {
+    guard !counts.isEmpty else { return "none" }
+    return sortedCountPairs(counts)
+        .prefix(limit)
+        .map { "\($0.0)=\($0.1)" }
+        .joined(separator: ", ")
 }
 
 private func queryExpansionBranchRankSummary(_ diagnostics: QueryExpansionBranchDiagnostics) -> String {

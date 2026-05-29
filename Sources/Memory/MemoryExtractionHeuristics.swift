@@ -135,7 +135,7 @@ internal enum MemoryExtractionHeuristics {
         let knownEntities = inferKnownEntities(forExtractedText: text)
         var facets: Set<FacetTag> = []
 
-        if containsAnyNormalizedPhrase(normalizedText, phrases: ["prefer", "prefers", "preference", "favorite", "likes", "dislikes"])
+        if containsAnyNormalizedPhrase(normalizedText, phrases: ["prefer", "prefers", "preferred", "preference", "favorite", "likes", "dislikes"])
             || kind == .profile && containsNormalizedPhrase(normalizedText, "avoid") {
             facets.insert(.preference)
         }
