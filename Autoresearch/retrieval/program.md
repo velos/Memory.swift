@@ -1,4 +1,4 @@
-# Memory.swift Autoresearch
+# Memory.swift Retrieval Autoresearch
 
 This repo is a fixed-budget autonomous experiment loop for improving the MLX-trained CoreML components used by `Memory.swift`.
 
@@ -14,27 +14,28 @@ To start a new run:
 
 1. Work from a dedicated feature branch in `Memory.swift`.
 2. Read these files before you touch anything:
-   - `README.md`
-   - `prepare.py`
-   - `train.py`
-   - `program.md`
-3. Run `uv run prepare.py` once if the cache is missing.
+   - `Autoresearch/README.md`
+   - `Autoresearch/retrieval/README.md`
+   - `Autoresearch/retrieval/prepare.py`
+   - `Autoresearch/retrieval/train.py`
+   - `Autoresearch/retrieval/program.md`
+3. From `Autoresearch/`, run `uv run retrieval/prepare.py` once if the cache is missing.
 4. Confirm that:
    - you are inside `Autoresearch/`
    - the local `memory_eval` binary was built from the parent `Memory.swift` checkout
    - the parent repo contains `Evals/` and `Models/`
-   - `typing_train.jsonl`, `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/datasets/`
+   - `typing_train.jsonl`, `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/retrieval/datasets/`
    - the hardware profile JSON exists under `~/.cache/memory-swift-autoresearch/hardware/`
-5. Create or reset the local gitignored `results.tsv` with the current schema if needed.
-6. Establish a hardware-local baseline by running `uv run train.py` without edits.
+5. Create or reset the local gitignored `retrieval/results.tsv` with the current schema if needed.
+6. Establish a hardware-local baseline by running `uv run retrieval/train.py` without edits.
 
 ## Rules
 
-You may edit only `train.py`.
+You may edit only `Autoresearch/retrieval/train.py`.
 
 Do not edit during normal experiment iteration:
 
-- `prepare.py`
+- `Autoresearch/retrieval/prepare.py`
 - `memory_autoresearch/`
 - the scoring contract
 - the parent `Memory.swift` runtime unless that is the explicit goal of the run
@@ -72,15 +73,15 @@ status:            keep
 decision_reason:   quick pass: general_delta=0.0123, longmemeval_delta=0.0011
 ```
 
-Read the summary directly from `run.log`:
+Read the summary directly from `retrieval/run.log`:
 
 ```bash
-grep "memory_score:\|storage_score:\|recall_score:\|model_mb:\|latency_ms:\|status:" run.log
+grep "memory_score:\|storage_score:\|recall_score:\|model_mb:\|latency_ms:\|status:" retrieval/run.log
 ```
 
 ## Logging
 
-Append each experiment to `results.tsv` as tab-separated data with this schema:
+Append each experiment to `retrieval/results.tsv` as tab-separated data with this schema:
 
 ```text
 commit	component	memory_score	storage_score	recall_score	model_mb	latency_ms	status	description
@@ -99,11 +100,11 @@ Loop forever:
 
 1. Inspect the current git state.
 2. Edit only `train.py`.
-3. `git add Autoresearch/train.py && git commit -m "experiment: <description>"`
-4. Run `uv run train.py > run.log 2>&1`
-5. If the run crashes, inspect the stack trace with `tail -n 80 run.log`, fix the issue in `train.py`, and retry.
-6. If the run succeeds, append the result to local `results.tsv`.
-7. Do not stage `results.tsv` or `run.log`; they are local experiment artifacts.
+3. `git add Autoresearch/retrieval/train.py && git commit -m "experiment: <description>"`
+4. Run `uv run retrieval/train.py > retrieval/run.log 2>&1`
+5. If the run crashes, inspect the stack trace with `tail -n 80 retrieval/run.log`, fix the issue in `retrieval/train.py`, and retry.
+6. If the run succeeds, append the result to local `retrieval/results.tsv`.
+7. Do not stage `retrieval/results.tsv` or `retrieval/run.log`; they are local experiment artifacts.
 8. If status is not `keep`, revert to the previous kept commit.
 
 ## Keep/Revert Policy

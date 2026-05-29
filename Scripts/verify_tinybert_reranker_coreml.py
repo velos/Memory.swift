@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify converted TinyBERT reranker CoreML model against PyTorch original."""
 
+import argparse
 import os
 import time
 import numpy as np
@@ -10,7 +11,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 MODEL_ID = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 COREML_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "Models", "minilm-reranker.mlpackage"
+    os.path.dirname(os.path.dirname(__file__)), "Models", "reranker-v1.mlpackage"
 )
 MAX_SEQ_LEN = 512
 
@@ -52,14 +53,25 @@ def coreml_score(coreml_model, tokenizer, query, document):
     return float(np.squeeze(score))
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Verify the CoreML reranker against the PyTorch source model.")
+    parser.add_argument(
+        "--coreml-path",
+        default=COREML_PATH,
+        help="Path to the converted reranker .mlpackage.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     print(f"Loading PyTorch model: {MODEL_ID}")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     pt_model = AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
     pt_model.eval()
 
-    print(f"Loading CoreML model: {COREML_PATH}")
-    cm_model = ct.models.MLModel(COREML_PATH)
+    print(f"Loading CoreML model: {args.coreml_path}")
+    cm_model = ct.models.MLModel(args.coreml_path)
 
     print("\n--- Score Comparison ---")
     print(f"{'Query':<35} {'Document':<55} {'PyTorch':>8} {'CoreML':>8} {'Δ':>8}")

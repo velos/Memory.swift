@@ -307,7 +307,7 @@ def train_reranker(
             pair_docs.append(example.positive_document_text)
             pair_labels.append(1)
             for negative_id in example.hard_negative_ids[:1]:
-                negative_doc = document_lookup.get(negative_id)
+                negative_doc = example.hard_negative_texts.get(negative_id) or document_lookup.get(negative_id)
                 if negative_doc is None:
                     continue
                 pair_queries.append(example.query)

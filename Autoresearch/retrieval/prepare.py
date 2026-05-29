@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+AUTORESEARCH_ROOT = Path(__file__).resolve().parents[1]
+if str(AUTORESEARCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(AUTORESEARCH_ROOT))
 
 from memory_autoresearch.cache import (
     baseline_artifact_path,
+    configure_setup,
     datasets_root,
     hardware_profile_path,
     memory_swift_repo_path,
@@ -19,6 +25,10 @@ from memory_autoresearch.upstream import (
     seed_baseline_models,
     upstream_evals_root,
 )
+
+SETUP_NAME = "retrieval"
+SETUP_ROOT = Path(__file__).resolve().parent
+configure_setup(SETUP_NAME)
 
 
 def main() -> None:
@@ -33,7 +43,7 @@ def main() -> None:
         "memory_eval_binary": str(eval_binary),
         "hardware_profile": str(hardware_profile_path()),
         "datasets": {key: str(value) for key, value in datasets.items()},
-        "baselines": {key: str(value) for key, value in baselines.items()},
+        "baselines": {key: str(value) if value is not None else None for key, value in baselines.items()},
         "typing_baseline_expected_at": str(baseline_artifact_path("typing")),
     }
     print(json.dumps(summary, indent=2))
@@ -44,7 +54,7 @@ def main() -> None:
     print(f"quick_eval_root:        {datasets['quick_eval']}")
     print(f"full_eval_root:         {datasets['full_eval']}")
     print(f"baseline_embedder:      {baselines['embedding']}")
-    print(f"baseline_reranker:      {baselines['reranker']}")
+    print(f"baseline_reranker:      {baselines.get('reranker') or 'missing in Models/; skipped'}")
     print(f"typing_batch_size:      {profile.typing_batch_size}")
     print(f"embedding_batch_size:   {profile.embedding_batch_size}")
     print(f"reranker_batch_size:    {profile.reranker_batch_size}")

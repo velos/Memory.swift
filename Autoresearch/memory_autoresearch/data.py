@@ -4,12 +4,13 @@ import json
 import random
 import shutil
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
 
 from .cache import datasets_root
 from .config import (
+    CORPUS_DIRECTORY_ALIASES,
     FULL_EVAL_CORPORA,
     MEMORY_TYPE_TO_INDEX,
     QUICK_EVAL_CORPORA,
@@ -76,6 +77,7 @@ class RetrievalExample:
     positive_memory_types: list[str]
     hard_negative_ids: list[str]
     corpus: str
+    hard_negative_texts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -91,8 +93,31 @@ def _read_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
+def _corpus_root(root: Path, corpus: str) -> Path | None:
+    candidates = [root / corpus]
+    alias = CORPUS_DIRECTORY_ALIASES.get(corpus)
+    if alias:
+        candidates.append(root / alias)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _corpus_has_files(root: Path, corpus: str, filenames: tuple[str, ...]) -> bool:
+    corpus_root = _corpus_root(root, corpus)
+    return corpus_root is not None and all((corpus_root / filename).exists() for filename in filenames)
+
+
+def _required_corpus_root(root: Path, corpus: str) -> Path:
+    corpus_root = _corpus_root(root, corpus)
+    if corpus_root is None:
+        raise FileNotFoundError(f"Missing eval corpus '{corpus}' under {root}")
+    return corpus_root
+
+
 def load_storage_cases(root: Path, corpus: str) -> list[StorageCase]:
-    records = _read_jsonl(root / corpus / "storage_cases.jsonl")
+    records = _read_jsonl(_required_corpus_root(root, corpus) / "storage_cases.jsonl")
     return [
         StorageCase(
             id=_scoped_id(corpus, record["id"]),
@@ -107,7 +132,7 @@ def load_storage_cases(root: Path, corpus: str) -> list[StorageCase]:
 
 
 def load_recall_documents(root: Path, corpus: str) -> list[RecallDocument]:
-    records = _read_jsonl(root / corpus / "recall_documents.jsonl")
+    records = _read_jsonl(_required_corpus_root(root, corpus) / "recall_documents.jsonl")
     return [
         RecallDocument(
             id=_scoped_id(corpus, record["id"]),
@@ -125,7 +150,7 @@ def load_recall_documents(root: Path, corpus: str) -> list[RecallDocument]:
 
 
 def load_recall_queries(root: Path, corpus: str) -> list[RecallQuery]:
-    records = _read_jsonl(root / corpus / "recall_queries.jsonl")
+    records = _read_jsonl(_required_corpus_root(root, corpus) / "recall_queries.jsonl")
     return [
         RecallQuery(
             id=_scoped_id(corpus, record["id"]),
@@ -145,6 +170,8 @@ def load_recall_queries(root: Path, corpus: str) -> list[RecallQuery]:
 def build_typing_examples(root: Path) -> list[TypingExample]:
     examples: list[TypingExample] = []
     for corpus in TRAINING_CORPORA:
+        if not _corpus_has_files(root, corpus, ("storage_cases.jsonl", "recall_documents.jsonl")):
+            continue
         for case in load_storage_cases(root, corpus):
             examples.append(
                 TypingExample(
@@ -220,6 +247,8 @@ def _bm25_rank(query: str, index: BM25Index, top_k: int = 5) -> list[str]:
 def build_retrieval_examples(root: Path) -> list[RetrievalExample]:
     examples: list[RetrievalExample] = []
     for corpus in TRAINING_CORPORA:
+        if not _corpus_has_files(root, corpus, ("recall_documents.jsonl", "recall_queries.jsonl")):
+            continue
         documents = load_recall_documents(root, corpus)
         queries = load_recall_queries(root, corpus)
         bm25_index = _build_bm25_index(documents)
@@ -243,6 +272,11 @@ def build_retrieval_examples(root: Path) -> list[RetrievalExample]:
                         positive_memory_types=query.memory_types,
                         hard_negative_ids=hard_candidates,
                         corpus=corpus,
+                        hard_negative_texts={
+                            doc_id: doc_map[doc_id].text
+                            for doc_id in hard_candidates
+                            if doc_id in doc_map
+                        },
                     )
                 )
     return examples
@@ -273,6 +307,8 @@ def build_eval_splits(root: Path) -> tuple[dict[str, list], dict[str, list], dic
     full_queries: list[RecallQuery] = []
 
     for corpus in QUICK_EVAL_CORPORA:
+        if not _corpus_has_files(root, corpus, ("storage_cases.jsonl", "recall_documents.jsonl", "recall_queries.jsonl")):
+            continue
         storage_cases = load_storage_cases(root, corpus)
         recall_documents = load_recall_documents(root, corpus)
         recall_queries = load_recall_queries(root, corpus)
@@ -315,6 +351,8 @@ def build_eval_splits(root: Path) -> tuple[dict[str, list], dict[str, list], dic
 
     for corpus in FULL_EVAL_CORPORA:
         if corpus in QUICK_EVAL_CORPORA:
+            continue
+        if not _corpus_has_files(root, corpus, ("storage_cases.jsonl", "recall_documents.jsonl", "recall_queries.jsonl")):
             continue
         full_storage.extend(load_storage_cases(root, corpus))
         full_documents.extend(load_recall_documents(root, corpus))

@@ -1,17 +1,23 @@
-"""Mutable experiment surface for Memory.swift autoresearch."""
+"""Mutable reranker experiment surface for Memory.swift autoresearch."""
 
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict
 from pathlib import Path
+
+AUTORESEARCH_ROOT = Path(__file__).resolve().parents[1]
+if str(AUTORESEARCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(AUTORESEARCH_ROOT))
 
 from memory_autoresearch.cache import (
     baseline_artifact_path,
     candidate_artifact_path,
     checkpoint_path,
+    configure_setup,
     datasets_root,
     metrics_path,
     report_path,
@@ -22,27 +28,33 @@ from memory_autoresearch.checkpoints import (
     save_mlx_weights,
 )
 from memory_autoresearch.config import DEFAULT_TIME_BUDGET_SECONDS, MODEL_SPECS
-from memory_autoresearch.data import load_retrieval_examples, load_typing_examples
+from memory_autoresearch.data import load_retrieval_examples
 from memory_autoresearch.eval import EvalSummary, evaluate_candidate
 from memory_autoresearch.export import export_coreml_model
 from memory_autoresearch.hardware import load_or_create_profile
-from memory_autoresearch.modeling import EmbeddingModel, RerankerModel, TypingModel
+from memory_autoresearch.modeling import RerankerModel
 from memory_autoresearch.scoring import EvalMetrics, decide_candidate_status
 from memory_autoresearch.tokenization import BertTokenizerAdapter
-from memory_autoresearch.training import train_embedding, train_reranker, train_typing
+from memory_autoresearch.training import train_reranker
+from memory_autoresearch.upstream import build_memory_eval_binary, prepare_memory_swift_checkout
 
 
 # ---------------------------------------------------------------------------
 # Mutable experiment controls
 # ---------------------------------------------------------------------------
 
-ACTIVE_COMPONENT = "typing"
-LEARNING_RATE = 5e-4
-TIME_BUDGET_SECONDS = DEFAULT_TIME_BUDGET_SECONDS
-TYPING_CHECKPOINT_OVERRIDE = "google/bert_uncased_L-2_H-128_A-2"
-CLASS_WEIGHT_AMPLIFY = 0.0
-TYPING_SAMPLING = "balanced"
-FOCAL_GAMMA = None
+ACTIVE_COMPONENT = "reranker"
+EVAL_PROFILE = "coreml_fast_rerank"
+LEARNING_RATE = 2e-4
+# Fast-rerank profile iteration: make the temporary profile's recall planner
+# active in eval feature selection so its small semantic/lexical/rerank limits
+# actually reach MemoryIndex. Use stable TinyBERT 1.6 calibration.
+TIME_BUDGET_SECONDS = 0
+RERANKER_CHECKPOINT = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+RERANKER_LOGIT_SCALE = 1.6
+SETUP_NAME = "reranker"
+SETUP_ROOT = Path(__file__).resolve().parent
+configure_setup(SETUP_NAME)
 
 
 def _git_commit() -> str:
@@ -58,7 +70,6 @@ def _git_commit() -> str:
 def _ensure_prepared() -> dict[str, Path]:
     root = datasets_root()
     paths = {
-        "typing_train": root / "typing_train.jsonl",
         "retrieval_train": root / "retrieval_train.jsonl",
         "quick_eval": root / "quick_eval",
         "full_eval": root / "full_eval",
@@ -67,7 +78,7 @@ def _ensure_prepared() -> dict[str, Path]:
     if missing:
         missing_str = ", ".join(missing)
         raise FileNotFoundError(
-            f"Missing prepared assets: {missing_str}. Run `uv run prepare.py` first."
+            f"Missing prepared assets: {missing_str}. Run `uv run reranker/prepare.py` first."
         )
     return paths
 
@@ -75,15 +86,9 @@ def _ensure_prepared() -> dict[str, Path]:
 def _load_previous_metrics(component: str) -> EvalMetrics | None:
     report = _load_previous_report(component)
     if report is not None:
-        if component == "typing" and "typing_gold_v1" not in report.get("full", {}).get(
-            "corpora", {}
-        ):
-            return None
         aggregate = report.get("full", {}).get("aggregate")
         if isinstance(aggregate, dict):
             return EvalMetrics(**aggregate)
-    if component == "typing":
-        return None
     path = metrics_path(component)
     if not path.exists():
         return None
@@ -103,6 +108,14 @@ def _write_metrics(component: str, metrics: EvalMetrics) -> None:
     path.write_text(json.dumps(asdict(metrics), indent=2), encoding="utf-8")
 
 
+def _clear_eval_provider_cache(dataset_root: Path) -> None:
+    """Avoid stale reranker cache hits across different candidate artifacts."""
+    provider_cache = dataset_root / "cache" / "provider"
+    for path in provider_cache.glob("eval_provider_cache.sqlite*"):
+        if path.is_file():
+            path.unlink()
+
+
 def _write_report(
     component: str, quick_summary: EvalSummary, full_summary: EvalSummary
 ) -> None:
@@ -110,6 +123,7 @@ def _write_report(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "component": component,
+        "profile": EVAL_PROFILE,
         "quick": quick_summary.asdict(),
         "full": full_summary.asdict(),
     }
@@ -130,7 +144,7 @@ def _append_results_row(metrics: EvalMetrics, status: str, description: str) -> 
             description,
         ]
     )
-    with open("results.tsv", "a", encoding="utf-8") as handle:
+    with (SETUP_ROOT / "results.tsv").open("a", encoding="utf-8") as handle:
         handle.write(line)
         handle.write("\n")
 
@@ -151,78 +165,39 @@ def _keep_candidate(
     _write_report(component, quick_summary, full_summary)
 
 
-def _build_model(component: str, vocab_size: int):
-    checkpoint = _resolved_checkpoint(component)
-    config = checkpoint_config(checkpoint, num_labels=8)
-    config.vocab_size = vocab_size
-    if component == "typing":
-        return TypingModel(config), config
-    if component == "embedding":
-        return EmbeddingModel(config), config
-    if component == "reranker":
-        return RerankerModel(config), config
-    raise ValueError(f"Unsupported component: {component}")
-
-
-def _resolved_checkpoint(component: str) -> str:
-    if component == "typing" and TYPING_CHECKPOINT_OVERRIDE:
-        return TYPING_CHECKPOINT_OVERRIDE
-    return MODEL_SPECS[component].checkpoint
-
-
 def main() -> None:
-    if ACTIVE_COMPONENT not in MODEL_SPECS:
-        raise ValueError(f"ACTIVE_COMPONENT must be one of {sorted(MODEL_SPECS)}")
+    if ACTIVE_COMPONENT != "reranker":
+        raise ValueError("The reranker setup only supports ACTIVE_COMPONENT='reranker'.")
 
     prepared = _ensure_prepared()
     hardware = load_or_create_profile()
     spec = MODEL_SPECS[ACTIVE_COMPONENT]
-    checkpoint = _resolved_checkpoint(ACTIVE_COMPONENT)
+    checkpoint = RERANKER_CHECKPOINT
     tokenizer = BertTokenizerAdapter(
         checkpoint, max_sequence_length=spec.max_sequence_length
     )
-    model, config = _build_model(ACTIVE_COMPONENT, tokenizer.vocab_size)
+    config = checkpoint_config(checkpoint, num_labels=8)
+    config.vocab_size = tokenizer.vocab_size
+    model = RerankerModel(config)
     load_pretrained_weights(model, ACTIVE_COMPONENT, checkpoint)
+    model.classifier.weight = model.classifier.weight * RERANKER_LOGIT_SCALE
+    if getattr(model.classifier, "bias", None) is not None:
+        model.classifier.bias = model.classifier.bias * RERANKER_LOGIT_SCALE
 
-    if ACTIVE_COMPONENT == "typing":
-        examples = load_typing_examples(prepared["typing_train"])
-        result = train_typing(
-            model=model,
-            tokenizer=tokenizer,
-            examples=examples,
-            hardware=hardware,
-            time_budget_seconds=TIME_BUDGET_SECONDS,
-            learning_rate=LEARNING_RATE,
-            class_weight_amplify=CLASS_WEIGHT_AMPLIFY,
-            focal_gamma=FOCAL_GAMMA,
-            sampling_mode=TYPING_SAMPLING,
-        )
-    else:
-        retrieval_examples = load_retrieval_examples(prepared["retrieval_train"])
-        document_lookup = {
-            example.positive_document_id: example.positive_document_text
-            for example in retrieval_examples
-        }
-        if ACTIVE_COMPONENT == "embedding":
-            result = train_embedding(
-                model=model,
-                tokenizer=tokenizer,
-                examples=retrieval_examples,
-                document_lookup=document_lookup,
-                hardware=hardware,
-                time_budget_seconds=TIME_BUDGET_SECONDS,
-                learning_rate=LEARNING_RATE,
-            )
-        else:
-            result = train_reranker(
-                model=model,
-                tokenizer=tokenizer,
-                examples=retrieval_examples,
-                document_lookup=document_lookup,
-                hardware=hardware,
-                time_budget_seconds=TIME_BUDGET_SECONDS,
-                learning_rate=LEARNING_RATE,
-            )
+    retrieval_examples = load_retrieval_examples(prepared["retrieval_train"])
+    document_lookup = {
+        example.positive_document_id: example.positive_document_text
+        for example in retrieval_examples
+    }
+    result = train_reranker(
+        model=model,
+        tokenizer=tokenizer,
+        examples=retrieval_examples,
+        document_lookup=document_lookup,
+        hardware=hardware,
+        time_budget_seconds=TIME_BUDGET_SECONDS,
+        learning_rate=LEARNING_RATE,
+    )
 
     weight_path = checkpoint_path(ACTIVE_COMPONENT)
     save_mlx_weights(
@@ -234,9 +209,7 @@ def main() -> None:
             "training_seconds": f"{result.training_seconds:.2f}",
             "steps": str(result.steps),
             "average_loss": f"{result.average_loss:.6f}",
-            "class_weight_amplify": f"{CLASS_WEIGHT_AMPLIFY:.2f}",
-            "typing_sampling": TYPING_SAMPLING,
-            "focal_gamma": "none" if FOCAL_GAMMA is None else f"{FOCAL_GAMMA:.2f}",
+            "eval_profile": EVAL_PROFILE,
         },
     )
 
@@ -246,12 +219,16 @@ def main() -> None:
         config,
         candidate_artifact_path(ACTIVE_COMPONENT),
     )
+    build_memory_eval_binary(prepare_memory_swift_checkout())
+    _clear_eval_provider_cache(prepared["quick_eval"])
+    _clear_eval_provider_cache(prepared["full_eval"])
     quick_summary, full_summary = evaluate_candidate(
         component=ACTIVE_COMPONENT,
         artifact_path=artifact_path,
         quick_dataset_root=prepared["quick_eval"],
         full_dataset_root=prepared["full_eval"],
         checkpoint=checkpoint,
+        profile=EVAL_PROFILE,
     )
     quick_metrics = quick_summary.aggregate
     full_metrics = full_summary.aggregate
@@ -263,6 +240,7 @@ def main() -> None:
         full_metrics=full_metrics,
         baseline_metrics=baseline,
         current_report={
+            "component": ACTIVE_COMPONENT,
             "quick": quick_summary.asdict(),
             "full": full_summary.asdict(),
         },
@@ -277,15 +255,15 @@ def main() -> None:
         quick_metrics,
         status=status,
         description=(
-            f"{ACTIVE_COMPONENT} ckpt={checkpoint} "
-            f"lr={LEARNING_RATE} cw_amp={CLASS_WEIGHT_AMPLIFY} sampler={TYPING_SAMPLING} "
-            f"focal_gamma={FOCAL_GAMMA} steps={result.steps} loss={result.average_loss:.4f} "
+            f"{ACTIVE_COMPONENT} profile={EVAL_PROFILE} ckpt={checkpoint} "
+            f"lr={LEARNING_RATE} steps={result.steps} loss={result.average_loss:.4f} "
             f"reason={decision_reason}"
         ),
     )
 
     print("---")
     print(f"component:         {ACTIVE_COMPONENT}")
+    print(f"profile:           {EVAL_PROFILE}")
     print(f"memory_score:      {quick_metrics.memory_score:.6f}")
     print(f"storage_score:     {quick_metrics.storage_score:.6f}")
     print(f"recall_score:      {quick_metrics.recall_score:.6f}")

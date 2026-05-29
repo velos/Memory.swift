@@ -261,6 +261,7 @@ enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
     case coreMLDefault = "coreml_default"
     case coreMLLeafIR = "coreml_leaf_ir"
     case coreMLRerank = "coreml_rerank"
+    case coreMLFastRerank = "coreml_fast_rerank"
     case oracleCeiling = "oracle_ceiling"
     case appleAugmented = "apple_augmented"
 
@@ -6888,6 +6889,23 @@ private func computeCountStats(samples: [Int]) -> RecallCountStats? {
     )
 }
 
+private struct FastRerankRecallPlanner: RecallPlanner {
+    let identifier = "fast-rerank-recall-planner"
+
+    func plan(
+        query: String,
+        conversationContext: [ConversationMessage],
+        features: RecallFeatures
+    ) async throws -> RecallPlan? {
+        RecallPlan(
+            query: query,
+            semanticCandidateLimit: 40,
+            lexicalCandidateLimit: 40,
+            rerankLimit: 20
+        )
+    }
+}
+
 private func buildConfiguration(
     profile: EvalProfile,
     suite: SuiteKind,
@@ -6896,12 +6914,31 @@ private func buildConfiguration(
     switch profile {
     case .nlBaseline:
         return MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
-    case .oracleCeiling, .coreMLDefault, .coreMLLeafIR, .coreMLRerank:
+    case .oracleCeiling, .coreMLDefault, .coreMLLeafIR:
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
                 embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding)
             )
+        )
+    case .coreMLRerank:
+        return try MemoryConfiguration.coreMLDefault(
+            databaseURL: databaseURL,
+            models: CoreMLDefaultModels(
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
+                reranker: locateCoreMLModel(name: RepoCoreMLModels.reranker)
+            )
+        )
+    case .coreMLFastRerank:
+        return try MemoryConfiguration.coreMLDefault(
+            databaseURL: databaseURL,
+            models: CoreMLDefaultModels(
+                embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding),
+                reranker: locateCoreMLModel(name: RepoCoreMLModels.reranker)
+            ),
+            recallPlanner: FastRerankRecallPlanner(),
+            semanticCandidateLimit: 40,
+            lexicalCandidateLimit: 40
         )
     case .appleAugmented:
         var configuration = try MemoryConfiguration.coreMLDefault(
@@ -7253,7 +7290,7 @@ private func profileUsesAppleRecallCapabilities(_ profile: EvalProfile) -> Bool 
     switch profile {
     case .appleAugmented:
         return true
-    case .nlBaseline, .coreMLDefault, .coreMLLeafIR, .coreMLRerank, .oracleCeiling:
+    case .nlBaseline, .coreMLDefault, .coreMLLeafIR, .coreMLRerank, .coreMLFastRerank, .oracleCeiling:
         return false
     }
 }
@@ -7262,6 +7299,8 @@ private func recallLimitForProfile(profile: EvalProfile, maxK: Int) -> Int {
     switch profile {
     case .oracleCeiling:
         return max(120, maxK * 12)
+    case .coreMLFastRerank:
+        return max(20, maxK * 2)
     default:
         return max(50, maxK * 4)
     }
@@ -7271,6 +7310,8 @@ private func dedupedDocumentLimitForProfile(profile: EvalProfile, maxK: Int) -> 
     switch profile {
     case .oracleCeiling:
         return max(120, maxK * 12)
+    case .coreMLFastRerank:
+        return max(10, maxK)
     default:
         return max(100, maxK * 4)
     }
@@ -7308,6 +7349,9 @@ private func recallFeatures(for configuration: MemoryConfiguration) -> RecallFea
     }
     if configuration.reranker != nil {
         features.insert(.rerank)
+    }
+    if configuration.recallPlanner != nil {
+        features.insert(.planner)
     }
     return features
 }
