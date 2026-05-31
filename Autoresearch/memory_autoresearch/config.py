@@ -10,6 +10,10 @@ CACHE_NAMESPACE = "memory-swift-autoresearch"
 
 ACTIVE_COMPONENTS = ("typing", "embedding", "reranker")
 SUPPORTED_CORPORA = ("general", "tech", "scifact", "nfcorpus", "longmemeval", "typing_gold_v1")
+CORPUS_DIRECTORY_ALIASES = {
+    "general": "general_v2",
+    "longmemeval": "longmemeval_v2",
+}
 TRAINING_CORPORA = ("general", "tech", "scifact", "nfcorpus")
 PRIMARY_EVAL_CORPORA = ("general", "longmemeval")
 SECONDARY_EVAL_CORPORA = ("tech",)

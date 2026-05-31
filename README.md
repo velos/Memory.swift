@@ -296,13 +296,17 @@ See `Evals/README.md` and `.agents/skills/memory-evals/SKILL.md` for dataset gen
 
 ## Autoresearch
 
-The in-repo autonomous optimization loop for CoreML retrieval models lives in `./Autoresearch`.
+The in-repo autonomous optimization loops for CoreML memory models live in
+`./Autoresearch`.
 
 ```bash
 cd Autoresearch
 uv sync
-uv run prepare.py
-uv run train.py
+uv run retrieval/prepare.py
+uv run retrieval/train.py
+uv run reranker/prepare.py
+uv run reranker/train.py
 ```
 
-See `./Autoresearch/README.md` and `./Autoresearch/program.md` for the workflow and guardrails.
+See `./Autoresearch/README.md`, `./Autoresearch/retrieval/program.md`, and
+`./Autoresearch/reranker/program.md` for the workflow and guardrails.

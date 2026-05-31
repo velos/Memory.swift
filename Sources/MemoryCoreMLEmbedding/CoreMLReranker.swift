@@ -83,29 +83,28 @@ public actor CoreMLReranker: Reranker {
     private func scoreBatch(query: String, documents: [String]) throws -> [Double] {
         guard !documents.isEmpty else { return [] }
 
-        var providers: [MLFeatureProvider] = []
-        providers.reserveCapacity(documents.count)
-        for document in documents {
-            let encoded = tokenizer.encodePair(query: query, document: document)
-            providers.append(try makeFeatureProvider(encoded: encoded))
-        }
-
-        let batchProvider = MLArrayBatchProvider(array: providers)
-        let outputs = try model.predictions(fromBatch: batchProvider)
-
         var scores: [Double] = []
-        scores.reserveCapacity(outputs.count)
-        for index in 0..<outputs.count {
-            let output = outputs.features(at: index)
-            guard let scoreFeature = output.featureValue(for: "relevance_score"),
-                  let scoreArray = scoreFeature.multiArrayValue else {
-                throw MemoryError.embedding("CoreML reranker did not return 'relevance_score' output")
+        scores.reserveCapacity(documents.count)
+        for document in documents {
+            let score = try autoreleasepool { () throws -> Double in
+                let encoded = tokenizer.encodePair(query: query, document: document)
+                let provider = try makeFeatureProvider(encoded: encoded)
+                let output = try model.prediction(from: provider)
+                return try relevanceScore(from: output)
             }
-            let rawLogit = Double(scoreArray.dataPointer.assumingMemoryBound(to: Float.self).pointee)
-            scores.append(sigmoid(rawLogit))
+            scores.append(score)
         }
 
         return scores
+    }
+
+    private func relevanceScore(from output: MLFeatureProvider) throws -> Double {
+        guard let scoreFeature = output.featureValue(for: "relevance_score"),
+              let scoreArray = scoreFeature.multiArrayValue else {
+            throw MemoryError.embedding("CoreML reranker did not return 'relevance_score' output")
+        }
+        let rawLogit = Double(scoreArray.dataPointer.assumingMemoryBound(to: Float.self).pointee)
+        return sigmoid(rawLogit)
     }
 
     private func makeFeatureProvider(encoded: BertTokenizer.EncodedInput) throws -> MLFeatureProvider {

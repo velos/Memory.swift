@@ -9,7 +9,7 @@ import coremltools as ct
 import numpy as np
 
 from .cache import metrics_path
-from .config import COMPONENT_CORPUS_SCORE_WEIGHTS, MEMORY_TYPE_TO_INDEX
+from .config import COMPONENT_CORPUS_SCORE_WEIGHTS, DEFAULT_MEMORY_EVAL_PROFILE, MEMORY_TYPE_TO_INDEX
 from .scoring import EvalMetrics, build_memory_score, compute_recall_score, compute_storage_score
 from .tokenization import BertTokenizerAdapter
 from .upstream import install_artifact_into_upstream, restore_baseline_artifacts, run_memory_eval
@@ -217,11 +217,12 @@ def evaluate_candidate(
     quick_dataset_root: Path,
     full_dataset_root: Path,
     checkpoint: str,
+    profile: str = DEFAULT_MEMORY_EVAL_PROFILE,
 ) -> tuple[EvalSummary, EvalSummary]:
     restore_baseline_artifacts()
     try:
-        quick_report = _evaluate_recall_report(component, artifact_path, quick_dataset_root)
-        full_report = _evaluate_recall_report(component, artifact_path, full_dataset_root)
+        quick_report = _evaluate_recall_report(component, artifact_path, quick_dataset_root, profile)
+        full_report = _evaluate_recall_report(component, artifact_path, full_dataset_root, profile)
         quick_typing = ((0.0, 0.0, 0.0, 0.0), {})
         full_typing = ((0.0, 0.0, 0.0, 0.0), {})
         if component == "typing" and artifact_path is not None:
@@ -248,11 +249,16 @@ def evaluate_candidate(
         restore_baseline_artifacts()
 
 
-def _evaluate_recall_report(component: str, artifact_path: Path | None, dataset_root: Path) -> dict:
+def _evaluate_recall_report(
+    component: str,
+    artifact_path: Path | None,
+    dataset_root: Path,
+    profile: str,
+) -> dict:
     if component in {"embedding", "reranker"} and artifact_path is not None:
         install_artifact_into_upstream(component, artifact_path)
     output_path = metrics_path(component).with_name(f"{component}_{dataset_root.name}.json")
-    return run_memory_eval(dataset_root=dataset_root, output_path=output_path)
+    return run_memory_eval(dataset_root=dataset_root, output_path=output_path, profile=profile)
 
 
 def _build_eval_summary(

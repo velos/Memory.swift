@@ -5,7 +5,7 @@ description: Run and compare Memory.swift evaluation harness (`memory_eval`) pro
 
 # Memory Evals
 
-Run evals from the repository root with deterministic defaults for code-change validation. Prefer `coreml_default` for shipped-path accuracy work unless the user asks for another profile.
+Run evals from the repository root with deterministic defaults for code-change validation. Prefer `coreml_default` for shipped-path accuracy work unless the user asks for another profile. `coreml_default` has no neural reranker in the default hot path; use `coreml_rerank` only for opt-in reranker experiments and promotion checks.
 
 ## Quick Commands
 
@@ -32,6 +32,27 @@ swift run memory_eval compare --baseline ./Evals/general_v2/runs/<baseline>.json
 - Retrieval-only diagnostics with context budget accounting:
 ```bash
 swift run memory_eval retrieval-diagnostics --profile coreml_default --dataset-root ./Evals/longmemeval_v2 --candidate-pool-depth 40 --context-token-budget 4096 --per-document-token-budget 384 --context-packing-order rank --no-cache --no-index-cache
+```
+
+- Opt-in CoreML reranker profile:
+```bash
+swift run memory_eval run --profile coreml_rerank --dataset-root ./Evals/longmemeval_ranking_v1 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_rerank --dataset-root ./Evals/longmemeval_multievidence_v1 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_rerank --dataset-root ./Evals/general_v2 --no-cache --no-index-cache
+swift run memory_eval run --profile coreml_rerank --dataset-root ./Evals/longmemeval_v2 --no-cache --no-index-cache
+```
+
+`coreml_rerank` requires `Models/reranker-v1.mlpackage`. If the repo does not
+already have that artifact, use a temporary install from the reranker
+autoresearch cache and always restore or remove it afterward:
+
+```bash
+cd Autoresearch
+uv run python -c 'import subprocess; from memory_autoresearch.cache import configure_setup, candidate_artifact_path, baseline_artifact_path; from memory_autoresearch.upstream import install_artifact_into_upstream, restore_baseline_artifacts; configure_setup("reranker"); artifact = candidate_artifact_path("reranker"); artifact = artifact if artifact.exists() else baseline_artifact_path("reranker"); install_artifact_into_upstream("reranker", artifact)
+try:
+    subprocess.run(["swift", "run", "memory_eval", "run", "--profile", "coreml_rerank", "--dataset-root", "./Evals/longmemeval_ranking_v1", "--no-cache", "--no-index-cache"], cwd="/Users/zac/Projects/collab/Memory.swift", check=True)
+finally:
+    restore_baseline_artifacts()'
 ```
 
 - Gate required release artifacts:
@@ -166,6 +187,9 @@ repo.
 - Use `--index-cache` only for fast reruns when index schema/behavior has not changed.
 - If results look suspiciously better/worse than expected, rerun with `--no-index-cache`.
 - CoreML runs may print `E5RT encountered an STL exception... ANECompiler`; treat it as a warning if the eval completes and writes reports.
+- For `coreml_rerank`, verify the final status of `Models/reranker-v1.mlpackage`
+  after the run. Temporary candidates should not be left in the repo unless the
+  user explicitly asks to promote or inspect the artifact.
 
 3. Run profile(s) with `swift run memory_eval run ...`.
 
@@ -220,6 +244,9 @@ generalize across memory-like workloads before they are kept:
 - If a change improves Hit@10 by reducing Recall@10, nDCG, or average context
   diversity on broader suites, treat it as suspect until there is a clear agent
   use-case reason.
+- Reranker promotion requires focused ranking wins plus broad no-harm checks on
+  `general_v2` and `longmemeval_v2`; `coreml_default` remains the shipped path
+  until promotion is explicitly requested and supported by fresh reports.
 - Run `python3 Scripts/check_benchmark_leakage.py` before PR review for
   retrieval changes touched by external benchmark analysis. The guard scans
   runtime/library tests for exact answer phrases, benchmark IDs, and rescue
@@ -267,11 +294,16 @@ Core profiles:
 
 Additional experimental profile names accepted by the CLI:
 - `coreml_leaf_ir`
-- `coreml_rerank`
+- `coreml_rerank` (opt-in neural reranker; requires `Models/reranker-v1.mlpackage`)
 
 ## CoreML default path
 
-The `coreml_default` eval profile exercises the shipped CoreML embedding stack. The CLI resolves `Models/embedding-v1.mlpackage` by default (same layout as `swift run memory` / `memory_eval`).
+The `coreml_default` eval profile exercises the shipped CoreML embedding stack with no neural reranker. The CLI resolves `Models/embedding-v1.mlpackage` by default (same layout as `swift run memory` / `memory_eval`).
+
+The `coreml_rerank` profile attaches `CoreMLReranker` from
+`Models/reranker-v1.mlpackage`. Treat it as an opt-in experiment until focused
+ranking wins are paired with broad no-harm checks on `general_v2` and
+`longmemeval_v2`.
 
 The repo also contains `Models/leaf-ir.mlpackage` and conversion helpers for experiments:
 - Conversion script: `Scripts/convert_leaf_ir_coreml.py`

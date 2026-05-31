@@ -4,3 +4,7 @@ __pycache__/
 CreateML/
 results.tsv
 run.log
+*/CreateML/
+*/results.tsv
+*/run.log
+*/autoresearch.jsonl

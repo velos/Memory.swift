@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .config import CACHE_NAMESPACE, MEMORY_SWIFT_REPO_ROOT
 
+_SETUP_NAME = os.environ.get("MEMORY_AUTORESEARCH_SETUP", "default")
+
+
+def configure_setup(name: str) -> None:
+    global _SETUP_NAME
+    cleaned = "".join(char if char.isalnum() or char in "-_" else "-" for char in name.strip())
+    _SETUP_NAME = cleaned or "default"
+
 
 def cache_root() -> Path:
     return Path.home() / ".cache" / CACHE_NAMESPACE
+
+
+def setup_cache_root() -> Path:
+    return ensure_dir(cache_root() / _SETUP_NAME)
 
 
 def repo_cache_key() -> str:
@@ -29,15 +42,15 @@ def ensure_dir(path: Path) -> Path:
 
 
 def upstream_root() -> Path:
-    return ensure_dir(cache_root() / "workspace" / repo_cache_key())
+    return ensure_dir(setup_cache_root() / "workspace" / repo_cache_key())
 
 
 def datasets_root() -> Path:
-    return ensure_dir(cache_root() / "datasets" / repo_cache_key())
+    return ensure_dir(setup_cache_root() / "datasets" / repo_cache_key())
 
 
 def artifacts_root() -> Path:
-    return ensure_dir(cache_root() / "artifacts")
+    return ensure_dir(setup_cache_root() / "artifacts")
 
 
 def baselines_root() -> Path:
@@ -49,7 +62,7 @@ def candidates_root() -> Path:
 
 
 def runs_root() -> Path:
-    return ensure_dir(cache_root() / "runs")
+    return ensure_dir(setup_cache_root() / "runs")
 
 
 def tokenizer_root() -> Path:
@@ -70,6 +83,10 @@ def memory_swift_build_path() -> Path:
 
 def baseline_artifact_path(component: str) -> Path:
     return baselines_root() / component / "current.mlpackage"
+
+
+def baseline_state_path(component: str) -> Path:
+    return baselines_root() / component / "source_state.txt"
 
 
 def candidate_artifact_path(component: str) -> Path:
