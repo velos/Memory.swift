@@ -33,17 +33,7 @@ public struct BertTokenizer: Sendable {
     }
 
     public func encode(_ text: String) -> EncodedInput {
-        let cleaned = cleanAndLowercase(text)
-        let basicTokens = basicTokenize(cleaned)
-        var wordpieceIDs: [Int32] = []
-        wordpieceIDs.reserveCapacity(maxSequenceLength)
-
-        let budget = maxSequenceLength - 2
-        for token in basicTokens {
-            let subIDs = wordpieceTokenize(token)
-            if wordpieceIDs.count + subIDs.count > budget { break }
-            wordpieceIDs.append(contentsOf: subIDs)
-        }
+        let wordpieceIDs = tokenIDs(for: text, budget: maxSequenceLength - 2)
 
         var inputIDs = [Int32]()
         inputIDs.reserveCapacity(maxSequenceLength)
@@ -69,32 +59,10 @@ public struct BertTokenizer: Sendable {
     /// Encodes a query-document pair as `[CLS] query [SEP] document [SEP]` with
     /// token_type_ids = 0 for query segment and 1 for document segment.
     public func encodePair(query: String, document: String) -> EncodedInput {
-        let cleanedQuery = cleanAndLowercase(query)
-        let cleanedDoc = cleanAndLowercase(document)
-
-        let queryTokens = basicTokenize(cleanedQuery)
-        let docTokens = basicTokenize(cleanedDoc)
-
-        var queryIDs: [Int32] = []
-        var docIDs: [Int32] = []
-
         // Budget: maxSeqLen - 3 for [CLS], [SEP], [SEP]
         let totalBudget = maxSequenceLength - 3
-
-        // Tokenize query first
-        for token in queryTokens {
-            let subIDs = wordpieceTokenize(token)
-            if queryIDs.count + subIDs.count > totalBudget { break }
-            queryIDs.append(contentsOf: subIDs)
-        }
-
-        // Remaining budget goes to document
-        let docBudget = totalBudget - queryIDs.count
-        for token in docTokens {
-            let subIDs = wordpieceTokenize(token)
-            if docIDs.count + subIDs.count > docBudget { break }
-            docIDs.append(contentsOf: subIDs)
-        }
+        let queryIDs = tokenIDs(for: query, budget: totalBudget)
+        let docIDs = tokenIDs(for: document, budget: totalBudget - queryIDs.count)
 
         // Build: [CLS] query_tokens [SEP] doc_tokens [SEP] [PAD...]
         var inputIDs = [Int32]()
@@ -124,14 +92,173 @@ public struct BertTokenizer: Sendable {
         return EncodedInput(inputIDs: inputIDs, attentionMask: attentionMask, tokenTypeIDs: tokenTypeIDs)
     }
 
+    private func tokenIDs(for text: String, budget: Int) -> [Int32] {
+        var ids: [Int32] = []
+        ids.reserveCapacity(min(maxSequenceLength, budget))
+        var current = ""
+
+        func flushCurrentToken() -> Bool {
+            guard !current.isEmpty else { return true }
+            let appended = appendWordpieceIDs(current, to: &ids, budget: budget)
+            current.removeAll(keepingCapacity: true)
+            return appended
+        }
+
+        func appendTokenizedScalar(_ scalar: Unicode.Scalar) -> Bool {
+            let value = scalar.value
+            if value < 128 {
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    return flushCurrentToken()
+                }
+                if isASCIIPunctuation(value) {
+                    guard flushCurrentToken() else { return false }
+                    return appendWordpieceIDs(String(scalar), to: &ids, budget: budget)
+                }
+                current.unicodeScalars.append(scalar)
+                return true
+            }
+
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                return flushCurrentToken()
+            }
+            if isPunctuation(scalar) || isCJKCharacter(scalar) {
+                guard flushCurrentToken() else { return false }
+                return appendWordpieceIDs(String(scalar), to: &ids, budget: budget)
+            }
+            current.unicodeScalars.append(scalar)
+            return true
+        }
+
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            if value < 128 {
+                if value == 0 || (value < 32 && value != 9 && value != 10 && value != 13) || value == 127 {
+                    continue
+                }
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    guard flushCurrentToken() else { break }
+                } else if value >= 65 && value <= 90, let lower = Unicode.Scalar(value + 32) {
+                    current.unicodeScalars.append(lower)
+                } else if isASCIIPunctuation(value) {
+                    guard flushCurrentToken() else { break }
+                    guard appendWordpieceIDs(String(scalar), to: &ids, budget: budget) else { break }
+                } else {
+                    current.unicodeScalars.append(scalar)
+                }
+                continue
+            }
+
+            if value == 0xFFFD || CharacterSet.controlCharacters.contains(scalar) {
+                continue
+            }
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                guard flushCurrentToken() else { break }
+            } else {
+                var shouldContinue = true
+                for lower in String(scalar).lowercased().unicodeScalars {
+                    if !appendTokenizedScalar(lower) {
+                        shouldContinue = false
+                        break
+                    }
+                }
+                if !shouldContinue { break }
+            }
+        }
+
+        _ = flushCurrentToken()
+        return ids
+    }
+
+    private func cleanLowercaseAndBasicTokenize(_ text: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+
+        func flushCurrentToken() {
+            if !current.isEmpty {
+                tokens.append(current)
+                current = ""
+            }
+        }
+
+        func appendTokenizedScalar(_ scalar: Unicode.Scalar) {
+            let value = scalar.value
+            if value < 128 {
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    flushCurrentToken()
+                } else if isASCIIPunctuation(value) {
+                    flushCurrentToken()
+                    tokens.append(String(scalar))
+                } else {
+                    current.unicodeScalars.append(scalar)
+                }
+                return
+            }
+
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                flushCurrentToken()
+            } else if isPunctuation(scalar) || isCJKCharacter(scalar) {
+                flushCurrentToken()
+                tokens.append(String(scalar))
+            } else {
+                current.unicodeScalars.append(scalar)
+            }
+        }
+
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            if value < 128 {
+                if value == 0 || (value < 32 && value != 9 && value != 10 && value != 13) || value == 127 {
+                    continue
+                }
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    flushCurrentToken()
+                } else if value >= 65 && value <= 90, let lower = Unicode.Scalar(value + 32) {
+                    current.unicodeScalars.append(lower)
+                } else if isASCIIPunctuation(value) {
+                    flushCurrentToken()
+                    tokens.append(String(scalar))
+                } else {
+                    current.unicodeScalars.append(scalar)
+                }
+                continue
+            }
+
+            if value == 0xFFFD || CharacterSet.controlCharacters.contains(scalar) {
+                continue
+            }
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                flushCurrentToken()
+            } else {
+                for lower in String(scalar).lowercased().unicodeScalars {
+                    appendTokenizedScalar(lower)
+                }
+            }
+        }
+
+        flushCurrentToken()
+        return tokens
+    }
+
     private func cleanAndLowercase(_ text: String) -> String {
         var result = ""
         result.reserveCapacity(text.count)
         for scalar in text.unicodeScalars {
-            if scalar.value == 0 || scalar.value == 0xFFFD || CharacterSet.controlCharacters.contains(scalar) {
-                if scalar == "\t" || scalar == "\n" || scalar == "\r" {
-                    result.append(" ")
+            let value = scalar.value
+            if value < 128 {
+                if value == 0 || (value < 32 && value != 9 && value != 10 && value != 13) || value == 127 {
+                    continue
                 }
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    result.append(" ")
+                } else if value >= 65 && value <= 90, let lower = Unicode.Scalar(value + 32) {
+                    result.unicodeScalars.append(lower)
+                } else {
+                    result.unicodeScalars.append(scalar)
+                }
+                continue
+            }
+
+            if value == 0xFFFD || CharacterSet.controlCharacters.contains(scalar) {
                 continue
             }
             if CharacterSet.whitespacesAndNewlines.contains(scalar) {
@@ -150,6 +277,25 @@ public struct BertTokenizer: Sendable {
         var current = ""
 
         for scalar in text.unicodeScalars {
+            let value = scalar.value
+            if value < 128 {
+                if value == 9 || value == 10 || value == 13 || value == 32 {
+                    if !current.isEmpty {
+                        tokens.append(current)
+                        current = ""
+                    }
+                } else if isASCIIPunctuation(value) {
+                    if !current.isEmpty {
+                        tokens.append(current)
+                        current = ""
+                    }
+                    tokens.append(String(scalar))
+                } else {
+                    current.unicodeScalars.append(scalar)
+                }
+                continue
+            }
+
             if CharacterSet.whitespacesAndNewlines.contains(scalar) {
                 if !current.isEmpty {
                     tokens.append(current)
@@ -171,10 +317,19 @@ public struct BertTokenizer: Sendable {
         return tokens
     }
 
-    private func wordpieceTokenize(_ token: String) -> [Int32] {
-        if token.count > 200 { return [unkTokenID] }
+    private func isASCIIPunctuation(_ value: UInt32) -> Bool {
+        (value >= 33 && value <= 47) || (value >= 58 && value <= 64) ||
+        (value >= 91 && value <= 96) || (value >= 123 && value <= 126)
+    }
 
-        var ids: [Int32] = []
+    private func appendWordpieceIDs(_ token: String, to ids: inout [Int32], budget: Int) -> Bool {
+        let originalCount = ids.count
+        if token.count > 200 {
+            guard originalCount + 1 <= budget else { return false }
+            ids.append(unkTokenID)
+            return true
+        }
+
         var start = token.startIndex
         while start < token.endIndex {
             var end = token.endIndex
@@ -195,10 +350,20 @@ public struct BertTokenizer: Sendable {
                 end = token.index(before: end)
             }
             if !matched {
-                return [unkTokenID]
+                if ids.count > originalCount {
+                    ids.removeSubrange(originalCount..<ids.count)
+                }
+                guard originalCount + 1 <= budget else { return false }
+                ids.append(unkTokenID)
+                return true
             }
         }
-        return ids
+
+        if ids.count > budget {
+            ids.removeSubrange(originalCount..<ids.count)
+            return false
+        }
+        return true
     }
 
     private func isPunctuation(_ scalar: Unicode.Scalar) -> Bool {
