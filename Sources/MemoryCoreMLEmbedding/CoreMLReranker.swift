@@ -18,7 +18,7 @@ public actor CoreMLReranker: Reranker {
         batchSize: Int = 8,
         documentCharacterLimit: Int = 4_096,
         identifier: String = "coreml-reranker-v1",
-        computeUnits: MLComputeUnits = .all
+        computeUnits: MLComputeUnits = .cpuOnly
     ) throws {
         self.identifier = identifier
         self.maxSequenceLength = maxSequenceLength
@@ -83,19 +83,30 @@ public actor CoreMLReranker: Reranker {
     private func scoreBatch(query: String, documents: [String]) throws -> [Double] {
         guard !documents.isEmpty else { return [] }
 
-        var scores: [Double] = []
-        scores.reserveCapacity(documents.count)
-        for document in documents {
-            let score = try autoreleasepool { () throws -> Double in
+        return try autoreleasepool { () throws -> [Double] in
+            var providers: [MLFeatureProvider] = []
+            providers.reserveCapacity(documents.count)
+            for document in documents {
                 let encoded = tokenizer.encodePair(query: query, document: document)
-                let provider = try makeFeatureProvider(encoded: encoded)
-                let output = try model.prediction(from: provider)
-                return try relevanceScore(from: output)
+                providers.append(try makeFeatureProvider(encoded: encoded))
             }
-            scores.append(score)
-        }
 
-        return scores
+            let outputs = try model.predictions(
+                fromBatch: MLArrayBatchProvider(array: providers)
+            )
+            guard outputs.count == documents.count else {
+                throw MemoryError.embedding(
+                    "CoreML reranker returned \(outputs.count) scores for \(documents.count) candidates"
+                )
+            }
+
+            var scores: [Double] = []
+            scores.reserveCapacity(outputs.count)
+            for index in 0..<outputs.count {
+                scores.append(try relevanceScore(from: outputs.features(at: index)))
+            }
+            return scores
+        }
     }
 
     private func relevanceScore(from output: MLFeatureProvider) throws -> Double {
