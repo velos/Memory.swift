@@ -19,6 +19,13 @@ internal enum MemorySearchHeuristics {
         "oct", "october", "nov", "november", "dec", "december",
         "today", "yesterday", "tomorrow"
     ]
+    private static let temporalCueRegex = try? NSRegularExpression(
+        pattern: temporalCueWords
+            .map { NSRegularExpression.escapedPattern(for: $0) }
+            .joined(separator: "|")
+    )
+    private static let yearRegex = try? NSRegularExpression(pattern: #"\b(19|20)\d{2}\b"#)
+    private static let clockTimeRegex = try? NSRegularExpression(pattern: #"\b\d{1,2}:\d{2}\b"#)
 
     internal static func normalizedComparisonKey(for text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
@@ -34,14 +41,14 @@ internal enum MemorySearchHeuristics {
     internal static func isTimeAnchoredQuery(_ queryText: String) -> Bool {
         let lower = queryText.lowercased()
 
-        if temporalCueWords.contains(where: lower.contains) {
+        let range = NSRange(lower.startIndex..<lower.endIndex, in: lower)
+        if temporalCueRegex?.firstMatch(in: lower, options: [], range: range) != nil {
             return true
         }
-
-        if lower.range(of: #"\b(19|20)\d{2}\b"#, options: .regularExpression) != nil {
+        if yearRegex?.firstMatch(in: lower, options: [], range: range) != nil {
             return true
         }
-        if lower.range(of: #"\b\d{1,2}:\d{2}\b"#, options: .regularExpression) != nil {
+        if clockTimeRegex?.firstMatch(in: lower, options: [], range: range) != nil {
             return true
         }
 

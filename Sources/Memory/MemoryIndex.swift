@@ -41,6 +41,9 @@ public actor MemoryIndex {
     private let fileManager: FileManager
     private let ingestLock = MemoryAsyncLock()
     private let searchAdjustments: MemorySearchAdjustmentSet
+    private var searchablePrefixCache: [Int64: String] = [:]
+    private var timeAnchoredTextCache: [Int64: Bool] = [:]
+    private var supportGroupKeyCache: [String: String] = [:]
 
     private let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private let codeExtensions: Set<String> = [
@@ -57,6 +60,7 @@ public actor MemoryIndex {
     private let documentLexicalPrimaryWeight = 0.45
     private let documentLexicalExpansionWeight = 0.60
     private let maxCandidateHydrationLimit = 1_000
+    private let missingSupportGroupKeyCacheMarker = "\u{0}"
 
     private struct WeightedQuery {
         var text: String
@@ -384,6 +388,8 @@ public actor MemoryIndex {
 
         do {
             try await storage.wipeIndexData()
+            searchablePrefixCache.removeAll(keepingCapacity: true)
+            timeAnchoredTextCache.removeAll(keepingCapacity: true)
 
             var totalChunks = 0
             for (index, url) in urls.enumerated() {
@@ -397,6 +403,8 @@ public actor MemoryIndex {
 
                 let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
+                searchablePrefixCache.removeAll(keepingCapacity: true)
+                timeAnchoredTextCache.removeAll(keepingCapacity: true)
                 events?(
                     .stageTiming(
                         path: url.path,
@@ -439,6 +447,8 @@ public actor MemoryIndex {
 
                 if !fileManager.fileExists(atPath: url.path) {
                     try await storage.removeDocuments(paths: [url.path])
+                    searchablePrefixCache.removeAll(keepingCapacity: true)
+                    timeAnchoredTextCache.removeAll(keepingCapacity: true)
                     continue
                 }
 
@@ -449,6 +459,8 @@ public actor MemoryIndex {
                 events?(.embedded(path: url.path, chunks: payload.chunks.count))
                 let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
+                searchablePrefixCache.removeAll(keepingCapacity: true)
+                timeAnchoredTextCache.removeAll(keepingCapacity: true)
                 events?(
                     .stageTiming(
                         path: url.path,
@@ -476,6 +488,8 @@ public actor MemoryIndex {
         do {
             let paths = urls.map(\.path)
             try await storage.removeDocuments(paths: paths)
+            searchablePrefixCache.removeAll(keepingCapacity: true)
+            timeAnchoredTextCache.removeAll(keepingCapacity: true)
         } catch {
             throw normalizeError(error)
         }
@@ -886,17 +900,6 @@ public actor MemoryIndex {
                     return updated
                 }
             }
-        } else {
-            fused = fused.map {
-                var updated = $0
-                updated.score.blended = updated.score.fused
-                updated.score.rerank = 0
-                return updated
-            }
-        }
-
-        if needsSnippetsForPostRerankAdjustments(query: query) {
-            fused = attachingSnippets(to: fused, queryText: normalizedText)
         }
 
         fused = applyPostRerankAdjustments(
@@ -2371,6 +2374,8 @@ public actor MemoryIndex {
     private func materializeStoredMemory(_ stored: StoredMemoryRecord) async throws {
         let payload = try await makeDerivedMemoryPayload(from: stored)
         try await storage.replaceDocument(payload)
+        searchablePrefixCache.removeAll(keepingCapacity: true)
+        timeAnchoredTextCache.removeAll(keepingCapacity: true)
     }
 
     private func makeDerivedMemoryPayload(from stored: StoredMemoryRecord) async throws -> StoredDocumentInput {
@@ -2418,6 +2423,7 @@ public actor MemoryIndex {
                     memoryTypeOverrideSource: "system",
                     memoryTypeOverrideConfidence: nil,
                     contentTags: tags,
+                    isTimeAnchored: isTimeAnchoredQuery(stored.text),
                     memoryKind: kind.rawValue,
                     importance: stored.importance,
                     accessCount: stored.accessCount,
@@ -2676,7 +2682,8 @@ public actor MemoryIndex {
                 memoryTypeOverride: nil,
                 memoryTypeOverrideSource: nil,
                 memoryTypeOverrideConfidence: nil,
-                contentTags: contentTags
+                contentTags: contentTags,
+                isTimeAnchored: isTimeAnchoredQuery(chunk.content)
             )
         }
 
@@ -3182,8 +3189,8 @@ public actor MemoryIndex {
             entityValues: [],
             topics: [],
             temporalIntent: temporalIntent,
-            semanticCandidateLimit: shouldExpandEvidenceWindow ? configuration.semanticCandidateLimit + 150 : nil,
-            lexicalCandidateLimit: shouldExpandEvidenceWindow ? configuration.lexicalCandidateLimit + 150 : nil,
+            semanticCandidateLimit: shouldExpandEvidenceWindow ? configuration.semanticCandidateLimit + 50 : nil,
+            lexicalCandidateLimit: shouldExpandEvidenceWindow ? configuration.lexicalCandidateLimit + 35 : nil,
             rerankLimit: shouldExpandEvidenceWindow || temporalIntent == .timeAnchored ? 60 : nil
         )
     }
@@ -3479,7 +3486,7 @@ public actor MemoryIndex {
 
     private func documentLexicalCandidateLimit(for query: SearchQuery, branchIndex: Int) -> Int {
         let scaled = branchIndex == 0 ? query.limit * 4 : query.limit * 3
-        return min(query.lexicalCandidateLimit, min(96, max(24, scaled)))
+        return min(query.lexicalCandidateLimit, min(80, max(24, scaled)))
     }
 
     private func documentLexicalWeight(branchIndex: Int) -> Double {
@@ -3547,7 +3554,9 @@ public actor MemoryIndex {
         let weights = fusionWeights(for: primaryQueryText)
         let anchorSignals = anchorCoverageSignals(for: primaryQueryText)
         let tagScoring = makeContentTagScoring(queryTags: queryTags)
+        let shouldScoreContentTags = !tagScoring.isEmpty
         let schemaTagScoring = makeSchemaTagScoring(querySignals: querySignals)
+        let shouldScoreSchemaTags = !schemaTagScoring.isEmpty
         var results: [FusedCandidate] = []
         results.reserveCapacity(candidateIDs.count)
 
@@ -3558,11 +3567,19 @@ public actor MemoryIndex {
             let lexical = lexicalRRF[chunkID] ?? 0
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
-            let anchorBonus = anchorCoverageBonus(signals: anchorSignals, metadata: metadata)
-            let tagBonus = contentTagBonus(scoring: tagScoring, metadata: metadata)
-            let schemaBonus = memorySchemaOverlapBonus(scoring: schemaTagScoring, metadata: metadata)
+            let anchorBonus = anchorCoverageBonus(
+                signals: anchorSignals,
+                metadata: metadata,
+                useExtendedSearchablePrefix: query.expansionLimit == 0
+            )
+            let tagBonus = shouldScoreContentTags
+                ? contentTagBonus(scoring: tagScoring, metadata: metadata)
+                : 0
+            let schemaBonus = (shouldScoreSchemaTags
+                ? memorySchemaOverlapBonus(scoring: schemaTagScoring, metadata: metadata)
+                : 0)
                 + ellipticalStructureBonus(querySignals: querySignals, metadata: metadata)
-            let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
+            let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata, now: now)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
             let typeBonus = searchAdjustments.contains(.memoryTypeIntent)
                 ? memoryTypeIntentBonus(intent: memoryTypeIntent, metadata: metadata)
@@ -3618,10 +3635,6 @@ public actor MemoryIndex {
         )
     }
 
-    private func needsSnippetsForPostRerankAdjustments(query: SearchQuery) -> Bool {
-        !searchAdjustments.isEmpty && query.rerankLimit == 0 && query.limit >= 5
-    }
-
     private func attachingSnippets(to results: [SearchResult], queryText: String) -> [SearchResult] {
         var output = results
         for index in output.indices where output[index].snippet.isEmpty {
@@ -3660,10 +3673,69 @@ public actor MemoryIndex {
         protectTopCandidates(from: semanticRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
         protectTopCandidates(from: lexicalRRF, limit: protectedPerSignal, selected: &selected, hydrationLimit: hydrationLimit)
 
-        for entry in preliminaryScores.sorted(by: sortCandidateScore(_:_:)) where selected.count < hydrationLimit {
+        let remainingSlots = hydrationLimit - selected.count
+        for entry in topCandidateScores(from: preliminaryScores, excluding: selected, limit: remainingSlots) {
             selected.insert(entry.key)
         }
         return Array(selected)
+    }
+
+    private func topCandidateScores(
+        from scores: [Int64: Double],
+        excluding excluded: Set<Int64>,
+        limit: Int
+    ) -> [Dictionary<Int64, Double>.Element] {
+        guard limit > 0 else { return [] }
+
+        var heap: [Dictionary<Int64, Double>.Element] = []
+        heap.reserveCapacity(limit)
+
+        func isBetter(_ lhs: Dictionary<Int64, Double>.Element, than rhs: Dictionary<Int64, Double>.Element) -> Bool {
+            sortCandidateScore(lhs, rhs)
+        }
+
+        func isWorse(_ lhs: Dictionary<Int64, Double>.Element, than rhs: Dictionary<Int64, Double>.Element) -> Bool {
+            isBetter(rhs, than: lhs)
+        }
+
+        func siftUp(_ index: Int) {
+            var child = index
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard isWorse(heap[child], than: heap[parent]) else { break }
+                heap.swapAt(child, parent)
+                child = parent
+            }
+        }
+
+        func siftDown(_ index: Int) {
+            var parent = index
+            while true {
+                let left = (parent * 2) + 1
+                let right = left + 1
+                var worst = parent
+                if left < heap.count, isWorse(heap[left], than: heap[worst]) {
+                    worst = left
+                }
+                if right < heap.count, isWorse(heap[right], than: heap[worst]) {
+                    worst = right
+                }
+                guard worst != parent else { return }
+                heap.swapAt(parent, worst)
+                parent = worst
+            }
+        }
+
+        for entry in scores where !excluded.contains(entry.key) {
+            if heap.count < limit {
+                heap.append(entry)
+                siftUp(heap.count - 1)
+            } else if let worst = heap.first, isBetter(entry, than: worst) {
+                heap[0] = entry
+                siftDown(0)
+            }
+        }
+        return heap
     }
 
     private func candidateHydrationLimit(for query: SearchQuery, candidatePoolLimit: Int) -> Int {
@@ -3686,7 +3758,7 @@ public actor MemoryIndex {
         hydrationLimit: Int
     ) {
         guard limit > 0, selected.count < hydrationLimit else { return }
-        for entry in scores.sorted(by: sortCandidateScore(_:_:)).prefix(limit) {
+        for entry in topCandidateScores(from: scores, excluding: [], limit: limit) {
             selected.insert(entry.key)
             if selected.count >= hydrationLimit {
                 return
@@ -4635,6 +4707,19 @@ public actor MemoryIndex {
     }
 
     private func supportContinuationGroupKey(for documentPath: String) -> String? {
+        if let cached = supportGroupKeyCache[documentPath] {
+            return cached == missingSupportGroupKeyCacheMarker ? nil : cached
+        }
+
+        let computed = computeSupportContinuationGroupKey(for: documentPath)
+        if supportGroupKeyCache.count > 4_096 {
+            supportGroupKeyCache.removeAll(keepingCapacity: true)
+        }
+        supportGroupKeyCache[documentPath] = computed ?? missingSupportGroupKeyCacheMarker
+        return computed
+    }
+
+    private func computeSupportContinuationGroupKey(for documentPath: String) -> String? {
         let normalizedPath = documentPath
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .lowercased()
@@ -4679,7 +4764,7 @@ public actor MemoryIndex {
         }
 
         var adjusted = results
-        let window = min(adjusted.count, max(query.limit * 3, 24))
+        let window = min(adjusted.count, max(query.limit * 2, 20))
         let leadingDateCount = min(10, adjusted.count)
         let useTemporalNeighborBonus = querySignals.understanding.operations.contains(.ordering)
             || querySignals.understanding.operations.contains(.comparison)
@@ -4784,7 +4869,7 @@ public actor MemoryIndex {
         }
 
         var adjusted = results
-        let window = min(adjusted.count, max(query.limit * 3, 24))
+        let window = min(adjusted.count, max(query.limit * 2, 20))
         for index in adjusted.indices.prefix(window) {
             let score = adjusted[index].score
             guard score.semantic >= 0.055,
@@ -4810,7 +4895,7 @@ public actor MemoryIndex {
         }
 
         var adjusted = results
-        let window = min(adjusted.count, max(query.limit * 3, 24))
+        let window = min(adjusted.count, max(query.limit * 2, 20))
         for index in adjusted.indices.prefix(window) {
             let fit = memoryTypeIntentFit(intent: intent, result: adjusted[index])
             guard fit > 0 else { continue }
@@ -5261,9 +5346,14 @@ public actor MemoryIndex {
         )
     }
 
-    private func anchorCoverageBonus(signals: AnchorCoverageSignals, metadata: StoredChunkMetadata) -> Double {
-        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
-            .lowercased()
+    private func anchorCoverageBonus(
+        signals: AnchorCoverageSignals,
+        metadata: StoredChunkMetadata,
+        useExtendedSearchablePrefix: Bool = false
+    ) -> Double {
+        let searchable = useExtendedSearchablePrefix
+            ? extendedSearchablePrefixText(metadata: metadata)
+            : searchablePrefixText(metadata: metadata)
         let phraseBonus = quotedPhraseCoverageBonus(phrases: signals.quotedPhrases, searchable: searchable)
         guard !signals.anchors.isEmpty else { return phraseBonus }
 
@@ -5418,19 +5508,19 @@ public actor MemoryIndex {
         return lower.hasPrefix("how do i apply") || lower.hasPrefix("can i do it")
     }
 
-    private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
+    private func temporalFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata, now: Date) -> Double {
         let anchorBonus = timeAnchorFitBonus(querySignals: querySignals, metadata: metadata)
         switch querySignals.temporalIntent {
         case .any:
             return anchorBonus
         case .recent, .mostRecent:
-            let ageDays = max(0, Date().timeIntervalSince(metadata.modifiedAt) / 86_400)
+            let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             return anchorBonus + min(0.05, 0.05 * exp(-ageDays / 14.0))
         case .historical:
             let historicalBonus = metadata.memoryStatus == MemoryStatus.superseded.rawValue || metadata.memoryStatus == MemoryStatus.archived.rawValue ? 0.04 : 0
             return anchorBonus + historicalBonus
         case .timeAnchored, .count:
-            return anchorBonus + (isTimeAnchoredText(metadata.content) ? 0.025 : 0)
+            return anchorBonus + (isTimeAnchoredText(metadata: metadata) ? 0.025 : 0)
         }
     }
 
@@ -5479,8 +5569,11 @@ public actor MemoryIndex {
     }
 
     private func timeAnchorFitBonus(querySignals: QueryMatchSignals, metadata: StoredChunkMetadata) -> Double {
-        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
-            .lowercased()
+        guard !querySignals.monthDayAnchors.isEmpty || !querySignals.monthAnchors.isEmpty else {
+            return 0
+        }
+
+        let searchable = searchablePrefixText(metadata: metadata)
 
         if !querySignals.monthDayAnchors.isEmpty {
             var matched = 0
@@ -5604,6 +5697,34 @@ public actor MemoryIndex {
         return querySignals.preferredStatuses.contains(status) ? 0.035 : 0
     }
 
+    private func searchablePrefixText(metadata: StoredChunkMetadata) -> String {
+        if let cached = searchablePrefixCache[metadata.chunkID] {
+            return cached
+        }
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(800)))
+            .lowercased()
+        searchablePrefixCache[metadata.chunkID] = searchable
+        return searchable
+    }
+
+    private func extendedSearchablePrefixText(metadata: StoredChunkMetadata) -> String {
+        ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_600)))
+            .lowercased()
+    }
+
+    private func isTimeAnchoredText(metadata: StoredChunkMetadata) -> Bool {
+        if let isTimeAnchored = metadata.isTimeAnchored {
+            timeAnchoredTextCache[metadata.chunkID] = isTimeAnchored
+            return isTimeAnchored
+        }
+        if let cached = timeAnchoredTextCache[metadata.chunkID] {
+            return cached
+        }
+        let isAnchored = isTimeAnchoredQuery(metadata.content)
+        timeAnchoredTextCache[metadata.chunkID] = isAnchored
+        return isAnchored
+    }
+
     private func isTimeAnchoredText(_ text: String) -> Bool {
         isTimeAnchoredQuery(text)
     }
@@ -5695,24 +5816,38 @@ public actor MemoryIndex {
     }
 
     private func makeSnippet(content: String, queryText: String?) -> String {
-        let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.count > 300 else { return normalized }
+        guard let contentStart = content.firstIndex(where: { !$0.isWhitespace }) else {
+            return ""
+        }
+        let searchableContent = content[contentStart...]
+        guard let prefixEnd = searchableContent.index(
+            searchableContent.startIndex,
+            offsetBy: 300,
+            limitedBy: searchableContent.endIndex
+        ) else {
+            return searchableContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         guard
             let queryText,
             !queryText.isEmpty,
-            let range = normalized.range(of: queryText, options: [.caseInsensitive, .diacriticInsensitive])
+            queryText.index(queryText.startIndex, offsetBy: 25, limitedBy: queryText.endIndex) == nil,
+            let range = searchableContent.range(of: queryText, options: [.caseInsensitive, .diacriticInsensitive])
         else {
-            return String(normalized.prefix(300))
+            return String(searchableContent[..<prefixEnd])
         }
 
-        let center = normalized.distance(from: normalized.startIndex, to: range.lowerBound)
-        let startOffset = max(0, center - 120)
-        let endOffset = min(normalized.count, center + 180)
-
-        let start = normalized.index(normalized.startIndex, offsetBy: startOffset)
-        let end = normalized.index(normalized.startIndex, offsetBy: endOffset)
-        return String(normalized[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let start = searchableContent.index(
+            range.lowerBound,
+            offsetBy: -120,
+            limitedBy: searchableContent.startIndex
+        ) ?? searchableContent.startIndex
+        let end = searchableContent.index(
+            range.lowerBound,
+            offsetBy: 180,
+            limitedBy: searchableContent.endIndex
+        ) ?? searchableContent.endIndex
+        return String(searchableContent[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func normalizeError(_ error: Error) -> MemoryError {
