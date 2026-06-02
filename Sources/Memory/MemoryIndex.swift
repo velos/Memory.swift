@@ -88,6 +88,28 @@ public actor MemoryIndex {
         var supportGroupKey: String?
     }
 
+    private struct CandidateFusionResult {
+        var results: [SearchResult]
+        var metadataRows: [StoredChunkMetadata]
+    }
+
+    private struct QueryContentTagScoring {
+        var weights: [String: Double]
+        var mass: Double
+
+        var isEmpty: Bool { mass <= 0 || weights.isEmpty }
+    }
+
+    private struct QuerySchemaTagScoring {
+        var entityTags: Set<String>
+        var facetTags: Set<String>
+        var topicTags: Set<String>
+
+        var isEmpty: Bool {
+            entityTags.isEmpty && facetTags.isEmpty && topicTags.isEmpty
+        }
+    }
+
     private struct MonthDayAnchor: Hashable {
         var month: Int
         var day: Int
@@ -540,13 +562,23 @@ public actor MemoryIndex {
         events?(.stageTiming(stage: .expansion, durationMs: elapsedMilliseconds(since: expansionStart)))
         events?(.expandedQueries(count: max(0, searchPlan.expandedQueries.count - 1)))
 
-        let queryEmbeddingStart = DispatchTime.now().uptimeNanoseconds
-        let semanticQueryVectors = try await embedExpandedQueries(
+        async let semanticQueryEmbedding = timedEmbedExpandedQueries(
             searchPlan.expandedQueries,
             semanticCandidateLimit: skipSemanticSearch ? 0 : query.semanticCandidateLimit,
             events: events
         )
-        events?(.stageTiming(stage: .queryEmbedding, durationMs: elapsedMilliseconds(since: queryEmbeddingStart)))
+        async let querySignalPreparation = prepareQuerySignalContext(
+            analysis: searchPlan.analysis,
+            recallPlan: recallPlan,
+            queryText: normalizedText,
+            understanding: queryUnderstanding
+        )
+        async let resolvedQueryTags = resolveQueryContentTagsIfNeeded(
+            includeTagScoring: query.includeTagScoring,
+            queryText: normalizedText,
+            queryAnalysis: searchPlan.analysis,
+            events: events
+        )
 
         var semanticRRF: [Int64: Double] = [:]
         var lexicalRRF: [Int64: Double] = [:]
@@ -556,34 +588,20 @@ public actor MemoryIndex {
         var documentLexicalBranchCount = 0
 
         for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
-            let skipSemantic = expandedQuery.expansionType == .lexical
-                || skipSemanticSearch
             let skipLexical = expandedQuery.expansionType == .semantic
                 || expandedQuery.expansionType == .hypotheticalDocument
 
-            if !skipSemantic,
-               let semanticQueryVectors,
-               let semanticQueryVector = semanticQueryVectors[index] {
-                let semanticSearchStart = DispatchTime.now().uptimeNanoseconds
-                let semanticHits = try await semanticSearch(
-                    queryVector: semanticQueryVector,
-                    limit: query.semanticCandidateLimit,
-                    allowedChunkIDs: allowedChunkIDs,
-                    allowedMemoryTypes: allowedMemoryTypes
-                )
-                semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
-                semanticCandidateCount += semanticHits.count
-                accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
-            }
-
             if !skipLexical, query.lexicalCandidateLimit > 0 {
+                var lexicalQuery: String?
                 let lexicalHits: [LexicalHit]
                 if index == 0, let seeded = lexicalProbe.seededHits {
                     lexicalHits = seeded
                 } else {
+                    let preparedLexicalQuery = ftsPreprocess(expandedQuery.text)
+                    lexicalQuery = preparedLexicalQuery
                     let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                     lexicalHits = try await storage.lexicalSearch(
-                        query: ftsPreprocess(expandedQuery.text),
+                        query: preparedLexicalQuery,
                         limit: query.lexicalCandidateLimit,
                         allowedChunkIDs: allowedChunkIDs,
                         allowedMemoryTypes: allowedMemoryTypes
@@ -602,9 +620,10 @@ public actor MemoryIndex {
                     usedBranches: documentLexicalBranchCount
                 ) {
                     documentLexicalBranchCount += 1
+                    let documentQuery = lexicalQuery ?? ftsPreprocess(expandedQuery.text)
                     let documentLexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                     let documentHits = try await storage.lexicalDocumentSearch(
-                        query: ftsPreprocess(expandedQuery.text),
+                        query: documentQuery,
                         limit: documentLexicalCandidateLimit(for: query, branchIndex: index),
                         allowedChunkIDs: allowedChunkIDs,
                         allowedMemoryTypes: allowedMemoryTypes
@@ -671,27 +690,45 @@ public actor MemoryIndex {
             }
         }
 
-        let querySignals = queryMatchSignals(
-            from: searchPlan.analysis,
-            plan: recallPlan,
-            queryText: normalizedText,
-            understanding: queryUnderstanding
-        )
-        let memoryTypeIntent = classifyRetrievalMemoryTypeIntent(querySignals.understanding)
+        let (semanticQueryVectors, queryEmbeddingDurationMs) = try await semanticQueryEmbedding
+        events?(.stageTiming(stage: .queryEmbedding, durationMs: queryEmbeddingDurationMs))
+
+        for (index, expandedQuery) in searchPlan.expandedQueries.enumerated() {
+            let skipSemantic = expandedQuery.expansionType == .lexical
+                || skipSemanticSearch
+
+            if !skipSemantic,
+               let semanticQueryVectors,
+               let semanticQueryVector = semanticQueryVectors[index] {
+                let semanticSearchStart = DispatchTime.now().uptimeNanoseconds
+                let semanticHits = try await semanticSearch(
+                    queryVector: semanticQueryVector,
+                    limit: query.semanticCandidateLimit,
+                    allowedChunkIDs: allowedChunkIDs,
+                    allowedMemoryTypes: allowedMemoryTypes
+                )
+                semanticSearchDurationMs += elapsedMilliseconds(since: semanticSearchStart)
+                semanticCandidateCount += semanticHits.count
+                accumulateRRF(for: semanticHits, weight: expandedQuery.weight, into: &semanticRRF)
+            }
+        }
+
+        let (querySignals, memoryTypeIntent) = await querySignalPreparation
         events?(.memoryTypeIntent(label: memoryTypeIntent.label, confidence: memoryTypeIntent.confidence))
-        let queryTags = query.includeTagScoring
-            ? await resolveQueryContentTags(queryText: normalizedText, queryAnalysis: searchPlan.analysis, events: events)
-            : []
+        let queryTags = await resolvedQueryTags
         let fusionStart = DispatchTime.now().uptimeNanoseconds
-        var fused = try await fuseCandidates(
+        var fusionResult = try await fuseCandidates(
             semanticRRF: semanticRRF,
             lexicalRRF: lexicalRRF,
             query: query,
             primaryQueryText: normalizedText,
             queryTags: queryTags,
             querySignals: querySignals,
-            memoryTypeIntent: memoryTypeIntent
+            memoryTypeIntent: memoryTypeIntent,
+            includeSnippets: false
         )
+        var fused = fusionResult.results
+        var fusionMetadataRows = fusionResult.metadataRows
         var fusionDurationMs = elapsedMilliseconds(since: fusionStart)
 
         if query.lexicalCandidateLimit > 0, configuration.groundedQueryExpansion.isEnabled {
@@ -716,8 +753,12 @@ public actor MemoryIndex {
                     decision: GroundedQueryExpansionDecision(shouldApply: false, reason: skipReason)
                 )
             } else {
+                let feedbackCandidates = attachingSnippets(
+                    to: Array(fused.prefix(configuration.groundedQueryExpansion.maxFeedbackResults)),
+                    queryText: normalizedText
+                )
                 let feedbackDocuments = await groundedFeedbackDocuments(
-                    from: fused,
+                    from: feedbackCandidates,
                     configuration: configuration.groundedQueryExpansion
                 )
                 groundedPlan = RuntimeGroundedQueryExpansion.makePlan(
@@ -740,9 +781,10 @@ public actor MemoryIndex {
 
                 for (groundedIndex, groundedQuery) in groundedPlan.lexicalQueries.enumerated() {
                     let branchIndex = searchPlan.expandedQueries.count + groundedIndex
+                    let lexicalQuery = ftsPreprocess(groundedQuery)
                     let lexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                     let lexicalHits = try await storage.lexicalSearch(
-                        query: ftsPreprocess(groundedQuery),
+                        query: lexicalQuery,
                         limit: query.lexicalCandidateLimit,
                         allowedChunkIDs: allowedChunkIDs,
                         allowedMemoryTypes: allowedMemoryTypes
@@ -767,7 +809,7 @@ public actor MemoryIndex {
                         documentLexicalBranchCount += 1
                         let documentLexicalSearchStart = DispatchTime.now().uptimeNanoseconds
                         let documentHits = try await storage.lexicalDocumentSearch(
-                            query: ftsPreprocess(groundedQuery),
+                            query: lexicalQuery,
                             limit: documentLexicalCandidateLimit(for: query, branchIndex: branchIndex),
                             allowedChunkIDs: allowedChunkIDs,
                             allowedMemoryTypes: allowedMemoryTypes
@@ -783,15 +825,19 @@ public actor MemoryIndex {
                 }
 
                 let refusionStart = DispatchTime.now().uptimeNanoseconds
-                fused = try await fuseCandidates(
+                fusionResult = try await fuseCandidates(
                     semanticRRF: semanticRRF,
                     lexicalRRF: lexicalRRF,
                     query: query,
                     primaryQueryText: normalizedText,
                     queryTags: queryTags,
                     querySignals: querySignals,
-                    memoryTypeIntent: memoryTypeIntent
+                    memoryTypeIntent: memoryTypeIntent,
+                    cachedMetadataRows: fusionMetadataRows,
+                    includeSnippets: false
                 )
+                fused = fusionResult.results
+                fusionMetadataRows = fusionResult.metadataRows
                 fusionDurationMs += elapsedMilliseconds(since: refusionStart)
             } else {
                 events?(
@@ -849,6 +895,10 @@ public actor MemoryIndex {
             }
         }
 
+        if needsSnippetsForPostRerankAdjustments(query: query) {
+            fused = attachingSnippets(to: fused, queryText: normalizedText)
+        }
+
         fused = applyPostRerankAdjustments(
             to: fused,
             querySignals: querySignals,
@@ -856,7 +906,10 @@ public actor MemoryIndex {
             query: query
         )
 
-        let final = Array(fused.sorted(by: sortByBlendedScore(_:_:)).prefix(query.limit))
+        let final = attachingSnippets(
+            to: Array(fused.sorted(by: sortByBlendedScore(_:_:)).prefix(query.limit)),
+            queryText: normalizedText
+        )
         events?(.stageTiming(stage: .total, durationMs: elapsedMilliseconds(since: queryStart)))
         events?(.completed(count: final.count))
         return final
@@ -1603,14 +1656,15 @@ public actor MemoryIndex {
     private func makeSearchResult(
         from metadata: StoredChunkMetadata,
         queryText: String?,
-        score: SearchScoreBreakdown
+        score: SearchScoreBreakdown,
+        includeSnippet: Bool = true
     ) -> SearchResult {
         return SearchResult(
             chunkID: metadata.chunkID,
             documentPath: metadata.documentPath,
             title: metadata.title,
             content: metadata.content,
-            snippet: makeSnippet(content: metadata.content, queryText: queryText),
+            snippet: includeSnippet ? makeSnippet(content: metadata.content, queryText: queryText) : "",
             modifiedAt: metadata.modifiedAt,
             memoryID: metadata.memoryID,
             memoryKind: resolveMemoryKind(from: metadata),
@@ -2948,6 +3002,36 @@ public actor MemoryIndex {
         return collected
     }
 
+    private func prepareQuerySignalContext(
+        analysis: QueryAnalysis,
+        recallPlan: RecallPlan?,
+        queryText: String,
+        understanding: RecallQueryUnderstanding?
+    ) async -> (QueryMatchSignals, RetrievalMemoryTypeIntent) {
+        let signals = queryMatchSignals(
+            from: analysis,
+            plan: recallPlan,
+            queryText: queryText,
+            understanding: understanding
+        )
+        let intent = classifyRetrievalMemoryTypeIntent(signals.understanding)
+        return (signals, intent)
+    }
+
+    private func resolveQueryContentTagsIfNeeded(
+        includeTagScoring: Bool,
+        queryText: String,
+        queryAnalysis: QueryAnalysis,
+        events: SearchEventHandler?
+    ) async -> [ContentTag] {
+        guard includeTagScoring else { return [] }
+        return await resolveQueryContentTags(
+            queryText: queryText,
+            queryAnalysis: queryAnalysis,
+            events: events
+        )
+    }
+
     private func resolveQueryContentTags(
         queryText: String,
         queryAnalysis: QueryAnalysis,
@@ -3429,8 +3513,10 @@ public actor MemoryIndex {
         primaryQueryText: String,
         queryTags: [ContentTag],
         querySignals: QueryMatchSignals,
-        memoryTypeIntent: RetrievalMemoryTypeIntent
-    ) async throws -> [SearchResult] {
+        memoryTypeIntent: RetrievalMemoryTypeIntent,
+        cachedMetadataRows: [StoredChunkMetadata] = [],
+        includeSnippets: Bool = true
+    ) async throws -> CandidateFusionResult {
         struct FusedCandidate {
             var metadata: StoredChunkMetadata
             var score: SearchScoreBreakdown
@@ -3444,14 +3530,24 @@ public actor MemoryIndex {
             primaryQueryText: primaryQueryText,
             candidatePoolLimit: candidatePoolLimit
         )
-        guard !candidateIDs.isEmpty else { return [] }
+        guard !candidateIDs.isEmpty else {
+            return CandidateFusionResult(results: [], metadataRows: cachedMetadataRows)
+        }
 
-        let metadataRows = try await storage.fetchChunkMetadata(chunkIDs: candidateIDs)
-        let metadataMap = Dictionary(uniqueKeysWithValues: metadataRows.map { ($0.chunkID, $0) })
+        var metadataMap = Dictionary(uniqueKeysWithValues: cachedMetadataRows.map { ($0.chunkID, $0) })
+        let missingCandidateIDs = candidateIDs.filter { metadataMap[$0] == nil }
+        if !missingCandidateIDs.isEmpty {
+            let metadataRows = try await storage.fetchChunkMetadata(chunkIDs: missingCandidateIDs)
+            for row in metadataRows {
+                metadataMap[row.chunkID] = row
+            }
+        }
 
         let now = Date()
         let weights = fusionWeights(for: primaryQueryText)
         let anchorSignals = anchorCoverageSignals(for: primaryQueryText)
+        let tagScoring = makeContentTagScoring(queryTags: queryTags)
+        let schemaTagScoring = makeSchemaTagScoring(querySignals: querySignals)
         var results: [FusedCandidate] = []
         results.reserveCapacity(candidateIDs.count)
 
@@ -3463,8 +3559,8 @@ public actor MemoryIndex {
             let ageDays = max(0, now.timeIntervalSince(metadata.modifiedAt) / 86_400)
             let recency = exp(-ageDays / 30.0)
             let anchorBonus = anchorCoverageBonus(signals: anchorSignals, metadata: metadata)
-            let tagBonus = contentTagBonus(queryTags: queryTags, metadata: metadata)
-            let schemaBonus = memorySchemaOverlapBonus(querySignals: querySignals, metadata: metadata)
+            let tagBonus = contentTagBonus(scoring: tagScoring, metadata: metadata)
+            let schemaBonus = memorySchemaOverlapBonus(scoring: schemaTagScoring, metadata: metadata)
                 + ellipticalStructureBonus(querySignals: querySignals, metadata: metadata)
             let temporalBonus = temporalFitBonus(querySignals: querySignals, metadata: metadata)
             let statusBonus = memoryStatusBonus(querySignals: querySignals, metadata: metadata)
@@ -3499,7 +3595,7 @@ public actor MemoryIndex {
             )
         }
 
-        return results
+        let fusedResults = results
             .sorted { lhs, rhs in
                 if lhs.score.fused == rhs.score.fused {
                     return lhs.metadata.chunkID < rhs.metadata.chunkID
@@ -3507,7 +3603,31 @@ public actor MemoryIndex {
                 return lhs.score.fused > rhs.score.fused
             }
             .prefix(candidatePoolLimit)
-            .map { makeSearchResult(from: $0.metadata, queryText: primaryQueryText, score: $0.score) }
+            .map {
+                makeSearchResult(
+                    from: $0.metadata,
+                    queryText: primaryQueryText,
+                    score: $0.score,
+                    includeSnippet: includeSnippets
+                )
+            }
+
+        return CandidateFusionResult(
+            results: fusedResults,
+            metadataRows: Array(metadataMap.values)
+        )
+    }
+
+    private func needsSnippetsForPostRerankAdjustments(query: SearchQuery) -> Bool {
+        !searchAdjustments.isEmpty && query.rerankLimit == 0 && query.limit >= 5
+    }
+
+    private func attachingSnippets(to results: [SearchResult], queryText: String) -> [SearchResult] {
+        var output = results
+        for index in output.indices where output[index].snippet.isEmpty {
+            output[index].snippet = makeSnippet(content: output[index].content, queryText: queryText)
+        }
+        return output
     }
 
     private func preselectCandidateIDs(
@@ -3764,6 +3884,20 @@ public actor MemoryIndex {
             )
             budget -= 1
         }
+    }
+
+    private func timedEmbedExpandedQueries(
+        _ queries: [WeightedQuery],
+        semanticCandidateLimit: Int,
+        events: SearchEventHandler?
+    ) async throws -> (vectors: [[Float]?]?, durationMs: Double) {
+        let queryEmbeddingStart = DispatchTime.now().uptimeNanoseconds
+        let vectors = try await embedExpandedQueries(
+            queries,
+            semanticCandidateLimit: semanticCandidateLimit,
+            events: events
+        )
+        return (vectors: vectors, durationMs: elapsedMilliseconds(since: queryEmbeddingStart))
     }
 
     private func embedExpandedQueries(
@@ -5000,25 +5134,55 @@ public actor MemoryIndex {
         metadata: StoredChunkMetadata
     ) -> Double {
         guard intent.isInformative else { return 0 }
-        let labels = retrievalMemoryTypeLabels(for: metadata)
-        guard !labels.isEmpty else { return 0 }
 
         var bestFit = 0.0
-        for label in labels {
-            let relationship: Double
-            if label.name == intent.label {
-                relationship = 1.0
-            } else if intent.compatibleLabels.contains(label.name) {
-                relationship = 0.20
-            } else {
-                relationship = 0
+        func updateBestFit(label: String, confidence: Double) {
+            if label == intent.label {
+                bestFit = max(bestFit, confidence)
+            } else if intent.compatibleLabels.contains(label) {
+                bestFit = max(bestFit, confidence * 0.20)
             }
-            bestFit = max(bestFit, relationship * label.confidence)
+        }
+
+        if let label = normalizedRetrievalMemoryType(metadata.memoryType) {
+            let confidence = min(1, max(0.35, metadata.memoryTypeConfidence ?? 0.65))
+            updateBestFit(label: label, confidence: confidence)
+        }
+        if let kindLabel = retrievalMemoryTypeLabel(
+            rawKind: metadata.memoryKind,
+            fallbackRawKind: metadata.memoryKindFallback
+        ) {
+            updateBestFit(label: kindLabel, confidence: 0.70)
         }
         guard bestFit > 0 else { return 0 }
 
         let base = intent.label == "factual" ? 0.002 : 0.005
         return min(0.006, base * intent.confidence * bestFit)
+    }
+
+    private func retrievalMemoryTypeLabel(rawKind: String?, fallbackRawKind: String) -> String? {
+        if let rawKind,
+           let label = retrievalMemoryTypeLabel(normalizedRawKind: rawKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            return label
+        }
+        return retrievalMemoryTypeLabel(
+            normalizedRawKind: fallbackRawKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
+    private func retrievalMemoryTypeLabel(normalizedRawKind: String) -> String? {
+        switch normalizedRawKind {
+        case "profile", "fact", "decision":
+            return "factual"
+        case "commitment", "procedure":
+            return "procedural"
+        case "episode":
+            return "episodic"
+        case "handoff":
+            return "contextual"
+        default:
+            return nil
+        }
     }
 
     private func retrievalMemoryTypeLabels(for metadata: StoredChunkMetadata) -> [(name: String, confidence: Double)] {
@@ -5126,63 +5290,76 @@ public actor MemoryIndex {
         return min(0.035, (0.018 * Double(matched)) + (0.017 * coverage))
     }
 
-    private func contentTagBonus(queryTags: [ContentTag], metadata: StoredChunkMetadata) -> Double {
-        let overlap = contentTagOverlap(queryTags: queryTags, chunkTags: metadata.contentTags)
-        return 0.01 * overlap
-    }
-
-    private func contentTagOverlap(
-        queryTags: [ContentTag],
-        chunkTags: [StoredChunkTag]
-    ) -> Double {
-        guard !queryTags.isEmpty, !chunkTags.isEmpty else { return 0 }
+    private func makeContentTagScoring(queryTags: [ContentTag]) -> QueryContentTagScoring {
+        guard !queryTags.isEmpty else {
+            return QueryContentTagScoring(weights: [:], mass: 0)
+        }
 
         var queryWeights: [String: Double] = [:]
+        queryWeights.reserveCapacity(queryTags.count)
         for tag in queryTags {
             let key = normalizedComparisonKey(for: tag.name)
             guard !key.isEmpty else { continue }
             queryWeights[key] = max(queryWeights[key] ?? 0, min(1, max(0, tag.confidence)))
         }
+        return QueryContentTagScoring(weights: queryWeights, mass: queryWeights.values.reduce(0, +))
+    }
 
-        let queryMass = queryWeights.values.reduce(0, +)
-        guard queryMass > 0 else { return 0 }
+    private func contentTagBonus(scoring: QueryContentTagScoring, metadata: StoredChunkMetadata) -> Double {
+        let overlap = contentTagOverlap(scoring: scoring, chunkTags: metadata.contentTags)
+        return 0.01 * overlap
+    }
+
+    private func contentTagOverlap(
+        scoring: QueryContentTagScoring,
+        chunkTags: [StoredChunkTag]
+    ) -> Double {
+        guard !scoring.isEmpty, !chunkTags.isEmpty else { return 0 }
 
         var chunkWeights: [String: Double] = [:]
+        chunkWeights.reserveCapacity(min(chunkTags.count, scoring.weights.count))
         for tag in chunkTags {
             let key = normalizedComparisonKey(for: tag.name)
-            guard !key.isEmpty else { continue }
+            guard !key.isEmpty, scoring.weights[key] != nil else { continue }
             chunkWeights[key] = max(chunkWeights[key] ?? 0, min(1, max(0, tag.confidence)))
         }
 
         var matchedMass: Double = 0
-        for (name, queryWeight) in queryWeights {
+        for (name, queryWeight) in scoring.weights {
             let chunkWeight = chunkWeights[name] ?? 0
             matchedMass += min(queryWeight, chunkWeight)
         }
 
-        return min(1, max(0, matchedMass / queryMass))
+        return min(1, max(0, matchedMass / scoring.mass))
+    }
+
+    private func makeSchemaTagScoring(querySignals: QueryMatchSignals) -> QuerySchemaTagScoring {
+        QuerySchemaTagScoring(
+            entityTags: Set(querySignals.entityValues.map { "entity:\($0)" }),
+            facetTags: Set(querySignals.facets.map { "facet:\($0.rawValue)" }),
+            topicTags: Set(querySignals.topics.map { "topic:\($0)" })
+        )
     }
 
     private func memorySchemaOverlapBonus(
-        querySignals: QueryMatchSignals,
+        scoring: QuerySchemaTagScoring,
         metadata: StoredChunkMetadata
     ) -> Double {
-        guard !metadata.contentTags.isEmpty else { return 0 }
+        guard !scoring.isEmpty, !metadata.contentTags.isEmpty else { return 0 }
 
-        let chunkTagNames = Set(metadata.contentTags.map(\.name))
-        let matchedEntities = querySignals.entityValues.reduce(into: 0) { partialResult, value in
-            if chunkTagNames.contains("entity:\(value)") {
-                partialResult += 1
+        var seenTags: Set<String> = []
+        var matchedEntities = 0
+        var matchedFacets = 0
+        var matchedTopics = 0
+        for tag in metadata.contentTags where seenTags.insert(tag.name).inserted {
+            if scoring.entityTags.contains(tag.name) {
+                matchedEntities += 1
             }
-        }
-        let matchedFacets = querySignals.facets.reduce(into: 0) { partialResult, value in
-            if chunkTagNames.contains("facet:\(value.rawValue)") {
-                partialResult += 1
+            if scoring.facetTags.contains(tag.name) {
+                matchedFacets += 1
             }
-        }
-        let matchedTopics = querySignals.topics.reduce(into: 0) { partialResult, value in
-            if chunkTagNames.contains("topic:\(value)") {
-                partialResult += 1
+            if scoring.topicTags.contains(tag.name) {
+                matchedTopics += 1
             }
         }
 

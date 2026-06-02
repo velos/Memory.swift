@@ -379,6 +379,14 @@ public actor MemoryStorage {
     private static let scopedLexicalSearchThreshold = 4_096
     private static let scopedVectorSearchThreshold = 4_096
     private static let schemaVersion = 3
+
+    private struct LexicalDocumentMetadata {
+        var chunkID: Int64
+        var content: String
+        var documentPath: String
+        var title: String?
+    }
+
     private static let legacyTableNames: Set<String> = [
         "grdb_migrations",
         "documents",
@@ -637,6 +645,30 @@ public actor MemoryStorage {
         """
 
         return try database.fetchAll(sql: sql, arguments: chunkIDs).map(Self.makeChunkMetadata(from:))
+    }
+
+    private func fetchLexicalDocumentMetadata(chunkIDs: [Int64]) throws -> [LexicalDocumentMetadata] {
+        guard !chunkIDs.isEmpty else { return [] }
+
+        let sql = """
+        SELECT
+            c.id AS chunk_id,
+            c.content AS content,
+            d.path AS document_path,
+            d.title AS title
+        FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))
+        """
+
+        return try database.fetchAll(sql: sql, arguments: chunkIDs).map { row in
+            LexicalDocumentMetadata(
+                chunkID: row["chunk_id"],
+                content: row["content"],
+                documentPath: row["document_path"],
+                title: row["title"]
+            )
+        }
     }
 
     public func fetchChunkMetadata(chunkID: Int64) throws -> StoredChunkMetadata? {
@@ -1250,7 +1282,7 @@ public actor MemoryStorage {
 
         guard !seenChunkIDs.isEmpty else { return [] }
 
-        let metadataRows = try fetchChunkMetadata(chunkIDs: Array(seenChunkIDs))
+        let metadataRows = try fetchLexicalDocumentMetadata(chunkIDs: Array(seenChunkIDs))
         let anchorTokens = Self.lexicalAnchorTokens(from: trimmed, maxCount: 16)
         let anchorSet = Set(anchorTokens)
 
