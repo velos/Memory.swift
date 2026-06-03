@@ -23,7 +23,7 @@ struct MemoryStorageMigrationTests {
             )
         )
 
-        #expect(version == 3)
+        #expect(version == 4)
         #expect(tableNames.contains("memory_schema_metadata"))
         #expect(tableNames.contains("documents"))
         #expect(tableNames.contains("chunks"))
@@ -62,7 +62,7 @@ struct MemoryStorageMigrationTests {
 
         #expect(row == nil)
         #expect(paths.isEmpty)
-        #expect(version == 3)
+        #expect(version == 4)
         #expect(legacyTable == nil)
         #expect(documentCount == 0)
     }
@@ -157,7 +157,7 @@ struct MemoryStorageMigrationTests {
         let documentMemoryStatus: String = documentRow["memory_status"]
         let documentCanonicalKey: String = documentRow["memory_canonical_key"]
 
-        #expect(version == 3)
+        #expect(version == 4)
         #expect(migrated.id == "legacy-decision")
         #expect(migrated.kind == "decision")
         #expect(migrated.status == "active")

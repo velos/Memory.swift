@@ -41,6 +41,7 @@ public struct StoredChunkInput: Sendable {
     public var memoryTypeOverrideSource: String?
     public var memoryTypeOverrideConfidence: Double?
     public var contentTags: [StoredChunkTag]
+    public var isTimeAnchored: Bool
     public var memoryKind: String?
     public var importance: Double
     public var accessCount: Int
@@ -58,6 +59,7 @@ public struct StoredChunkInput: Sendable {
         memoryTypeOverrideSource: String? = nil,
         memoryTypeOverrideConfidence: Double? = nil,
         contentTags: [StoredChunkTag] = [],
+        isTimeAnchored: Bool = false,
         memoryKind: String? = nil,
         importance: Double = 0.5,
         accessCount: Int = 0,
@@ -74,6 +76,7 @@ public struct StoredChunkInput: Sendable {
         self.memoryTypeOverrideSource = memoryTypeOverrideSource
         self.memoryTypeOverrideConfidence = memoryTypeOverrideConfidence
         self.contentTags = contentTags
+        self.isTimeAnchored = isTimeAnchored
         self.memoryKind = memoryKind
         self.importance = min(1, max(0, importance))
         self.accessCount = max(0, accessCount)
@@ -210,6 +213,7 @@ public struct StoredChunkMetadata: Sendable {
     public var memoryTypeSource: String
     public var memoryTypeConfidence: Double?
     public var contentTags: [StoredChunkTag]
+    public var isTimeAnchored: Bool?
     public var memoryKindFallback: String
     public var importance: Double
     public var accessCount: Int
@@ -231,6 +235,7 @@ public struct StoredChunkMetadata: Sendable {
         memoryTypeSource: String,
         memoryTypeConfidence: Double?,
         contentTags: [StoredChunkTag] = [],
+        isTimeAnchored: Bool? = nil,
         memoryKindFallback: String,
         importance: Double,
         accessCount: Int,
@@ -251,6 +256,7 @@ public struct StoredChunkMetadata: Sendable {
         self.memoryTypeSource = memoryTypeSource
         self.memoryTypeConfidence = memoryTypeConfidence
         self.contentTags = contentTags
+        self.isTimeAnchored = isTimeAnchored
         self.memoryKindFallback = memoryKindFallback
         self.importance = min(1, max(0, importance))
         self.accessCount = max(0, accessCount)
@@ -372,13 +378,17 @@ public struct LexicalHit: Sendable {
 
 public actor MemoryStorage {
     private let database: SQLiteDatabase
+    private var cachedVectorTableExists: Bool?
+    private var cachedVectorDimension: Int?
+    private var lexicalDocumentMetadataCache: [Int64: LexicalDocumentMetadata] = [:]
+    private var chunkMetadataCache: [Int64: StoredChunkMetadata] = [:]
     private static let vectorTableName = "chunk_vectors_vec"
     private static let vectorConfigTableName = "vector_index_config"
     private static let schemaMetadataTableName = "memory_schema_metadata"
     private static let scopedLexicalFTSTableName = "scoped_chunks_fts"
     private static let scopedLexicalSearchThreshold = 4_096
     private static let scopedVectorSearchThreshold = 4_096
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
 
     private struct LexicalDocumentMetadata {
         var chunkID: Int64
@@ -409,6 +419,10 @@ public actor MemoryStorage {
     }
 
     public func wipeIndexData() throws {
+        cachedVectorTableExists = nil
+        cachedVectorDimension = nil
+        lexicalDocumentMetadataCache.removeAll(keepingCapacity: true)
+        chunkMetadataCache.removeAll(keepingCapacity: true)
         try database.transaction {
             try database.execute(sql: "DROP TABLE IF EXISTS \(Self.vectorTableName)")
             try database.execute(sql: "DELETE FROM \(Self.vectorConfigTableName)")
@@ -420,6 +434,10 @@ public actor MemoryStorage {
     }
 
     public func replaceDocument(_ input: StoredDocumentInput) throws {
+        cachedVectorTableExists = nil
+        cachedVectorDimension = nil
+        lexicalDocumentMetadataCache.removeAll(keepingCapacity: true)
+        chunkMetadataCache.removeAll(keepingCapacity: true)
         try database.transaction {
             let existingChunkIDs = try database.fetchAll(
                 sql: """
@@ -499,9 +517,10 @@ public actor MemoryStorage {
                         last_accessed_at,
                         source,
                         content_tags_json,
+                        is_time_anchored,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         documentID,
@@ -517,6 +536,7 @@ public actor MemoryStorage {
                         chunk.lastAccessedAt?.timeIntervalSince1970,
                         chunk.source,
                         Self.encodeContentTags(chunk.contentTags),
+                        chunk.isTimeAnchored ? 1 : 0,
                         (chunk.createdAt ?? Date()).timeIntervalSince1970,
                     ]
                 )
@@ -561,6 +581,8 @@ public actor MemoryStorage {
     public func removeDocuments(paths: [String]) throws {
         guard !paths.isEmpty else { return }
 
+        lexicalDocumentMetadataCache.removeAll(keepingCapacity: true)
+        chunkMetadataCache.removeAll(keepingCapacity: true)
         try database.transaction {
             let chunkIDs = try database.fetchAll(
                 sql: """
@@ -618,57 +640,90 @@ public actor MemoryStorage {
     public func fetchChunkMetadata(chunkIDs: [Int64]) throws -> [StoredChunkMetadata] {
         guard !chunkIDs.isEmpty else { return [] }
 
-        let sql = """
-        SELECT
-            c.id AS chunk_id,
-            c.content AS content,
-            d.path AS document_path,
-            d.title AS title,
-            d.modified_at AS modified_at,
-            d.memory_id AS memory_id,
-            d.memory_kind AS memory_kind,
-            d.memory_status AS memory_status,
-            d.memory_canonical_key AS memory_canonical_key,
-            COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
-            COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
-            COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
-            COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
-            c.importance AS importance,
-            c.access_count AS access_count,
-            c.last_accessed_at AS last_accessed_at,
-            c.source AS source,
-            c.created_at AS created_at,
-            COALESCE(c.content_tags_json, '[]') AS content_tags_json
-        FROM chunks c
-        JOIN documents d ON d.id = c.document_id
-        WHERE c.id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))
-        """
+        var metadataByChunkID: [Int64: StoredChunkMetadata] = [:]
+        metadataByChunkID.reserveCapacity(chunkIDs.count)
+        var missingChunkIDs: [Int64] = []
+        missingChunkIDs.reserveCapacity(chunkIDs.count)
+        for chunkID in chunkIDs {
+            if let cached = chunkMetadataCache[chunkID] {
+                metadataByChunkID[chunkID] = cached
+            } else {
+                missingChunkIDs.append(chunkID)
+            }
+        }
 
-        return try database.fetchAll(sql: sql, arguments: chunkIDs).map(Self.makeChunkMetadata(from:))
+        if !missingChunkIDs.isEmpty {
+            let sql = """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                c.is_time_anchored AS is_time_anchored,
+                d.path AS document_path,
+                d.title AS title,
+                d.modified_at AS modified_at,
+                d.memory_id AS memory_id,
+                d.memory_kind AS memory_kind,
+                d.memory_status AS memory_status,
+                d.memory_canonical_key AS memory_canonical_key,
+                COALESCE(c.memory_type_override, d.memory_type) AS memory_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source) AS memory_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS memory_type_confidence,
+                COALESCE(c.memory_kind, d.memory_kind, '') AS memory_kind_fallback,
+                c.importance AS importance,
+                c.access_count AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                c.source AS source,
+                c.created_at AS created_at,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.id IN (\(SQLiteDatabase.placeholders(count: missingChunkIDs.count)))
+            """
+
+            let fetched = try database.fetchAll(sql: sql, arguments: missingChunkIDs)
+                .map(Self.makeChunkMetadata(from:))
+            if chunkMetadataCache.count + fetched.count > 16_384 {
+                chunkMetadataCache.removeAll(keepingCapacity: true)
+            }
+            for row in fetched {
+                chunkMetadataCache[row.chunkID] = row
+                metadataByChunkID[row.chunkID] = row
+            }
+        }
+
+        return chunkIDs.compactMap { metadataByChunkID[$0] }
     }
 
     private func fetchLexicalDocumentMetadata(chunkIDs: [Int64]) throws -> [LexicalDocumentMetadata] {
         guard !chunkIDs.isEmpty else { return [] }
 
-        let sql = """
-        SELECT
-            c.id AS chunk_id,
-            c.content AS content,
-            d.path AS document_path,
-            d.title AS title
-        FROM chunks c
-        JOIN documents d ON d.id = c.document_id
-        WHERE c.id IN (\(SQLiteDatabase.placeholders(count: chunkIDs.count)))
-        """
+        let missingChunkIDs = chunkIDs.filter { lexicalDocumentMetadataCache[$0] == nil }
+        if !missingChunkIDs.isEmpty {
+            let sql = """
+            SELECT
+                c.id AS chunk_id,
+                c.content AS content,
+                d.path AS document_path,
+                d.title AS title
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.id IN (\(SQLiteDatabase.placeholders(count: missingChunkIDs.count)))
+            """
 
-        return try database.fetchAll(sql: sql, arguments: chunkIDs).map { row in
-            LexicalDocumentMetadata(
-                chunkID: row["chunk_id"],
-                content: row["content"],
-                documentPath: row["document_path"],
-                title: row["title"]
-            )
+            let fetchedRows = try database.fetchAll(sql: sql, arguments: missingChunkIDs).map { row in
+                LexicalDocumentMetadata(
+                    chunkID: row["chunk_id"],
+                    content: row["content"],
+                    documentPath: row["document_path"],
+                    title: row["title"]
+                )
+            }
+            for metadata in fetchedRows {
+                lexicalDocumentMetadataCache[metadata.chunkID] = metadata
+            }
         }
+
+        return chunkIDs.compactMap { lexicalDocumentMetadataCache[$0] }
     }
 
     public func fetchChunkMetadata(chunkID: Int64) throws -> StoredChunkMetadata? {
@@ -677,6 +732,7 @@ public actor MemoryStorage {
             SELECT
                 c.id AS chunk_id,
                 c.content AS content,
+                c.is_time_anchored AS is_time_anchored,
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
@@ -736,6 +792,7 @@ public actor MemoryStorage {
             SELECT
                 c.id AS chunk_id,
                 c.content AS content,
+                c.is_time_anchored AS is_time_anchored,
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
@@ -805,6 +862,7 @@ public actor MemoryStorage {
         SELECT
             c.id AS chunk_id,
             c.content AS content,
+            c.is_time_anchored AS is_time_anchored,
             d.path AS document_path,
             d.title AS title,
             d.modified_at AS modified_at,
@@ -1144,6 +1202,13 @@ public actor MemoryStorage {
             arguments.append(contentsOf: chunkIDs)
             try database.execute(sql: sql, arguments: arguments)
         }
+
+        for chunkID in chunkIDs {
+            guard var cached = chunkMetadataCache[chunkID] else { continue }
+            cached.accessCount += 1
+            cached.lastAccessedAt = accessedAt
+            chunkMetadataCache[chunkID] = cached
+        }
     }
 
     public func lexicalSearch(
@@ -1176,7 +1241,6 @@ public actor MemoryStorage {
 
         let effectiveLimit = limit
         var mergedByChunkID: [Int64: Double] = [:]
-        var seenChunkIDs: Set<Int64> = []
 
         if let strictPattern {
             let strictHits = try Self.runLexicalSearchQuery(
@@ -1188,7 +1252,6 @@ public actor MemoryStorage {
                 excludedChunkIDs: nil
             )
             for hit in strictHits {
-                seenChunkIDs.insert(hit.chunkID)
                 mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.2
             }
         }
@@ -1204,13 +1267,12 @@ public actor MemoryStorage {
             )
 
             for hit in relaxedHits {
-                seenChunkIDs.insert(hit.chunkID)
                 mergedByChunkID[hit.chunkID, default: 0] += hit.score
             }
         }
 
-        return seenChunkIDs
-            .map { LexicalHit(chunkID: $0, score: mergedByChunkID[$0, default: 0]) }
+        return mergedByChunkID
+            .map { LexicalHit(chunkID: $0.key, score: $0.value) }
             .sorted { lhs, rhs in
                 if lhs.score == rhs.score {
                     return lhs.chunkID < rhs.chunkID
@@ -1248,7 +1310,6 @@ public actor MemoryStorage {
 
         let probeLimit = min(max(limit * 12, limit + 128), 2_048)
         var mergedByChunkID: [Int64: Double] = [:]
-        var seenChunkIDs: Set<Int64> = []
 
         if let strictPattern {
             let strictHits = try Self.runLexicalSearchQuery(
@@ -1260,7 +1321,6 @@ public actor MemoryStorage {
                 excludedChunkIDs: nil
             )
             for hit in strictHits {
-                seenChunkIDs.insert(hit.chunkID)
                 mergedByChunkID[hit.chunkID, default: 0] += hit.score * 1.15
             }
         }
@@ -1275,14 +1335,13 @@ public actor MemoryStorage {
                 excludedChunkIDs: nil
             )
             for hit in relaxedHits {
-                seenChunkIDs.insert(hit.chunkID)
                 mergedByChunkID[hit.chunkID, default: 0] += hit.score
             }
         }
 
-        guard !seenChunkIDs.isEmpty else { return [] }
+        guard !mergedByChunkID.isEmpty else { return [] }
 
-        let metadataRows = try fetchLexicalDocumentMetadata(chunkIDs: Array(seenChunkIDs))
+        let metadataRows = try fetchLexicalDocumentMetadata(chunkIDs: Array(mergedByChunkID.keys))
         let anchorTokens = Self.lexicalAnchorTokens(from: trimmed, maxCount: 16)
         let anchorSet = Set(anchorTokens)
 
@@ -1715,16 +1774,33 @@ public actor MemoryStorage {
             }
         }
 
-        guard try Self.vectorTableExists(in: database) else {
+        let hasVectorTable: Bool
+        if let cachedVectorTableExists {
+            hasVectorTable = cachedVectorTableExists
+        } else {
+            hasVectorTable = try Self.vectorTableExists(in: database)
+            cachedVectorTableExists = hasVectorTable
+        }
+        guard hasVectorTable else {
             return []
         }
 
-        if let configuredDimension = try Self.configuredVectorDimension(in: database),
-           configuredDimension != queryVector.count {
+        let configuredDimension: Int?
+        if let cachedVectorDimension {
+            configuredDimension = cachedVectorDimension
+        } else {
+            configuredDimension = try Self.configuredVectorDimension(in: database)
+            if let configuredDimension {
+                cachedVectorDimension = configuredDimension
+            }
+        }
+        if let configuredDimension, configuredDimension != queryVector.count {
             return []
         }
 
-        let overfetch = min(max(limit * 6, limit), 4_096)
+        let overfetch = (allowedChunkIDs == nil && allowedMemoryTypes == nil)
+            ? limit
+            : min(max(limit * 6, limit), 4_096)
         let queryBlob = Self.encodeVector(queryVector)
 
         // sqlite-vec can hang if we join directly against the vec virtual table.
@@ -1744,6 +1820,12 @@ public actor MemoryStorage {
             let distance: Double = row["distance"]
             guard distance.isFinite else { return nil }
             return (chunkID, distance)
+        }
+
+        if allowedChunkIDs == nil, allowedMemoryTypes == nil {
+            return candidates
+                .prefix(limit)
+                .map { LexicalHit(chunkID: $0.chunkID, score: -$0.distance) }
         }
 
         if let allowedChunkIDs {
@@ -1935,6 +2017,7 @@ public actor MemoryStorage {
             SELECT
                 c.id AS chunk_id,
                 c.content AS content,
+                c.is_time_anchored AS is_time_anchored,
                 d.path AS document_path,
                 d.title AS title,
                 d.modified_at AS modified_at,
@@ -1993,6 +2076,9 @@ public actor MemoryStorage {
 
     private static func configure(_ database: SQLiteDatabase) throws {
         try database.execute(sql: "PRAGMA foreign_keys = ON")
+        try database.execute(sql: "PRAGMA temp_store = MEMORY")
+        try database.execute(sql: "PRAGMA cache_size = -65536")
+        _ = try database.fetchOne(sql: "PRAGMA mmap_size = 50331648", as: Int64.self)
         try registerSQLiteVec(on: database)
     }
 
@@ -2064,6 +2150,9 @@ public actor MemoryStorage {
             case 2:
                 try migrateV2ToV3(in: database)
                 currentVersion = 3
+            case 3:
+                try migrateV3ToV4(in: database)
+                currentVersion = 4
             default:
                 throw SQLiteError(message: "Unsupported schema migration path from version \(currentVersion).")
             }
@@ -2117,6 +2206,7 @@ public actor MemoryStorage {
                 last_accessed_at REAL,
                 source TEXT NOT NULL DEFAULT 'index',
                 content_tags_json TEXT NOT NULL DEFAULT '[]',
+                is_time_anchored INTEGER NOT NULL DEFAULT -1,
                 created_at REAL NOT NULL
             )
             """
@@ -2386,7 +2476,15 @@ public actor MemoryStorage {
 
         try database.execute(
             sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
-            arguments: [Self.schemaVersion]
+            arguments: [3]
+        )
+    }
+
+    private static func migrateV3ToV4(in database: SQLiteDatabase) throws {
+        try database.execute(sql: "ALTER TABLE chunks ADD COLUMN is_time_anchored INTEGER NOT NULL DEFAULT -1")
+        try database.execute(
+            sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
+            arguments: [4]
         )
     }
 
@@ -2493,6 +2591,9 @@ public actor MemoryStorage {
         for textToken in textTokens {
             for anchor in anchorTokens where textToken.hasPrefix(anchor) || anchor.hasPrefix(textToken) {
                 matches.insert(anchor)
+                if matches.count == anchorTokens.count {
+                    return matches
+                }
             }
         }
         return matches
@@ -2532,7 +2633,7 @@ public actor MemoryStorage {
         "at", "be", "been", "before", "between", "both", "but", "by", "can", "did", "do", "does",
         "during", "each", "end", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is",
         "it", "its", "just", "like", "more", "most", "need", "not", "of", "on", "or", "our", "out",
-        "over", "should", "so", "some", "than", "that", "the", "their", "them", "then", "there", "these",
+        "over", "should", "since", "so", "some", "than", "that", "the", "their", "them", "then", "there", "these",
         "they", "this", "those", "to", "too", "under", "up", "use", "using", "was", "we", "what", "when",
         "where", "which", "who", "why", "with", "would", "you", "your"
     ]
@@ -2698,6 +2799,7 @@ public actor MemoryStorage {
             memoryTypeSource: row["memory_type_source"],
             memoryTypeConfidence: row["memory_type_confidence"],
             contentTags: Self.decodeContentTags(row["content_tags_json"]),
+            isTimeAnchored: Self.decodeTimeAnchorHint(row["is_time_anchored"] as Int64),
             memoryKindFallback: row["memory_kind_fallback"],
             importance: row["importance"],
             accessCount: row["access_count"],
@@ -2705,6 +2807,10 @@ public actor MemoryStorage {
             source: row["source"],
             createdAt: Date(timeIntervalSince1970: row["created_at"])
         )
+    }
+
+    private static func decodeTimeAnchorHint(_ rawValue: Int64) -> Bool? {
+        rawValue < 0 ? nil : rawValue != 0
     }
 
     private static func makeStoredMemoryRecord(from row: SQLiteRow) -> StoredMemoryRecord {
@@ -2740,8 +2846,7 @@ public actor MemoryStorage {
     }
 
     private static func encodeVector(_ vector: [Float]) -> Data {
-        let copy = vector
-        return copy.withUnsafeBytes { Data($0) }
+        vector.withUnsafeBytes { Data($0) }
     }
 
     private static func decodeVector(_ data: Data) -> [Float]? {
