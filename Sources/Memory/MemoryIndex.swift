@@ -42,6 +42,8 @@ public actor MemoryIndex {
     private let ingestLock = MemoryAsyncLock()
     private let searchAdjustments: MemorySearchAdjustmentSet
     private var searchablePrefixCache: [Int64: String] = [:]
+    private var extendedSearchablePrefixCache: [Int64: String] = [:]
+    private var mediumSearchablePrefixCache: [Int64: String] = [:]
     private var timeAnchoredTextCache: [Int64: Bool] = [:]
     private var supportGroupKeyCache: [String: String] = [:]
 
@@ -388,7 +390,7 @@ public actor MemoryIndex {
 
         do {
             try await storage.wipeIndexData()
-            searchablePrefixCache.removeAll(keepingCapacity: true)
+            clearSearchablePrefixCaches(keepingCapacity: true)
             timeAnchoredTextCache.removeAll(keepingCapacity: true)
 
             var totalChunks = 0
@@ -403,7 +405,7 @@ public actor MemoryIndex {
 
                 let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
-                searchablePrefixCache.removeAll(keepingCapacity: true)
+                clearSearchablePrefixCaches(keepingCapacity: true)
                 timeAnchoredTextCache.removeAll(keepingCapacity: true)
                 events?(
                     .stageTiming(
@@ -447,7 +449,7 @@ public actor MemoryIndex {
 
                 if !fileManager.fileExists(atPath: url.path) {
                     try await storage.removeDocuments(paths: [url.path])
-                    searchablePrefixCache.removeAll(keepingCapacity: true)
+                    clearSearchablePrefixCaches(keepingCapacity: true)
                     timeAnchoredTextCache.removeAll(keepingCapacity: true)
                     continue
                 }
@@ -459,7 +461,7 @@ public actor MemoryIndex {
                 events?(.embedded(path: url.path, chunks: payload.chunks.count))
                 let indexWriteStart = DispatchTime.now().uptimeNanoseconds
                 try await storage.replaceDocument(payload)
-                searchablePrefixCache.removeAll(keepingCapacity: true)
+                clearSearchablePrefixCaches(keepingCapacity: true)
                 timeAnchoredTextCache.removeAll(keepingCapacity: true)
                 events?(
                     .stageTiming(
@@ -488,7 +490,7 @@ public actor MemoryIndex {
         do {
             let paths = urls.map(\.path)
             try await storage.removeDocuments(paths: paths)
-            searchablePrefixCache.removeAll(keepingCapacity: true)
+            clearSearchablePrefixCaches(keepingCapacity: true)
             timeAnchoredTextCache.removeAll(keepingCapacity: true)
         } catch {
             throw normalizeError(error)
@@ -1341,6 +1343,8 @@ public actor MemoryIndex {
                 lexicalCandidateLimit: lexicalLimit,
                 rerankLimit: rerankLimit,
                 expansionLimit: expansionLimit,
+                originalQueryWeight: hasExplicitCurrentStateRecallShape(queryUnderstanding) ? 2.15 : (hasExplicitDurationRecallShape(queryUnderstanding) ? 2.10 : 2.0),
+                expansionQueryWeight: hasExplicitCurrentStateRecallShape(queryUnderstanding) ? 1.025 : 1.0,
                 additionalLexicalQueries: additionalLexicalQueries,
                 additionalLexicalQueryWeight: additionalLexicalQueryWeight,
                 includeTagScoring: features.contains(.tags)
@@ -2374,7 +2378,7 @@ public actor MemoryIndex {
     private func materializeStoredMemory(_ stored: StoredMemoryRecord) async throws {
         let payload = try await makeDerivedMemoryPayload(from: stored)
         try await storage.replaceDocument(payload)
-        searchablePrefixCache.removeAll(keepingCapacity: true)
+        clearSearchablePrefixCaches(keepingCapacity: true)
         timeAnchoredTextCache.removeAll(keepingCapacity: true)
     }
 
@@ -3552,7 +3556,22 @@ public actor MemoryIndex {
 
         let now = Date()
         let weights = fusionWeights(for: primaryQueryText)
-        let anchorSignals = anchorCoverageSignals(for: primaryQueryText)
+        let usesExplicitDurationAnchorPrefix = hasExplicitDurationRecallShape(querySignals.understanding)
+        let usesExplicitCurrentStateAnchorPrefix = hasExplicitCurrentStateRecallShape(querySignals.understanding)
+        let usesAggregateSupplementalAnchors = querySignals.understanding.requiresEvidenceAggregation
+            && !usesExplicitDurationAnchorPrefix
+            && !usesExplicitCurrentStateAnchorPrefix
+        let usesRecommendationSupplementalAnchors = querySignals.understanding.operations.contains(.recommendation)
+            && !usesExplicitDurationAnchorPrefix
+            && !usesExplicitCurrentStateAnchorPrefix
+            && !usesAggregateSupplementalAnchors
+        let anchorSignals = anchorCoverageSignals(
+            for: primaryQueryText,
+            includeSupplementalFallbackAnchors: usesExplicitDurationAnchorPrefix
+                || usesExplicitCurrentStateAnchorPrefix
+                || usesAggregateSupplementalAnchors
+                || usesRecommendationSupplementalAnchors
+        )
         let tagScoring = makeContentTagScoring(queryTags: queryTags)
         let shouldScoreContentTags = !tagScoring.isEmpty
         let schemaTagScoring = makeSchemaTagScoring(querySignals: querySignals)
@@ -3570,7 +3589,10 @@ public actor MemoryIndex {
             let anchorBonus = anchorCoverageBonus(
                 signals: anchorSignals,
                 metadata: metadata,
-                useExtendedSearchablePrefix: query.expansionLimit == 0
+                useExtendedSearchablePrefix: query.expansionLimit == 0 || usesExplicitDurationAnchorPrefix,
+                useMediumSearchablePrefix: !usesExplicitDurationAnchorPrefix
+                    && usesExplicitCurrentStateAnchorPrefix,
+                anchorScale: (usesAggregateSupplementalAnchors || usesRecommendationSupplementalAnchors) ? 0.0015 : 0.003
             )
             let tagBonus = shouldScoreContentTags
                 ? contentTagBonus(scoring: tagScoring, metadata: metadata)
@@ -5099,7 +5121,18 @@ public actor MemoryIndex {
 
     private func hasExplicitDurationRecallShape(_ understanding: RecallQueryUnderstanding) -> Bool {
         let text = understanding.normalizedText
-        return text.contains("days ago")
+        return text.contains("day ago")
+            || text.contains("days ago")
+            || text.contains("week ago")
+            || text.contains("weeks ago")
+            || text.contains("month ago")
+            || text.contains("months ago")
+            || text.contains("year ago")
+            || text.contains("years ago")
+            || text.contains("hour ago")
+            || text.contains("hours ago")
+            || text.contains("minute ago")
+            || text.contains("minutes ago")
             || text.contains("how long")
             || text.contains("time passed")
             || text.contains("days passed")
@@ -5107,10 +5140,23 @@ public actor MemoryIndex {
             || text.contains("duration")
     }
 
+    private func hasExplicitCurrentStateRecallShape(_ understanding: RecallQueryUnderstanding) -> Bool {
+        guard understanding.operations.contains(.currentState) else { return false }
+        let tokenSet = Set(understanding.tokens)
+        return !tokenSet.isDisjoint(with: ["current", "currently", "now", "still"])
+            || understanding.normalizedText.contains("as of")
+            || understanding.normalizedText.contains("these days")
+    }
+
     private let sparseComparisonCoverageStopTerms: Set<String> = [
         "what", "when", "where", "which", "time", "day", "days", "before",
         "after", "between", "past", "month", "months", "week", "weeks",
         "year", "years", "last", "next", "different",
+    ]
+
+    private let supplementalAnchorStopTerms: Set<String> = [
+        "active", "current", "currently", "duration", "month", "months",
+        "since", "status", "still", "weeks", "years",
     ]
 
     private func classifyRetrievalMemoryTypeIntent(_ understanding: RecallQueryUnderstanding) -> RetrievalMemoryTypeIntent {
@@ -5179,8 +5225,15 @@ public actor MemoryIndex {
             )
         }
 
-        if understanding.operations.contains(.duration)
-            || understanding.operations.contains(.comparison) {
+        if understanding.operations.contains(.duration) {
+            return RetrievalMemoryTypeIntent(
+                label: "episodic",
+                confidence: hasExplicitDurationRecallShape(understanding) ? 0.60 : 0.50,
+                compatibleLabels: hasExplicitDurationRecallShape(understanding) ? [] : ["factual", "contextual"]
+            )
+        }
+
+        if understanding.operations.contains(.comparison) {
             return RetrievalMemoryTypeIntent(
                 label: "episodic",
                 confidence: 0.50,
@@ -5329,8 +5382,15 @@ public actor MemoryIndex {
     }
 
     private func fusionWeights(for queryText: String) -> (semantic: Double, lexical: Double, recency: Double) {
+        let understanding = RecallQueryUnderstandingAnalyzer.analyze(queryText)
+        if hasExplicitCurrentStateRecallShape(understanding) {
+            return (semantic: 0.59, lexical: 0.40, recency: 0.01)
+        }
+        if hasExplicitDurationRecallShape(understanding) {
+            return (semantic: 0.575, lexical: 0.415, recency: 0.01)
+        }
         if isTimeAnchoredQuery(queryText) {
-            return (semantic: 0.64, lexical: 0.35, recency: 0.01)
+            return (semantic: 0.60, lexical: 0.39, recency: 0.01)
         }
         return (semantic: 0.62, lexical: 0.33, recency: 0.05)
     }
@@ -5339,9 +5399,15 @@ public actor MemoryIndex {
         MemorySearchHeuristics.isTimeAnchoredQuery(queryText)
     }
 
-    private func anchorCoverageSignals(for queryText: String) -> AnchorCoverageSignals {
+    private func anchorCoverageSignals(
+        for queryText: String,
+        includeSupplementalFallbackAnchors: Bool = false
+    ) -> AnchorCoverageSignals {
         AnchorCoverageSignals(
-            anchors: anchorTokens(from: queryText),
+            anchors: anchorTokens(
+                from: queryText,
+                includeSupplementalFallbackAnchors: includeSupplementalFallbackAnchors
+            ),
             quotedPhrases: quotedPhraseAnchors(from: queryText)
         )
     }
@@ -5349,11 +5415,18 @@ public actor MemoryIndex {
     private func anchorCoverageBonus(
         signals: AnchorCoverageSignals,
         metadata: StoredChunkMetadata,
-        useExtendedSearchablePrefix: Bool = false
+        useExtendedSearchablePrefix: Bool = false,
+        useMediumSearchablePrefix: Bool = false,
+        anchorScale: Double = 0.003
     ) -> Double {
-        let searchable = useExtendedSearchablePrefix
-            ? extendedSearchablePrefixText(metadata: metadata)
-            : searchablePrefixText(metadata: metadata)
+        let searchable: String
+        if useExtendedSearchablePrefix {
+            searchable = extendedSearchablePrefixText(metadata: metadata)
+        } else if useMediumSearchablePrefix {
+            searchable = mediumSearchablePrefixText(metadata: metadata)
+        } else {
+            searchable = searchablePrefixText(metadata: metadata)
+        }
         let phraseBonus = quotedPhraseCoverageBonus(phrases: signals.quotedPhrases, searchable: searchable)
         guard !signals.anchors.isEmpty else { return phraseBonus }
 
@@ -5364,7 +5437,7 @@ public actor MemoryIndex {
         guard matched > 0 else { return phraseBonus }
 
         let coverage = Double(matched) / Double(signals.anchors.count)
-        return phraseBonus + (0.003 * coverage)
+        return phraseBonus + (anchorScale * coverage)
     }
 
     private func quotedPhraseCoverageBonus(phrases: [String], searchable: String) -> Double {
@@ -5697,6 +5770,12 @@ public actor MemoryIndex {
         return querySignals.preferredStatuses.contains(status) ? 0.035 : 0
     }
 
+    private func clearSearchablePrefixCaches(keepingCapacity: Bool) {
+        searchablePrefixCache.removeAll(keepingCapacity: keepingCapacity)
+        extendedSearchablePrefixCache.removeAll(keepingCapacity: keepingCapacity)
+        mediumSearchablePrefixCache.removeAll(keepingCapacity: keepingCapacity)
+    }
+
     private func searchablePrefixText(metadata: StoredChunkMetadata) -> String {
         if let cached = searchablePrefixCache[metadata.chunkID] {
             return cached
@@ -5708,8 +5787,23 @@ public actor MemoryIndex {
     }
 
     private func extendedSearchablePrefixText(metadata: StoredChunkMetadata) -> String {
-        ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_600)))
+        if let cached = extendedSearchablePrefixCache[metadata.chunkID] {
+            return cached
+        }
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_600)))
             .lowercased()
+        extendedSearchablePrefixCache[metadata.chunkID] = searchable
+        return searchable
+    }
+
+    private func mediumSearchablePrefixText(metadata: StoredChunkMetadata) -> String {
+        if let cached = mediumSearchablePrefixCache[metadata.chunkID] {
+            return cached
+        }
+        let searchable = ((metadata.title ?? "") + " " + String(metadata.content.prefix(1_500)))
+            .lowercased()
+        mediumSearchablePrefixCache[metadata.chunkID] = searchable
+        return searchable
     }
 
     private func isTimeAnchoredText(metadata: StoredChunkMetadata) -> Bool {
@@ -5729,7 +5823,10 @@ public actor MemoryIndex {
         isTimeAnchoredQuery(text)
     }
 
-    private func anchorTokens(from queryText: String) -> [String] {
+    private func anchorTokens(
+        from queryText: String,
+        includeSupplementalFallbackAnchors: Bool = false
+    ) -> [String] {
         let rawTokens = queryText.split { character in
             !character.isLetter && !character.isNumber
         }
@@ -5755,7 +5852,11 @@ public actor MemoryIndex {
         }
 
         if !prioritized.isEmpty {
-            return Array(prioritized.prefix(4))
+            guard includeSupplementalFallbackAnchors else {
+                return Array(prioritized.prefix(4))
+            }
+            let supplemental = fallback.filter { !supplementalAnchorStopTerms.contains($0) }
+            return Array((prioritized + supplemental).prefix(4))
         }
         return Array(fallback.prefix(3))
     }
