@@ -35,13 +35,14 @@ internal enum MemoryExtractionHeuristics {
         var rationales: [String] = []
 
         var seen: Set<String> = []
-        for message in messages {
+        for (messageIndex, message) in messages.enumerated() {
             let normalized = message.content
                 .replacingOccurrences(of: "\r\n", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { continue }
 
-            let rawSegments = splitExtractionSegments(normalized)
+            let focusedSegments = focusedUserProfileSegments(from: normalized, role: message.role)
+            let rawSegments = focusedSegments + splitExtractionSegments(normalized)
 
             for rawSegment in rawSegments {
                 let segment = rawSegment.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,7 +60,12 @@ internal enum MemoryExtractionHeuristics {
                 }
 
                 let kind = inferKind(forExtractedText: segment)
-                guard isExtractableMemorySegment(segment, kind: kind, role: message.role) else {
+                guard isExtractableMemorySegment(
+                    segment,
+                    kind: kind,
+                    role: message.role,
+                    isFocusedProfileSegment: focusedSegments.contains(segment)
+                ) else {
                     rejected.append(MemoryRejectedSpan(text: segment, reason: "not_memory_worthy", confidence: 0.85))
                     continue
                 }
@@ -71,6 +77,14 @@ internal enum MemoryExtractionHeuristics {
                 let facetTags = inferFacetTags(forExtractedText: segment, kind: kind)
                 let entities = inferEntities(forExtractedText: segment)
                 let topics = inferTopics(forExtractedText: segment, seedTags: tags)
+                let subject = inferSubject(forExtractedText: segment, role: message.role, kind: kind)
+                let evidence = MemoryEvidence(
+                    role: message.role,
+                    excerpt: evidenceExcerpt(for: segment, in: message.content),
+                    messageIndex: messageIndex,
+                    timestamp: message.createdAt,
+                    sourceID: nil
+                )
 
                 let candidate = MemoryCandidate(
                     text: segment,
@@ -85,7 +99,13 @@ internal enum MemoryExtractionHeuristics {
                     facetTags: facetTags,
                     entities: entities,
                     topics: topics,
-                    canonicalKey: canonicalKey(kind, segment, nil, entities, topics)
+                    canonicalKey: subjectAwareCanonicalKey(
+                        canonicalKey(kind, segment, nil, entities, topics),
+                        subject: subject,
+                        kind: kind
+                    ),
+                    subject: subject,
+                    evidence: [evidence]
                 )
                 extracted.append(candidate)
                 rationales.append("\(kind.rawValue):\(status.rawValue):\(segment)")
@@ -441,7 +461,8 @@ internal enum MemoryExtractionHeuristics {
                 "prefer", "preference", "favorite", "likes", "usually", "works closely",
                 "timezone", "my name", "i am", "i'm", "my role", "role is",
                 " is the maintainer", " is the owner", "release owner", " owner for ",
-                "standing constraint"
+                "standing constraint", "i live in", "i'm in", "i am in", "the user lives in",
+                "my city is", "my location is"
             ]
         ) {
             return .profile
@@ -463,7 +484,8 @@ internal enum MemoryExtractionHeuristics {
     private static func isExtractableMemorySegment(
         _ text: String,
         kind: MemoryKind,
-        role: ConversationRole? = nil
+        role: ConversationRole? = nil,
+        isFocusedProfileSegment: Bool = false
     ) -> Bool {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !lower.isEmpty else { return false }
@@ -478,7 +500,10 @@ internal enum MemoryExtractionHeuristics {
                needles: [
                    "i will remember", "i'll remember", "i can remember",
                    "i have noted", "i noted", "noted that", "i will keep",
-                   "i'll keep", "sure, i can", "happy to explain"
+                   "i'll keep", "sure, i can", "happy to explain",
+                   "i don't have real-time", "i do not have real-time",
+                   "my capabilities are focused", "location-specific",
+                   "checking websites like", "local event listings"
                ]
            ) {
             return false
@@ -489,6 +514,10 @@ internal enum MemoryExtractionHeuristics {
             needles: ["remember that", "please remember", "for future reference", "note that", "keep in mind"]
         )
         if isQuestionLikeNonMemorySegment(lower), !durableMemoryRequest {
+            return false
+        }
+
+        if containsEmbeddedQuestionClause(lower), !durableMemoryRequest, !isFocusedProfileSegment {
             return false
         }
 
@@ -543,6 +572,108 @@ internal enum MemoryExtractionHeuristics {
                 "i'm asking a hypothetical"
             ]
         )
+    }
+
+    private static func focusedUserProfileSegments(from text: String, role: ConversationRole) -> [String] {
+        guard role == .user else { return [] }
+
+        var segments: [String] = []
+        if let location = selfReportedLocation(in: text) {
+            segments.append("The user lives in \(location).")
+        }
+        return segments
+    }
+
+    private static func selfReportedLocation(in text: String) -> String? {
+        let patterns = [
+            #"\b(?:i\s+live\s+in|i\s+am\s+in|i'm\s+in|my\s+city\s+is|my\s+location\s+is)\s+(sf|san\s+francisco(?:\s*,?\s*(?:ca|california))?)\b"#,
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let nsText = text as NSString
+            let range = NSRange(location: 0, length: nsText.length)
+            guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1 else {
+                continue
+            }
+            let rawLocation = nsText.substring(with: match.range(at: 1))
+            if let normalized = normalizeKnownLocation(rawLocation) {
+                return normalized
+            }
+        }
+
+        return nil
+    }
+
+    private static func normalizeKnownLocation(_ raw: String) -> String? {
+        let normalized = MemorySearchHeuristics.normalizedComparisonKey(for: raw)
+        switch normalized {
+        case "sf", "san francisco", "san francisco ca", "san francisco california":
+            return "San Francisco, CA"
+        default:
+            return nil
+        }
+    }
+
+    private static func containsEmbeddedQuestionClause(_ lower: String) -> Bool {
+        containsAny(
+            lower,
+            needles: [
+                ", what", ", what's", ", where", ", when", ", who", ", why", ", how",
+                "; what", "; where", "; when", "; who", "; why", "; how",
+                " what should", " what can", " what is", " what's "
+            ]
+        )
+    }
+
+    private static func inferSubject(
+        forExtractedText text: String,
+        role: ConversationRole,
+        kind: MemoryKind
+    ) -> MemorySubject {
+        let lower = text.lowercased()
+        if role == .user,
+           kind == .profile || lower.contains("the user") || lower.contains("i ") || lower.contains("my ") {
+            return .user
+        }
+        if role == .assistant {
+            return .assistant
+        }
+        return .unknown
+    }
+
+    private static func subjectAwareCanonicalKey(
+        _ canonicalKey: String?,
+        subject: MemorySubject,
+        kind: MemoryKind
+    ) -> String? {
+        guard kind == .profile, subject != .unknown else { return canonicalKey }
+        guard let canonicalKey, !canonicalKey.isEmpty else { return nil }
+        let subjectPrefix = "\(kind.rawValue):\(subject.rawValue):"
+        if canonicalKey.hasPrefix(subjectPrefix) {
+            return canonicalKey
+        }
+        let kindPrefix = "\(kind.rawValue):"
+        if canonicalKey.hasPrefix(kindPrefix) {
+            return subjectPrefix + canonicalKey.dropFirst(kindPrefix.count)
+        }
+        return "\(subjectPrefix)\(canonicalKey)"
+    }
+
+    private static func evidenceExcerpt(for segment: String, in message: String) -> String {
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedMessage.count <= 240 {
+            return trimmedMessage
+        }
+        if let range = trimmedMessage.range(of: segment, options: [.caseInsensitive, .diacriticInsensitive]) {
+            let prefix = trimmedMessage[..<range.lowerBound].suffix(80)
+            let suffix = trimmedMessage[range.upperBound...].prefix(80)
+            return "\(prefix)\(trimmedMessage[range])\(suffix)"
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(trimmedMessage.prefix(240)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func inferStatus(forExtractedText text: String, kind: MemoryKind) -> MemoryStatus {

@@ -31,6 +31,84 @@ public struct StoredMemoryEntity: Sendable, Codable, Hashable {
     }
 }
 
+public struct StoredMemoryEvidence: Sendable, Codable, Hashable {
+    public var role: String
+    public var excerpt: String
+    public var messageIndex: Int?
+    public var timestamp: Date?
+    public var sourceID: String?
+
+    public init(
+        role: String,
+        excerpt: String,
+        messageIndex: Int? = nil,
+        timestamp: Date? = nil,
+        sourceID: String? = nil
+    ) {
+        self.role = role
+        self.excerpt = excerpt
+        self.messageIndex = messageIndex
+        self.timestamp = timestamp
+        self.sourceID = sourceID
+    }
+}
+
+public struct StoredContextHint: Sendable, Codable, Hashable {
+    public var id: String
+    public var pathPrefix: String
+    public var context: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        pathPrefix: String,
+        context: String,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.pathPrefix = pathPrefix
+        self.context = context
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct StoredMemorySignal: Sendable, Codable, Hashable {
+    public var id: String
+    public var kind: String
+    public var memoryID: String?
+    public var canonicalKey: String?
+    public var query: String?
+    public var snippet: String?
+    public var confidence: Double
+    public var sourceID: String?
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        kind: String,
+        memoryID: String? = nil,
+        canonicalKey: String? = nil,
+        query: String? = nil,
+        snippet: String? = nil,
+        confidence: Double,
+        sourceID: String? = nil,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.kind = kind
+        self.memoryID = memoryID
+        self.canonicalKey = canonicalKey
+        self.query = query
+        self.snippet = snippet
+        self.confidence = confidence
+        self.sourceID = sourceID
+        self.createdAt = createdAt
+    }
+}
+
 public struct StoredChunkInput: Sendable {
     public var ordinal: Int
     public var content: String
@@ -286,6 +364,8 @@ public struct StoredMemoryInput: Sendable {
     public var supersedesID: String?
     public var supersededByID: String?
     public var metadata: [String: String]
+    public var subject: String?
+    public var evidence: [StoredMemoryEvidence]
 
     public init(
         id: String,
@@ -306,7 +386,9 @@ public struct StoredMemoryInput: Sendable {
         updatedAt: Date,
         supersedesID: String?,
         supersededByID: String?,
-        metadata: [String: String]
+        metadata: [String: String],
+        subject: String? = nil,
+        evidence: [StoredMemoryEvidence] = []
     ) {
         self.id = id
         self.title = title
@@ -327,6 +409,8 @@ public struct StoredMemoryInput: Sendable {
         self.supersedesID = supersedesID
         self.supersededByID = supersededByID
         self.metadata = metadata
+        self.subject = subject
+        self.evidence = evidence
     }
 }
 
@@ -350,6 +434,8 @@ public struct StoredMemoryRecord: Sendable, Codable, Hashable {
     public var supersedesID: String?
     public var supersededByID: String?
     public var metadata: [String: String]
+    public var subject: String?
+    public var evidence: [StoredMemoryEvidence]
     public var chunkID: Int64?
     public var documentPath: String?
     public var accessCount: Int
@@ -405,7 +491,7 @@ public actor MemoryStorage {
     private static let scopedLexicalFTSTableName = "scoped_chunks_fts"
     private static let scopedLexicalSearchThreshold = 4_096
     private static let scopedVectorSearchThreshold = 4_096
-    private static let schemaVersion = 4
+    private static let schemaVersion = 5
 
     private struct LexicalDocumentMetadata {
         var chunkID: Int64
@@ -439,6 +525,8 @@ public actor MemoryStorage {
         COALESCE(m.entities_json, '') || ' ' ||
         COALESCE(m.topics_json, '') || ' ' ||
         COALESCE(m.metadata_json, '') || ' ' ||
+        COALESCE(m.subject, '') || ' ' ||
+        COALESCE(m.evidence_json, '') || ' ' ||
         COALESCE(d.path, '')
     )
     """
@@ -980,6 +1068,8 @@ public actor MemoryStorage {
                 m.supersedes_id AS supersedes_id,
                 m.superseded_by_id AS superseded_by_id,
                 m.metadata_json AS metadata_json,
+                m.subject AS subject,
+                COALESCE(m.evidence_json, '[]') AS evidence_json,
                 c.id AS chunk_id,
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
@@ -1058,6 +1148,8 @@ public actor MemoryStorage {
                 m.supersedes_id AS supersedes_id,
                 m.superseded_by_id AS superseded_by_id,
                 m.metadata_json AS metadata_json,
+                m.subject AS subject,
+                COALESCE(m.evidence_json, '[]') AS evidence_json,
                 c.id AS chunk_id,
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
@@ -1173,6 +1265,8 @@ public actor MemoryStorage {
                 m.supersedes_id AS supersedes_id,
                 m.superseded_by_id AS superseded_by_id,
                 m.metadata_json AS metadata_json,
+                m.subject AS subject,
+                COALESCE(m.evidence_json, '[]') AS evidence_json,
                 c.id AS chunk_id,
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
@@ -1219,6 +1313,8 @@ public actor MemoryStorage {
                 m.supersedes_id AS supersedes_id,
                 m.superseded_by_id AS superseded_by_id,
                 m.metadata_json AS metadata_json,
+                m.subject AS subject,
+                COALESCE(m.evidence_json, '[]') AS evidence_json,
                 c.id AS chunk_id,
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
@@ -1264,6 +1360,8 @@ public actor MemoryStorage {
                 m.supersedes_id AS supersedes_id,
                 m.superseded_by_id AS superseded_by_id,
                 m.metadata_json AS metadata_json,
+                m.subject AS subject,
+                COALESCE(m.evidence_json, '[]') AS evidence_json,
                 c.id AS chunk_id,
                 d.path AS document_path,
                 COALESCE(c.access_count, 0) AS access_count,
@@ -1291,9 +1389,10 @@ public actor MemoryStorage {
             INSERT INTO memories (
                 id, kind, status, canonical_key, title, text, tags_json, facet_tags_json,
                 entities_json, topics_json, importance, confidence, source, created_at,
-                event_at, updated_at, supersedes_id, superseded_by_id, metadata_json
+                event_at, updated_at, supersedes_id, superseded_by_id, metadata_json,
+                subject, evidence_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             arguments: [
                 input.id,
@@ -1315,6 +1414,8 @@ public actor MemoryStorage {
                 input.supersedesID,
                 input.supersededByID,
                 Self.encodeMetadata(input.metadata),
+                input.subject,
+                Self.encodeStoredMemoryEvidence(input.evidence),
             ]
         )
     }
@@ -1357,6 +1458,78 @@ public actor MemoryStorage {
             cached.lastAccessedAt = accessedAt
             chunkMetadataCache[chunkID] = cached
         }
+    }
+
+    public func upsertContextHint(_ hint: StoredContextHint) throws {
+        try database.execute(
+            sql: """
+            INSERT INTO memory_context_hints (id, path_prefix, context, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                path_prefix = excluded.path_prefix,
+                context = excluded.context,
+                updated_at = excluded.updated_at
+            """,
+            arguments: [
+                hint.id,
+                hint.pathPrefix,
+                hint.context,
+                hint.createdAt.timeIntervalSince1970,
+                hint.updatedAt.timeIntervalSince1970,
+            ]
+        )
+    }
+
+    public func listContextHints() throws -> [StoredContextHint] {
+        try database.fetchAll(
+            sql: """
+            SELECT id, path_prefix, context, created_at, updated_at
+            FROM memory_context_hints
+            ORDER BY path_prefix ASC, updated_at DESC
+            """
+        ).map(Self.makeStoredContextHint(from:))
+    }
+
+    public func removeContextHint(id: String) throws {
+        try database.execute(
+            sql: "DELETE FROM memory_context_hints WHERE id = ?",
+            arguments: [id]
+        )
+    }
+
+    public func insertMemorySignal(_ signal: StoredMemorySignal) throws {
+        try database.execute(
+            sql: """
+            INSERT OR REPLACE INTO memory_signals (
+                id, kind, memory_id, canonical_key, query, snippet, confidence, source_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                signal.id,
+                signal.kind,
+                signal.memoryID,
+                signal.canonicalKey,
+                signal.query,
+                signal.snippet,
+                signal.confidence,
+                signal.sourceID,
+                signal.createdAt.timeIntervalSince1970,
+            ]
+        )
+    }
+
+    public func listMemorySignals(since: Date, limit: Int) throws -> [StoredMemorySignal] {
+        try database.fetchAll(
+            sql: """
+            SELECT id, kind, memory_id, canonical_key, query, snippet, confidence, source_id, created_at
+            FROM memory_signals
+            WHERE created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            arguments: [since.timeIntervalSince1970, max(1, limit)]
+        ).map(Self.makeStoredMemorySignal(from:))
     }
 
     public func lexicalSearch(
@@ -2301,6 +2474,9 @@ public actor MemoryStorage {
             case 3:
                 try migrateV3ToV4(in: database)
                 currentVersion = 4
+            case 4:
+                try migrateV4ToV5(in: database)
+                currentVersion = 5
             default:
                 throw SQLiteError(message: "Unsupported schema migration path from version \(currentVersion).")
             }
@@ -2382,12 +2558,16 @@ public actor MemoryStorage {
                 updated_at REAL NOT NULL,
                 supersedes_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
                 superseded_by_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                subject TEXT,
+                evidence_json TEXT NOT NULL DEFAULT '[]'
             )
             """
         )
         try database.execute(sql: "CREATE INDEX memories_kind_status ON memories(kind, status)")
         try database.execute(sql: "CREATE INDEX memories_canonical_key ON memories(kind, canonical_key)")
+
+        try createWorkflowTables(in: database)
 
         try database.execute(
             sql: """
@@ -2634,6 +2814,50 @@ public actor MemoryStorage {
             sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
             arguments: [4]
         )
+    }
+
+    private static func migrateV4ToV5(in database: SQLiteDatabase) throws {
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN subject TEXT")
+        try database.execute(sql: "ALTER TABLE memories ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '[]'")
+        try createWorkflowTables(in: database)
+        try database.execute(
+            sql: "UPDATE \(Self.schemaMetadataTableName) SET version = ?",
+            arguments: [5]
+        )
+    }
+
+    private static func createWorkflowTables(in database: SQLiteDatabase) throws {
+        try database.execute(
+            sql: """
+            CREATE TABLE IF NOT EXISTS memory_context_hints (
+                id TEXT PRIMARY KEY,
+                path_prefix TEXT NOT NULL,
+                context TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX IF NOT EXISTS memory_context_hints_path_prefix ON memory_context_hints(path_prefix)")
+
+        try database.execute(
+            sql: """
+            CREATE TABLE IF NOT EXISTS memory_signals (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                memory_id TEXT,
+                canonical_key TEXT,
+                query TEXT,
+                snippet TEXT,
+                confidence REAL NOT NULL,
+                source_id TEXT,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        try database.execute(sql: "CREATE INDEX IF NOT EXISTS memory_signals_memory_id ON memory_signals(memory_id)")
+        try database.execute(sql: "CREATE INDEX IF NOT EXISTS memory_signals_canonical_key ON memory_signals(canonical_key)")
+        try database.execute(sql: "CREATE INDEX IF NOT EXISTS memory_signals_created_at ON memory_signals(created_at)")
     }
 
     private static func runLexicalSearchQuery(
@@ -3006,6 +3230,8 @@ public actor MemoryStorage {
             supersedesID: row["supersedes_id"],
             supersededByID: row["superseded_by_id"],
             metadata: Self.decodeMetadata(row["metadata_json"]),
+            subject: row["subject"],
+            evidence: Self.decodeStoredMemoryEvidence(row["evidence_json"]),
             chunkID: row["chunk_id"],
             documentPath: row["document_path"],
             accessCount: row["access_count"],
@@ -3014,6 +3240,30 @@ public actor MemoryStorage {
             legacyDocumentTypeSource: row["legacy_document_type_source"],
             legacyDocumentTypeConfidence: row["legacy_document_type_confidence"],
             contentTags: Self.decodeContentTags(row["content_tags_json"])
+        )
+    }
+
+    private static func makeStoredContextHint(from row: SQLiteRow) -> StoredContextHint {
+        StoredContextHint(
+            id: row["id"],
+            pathPrefix: row["path_prefix"],
+            context: row["context"],
+            createdAt: Date(timeIntervalSince1970: row["created_at"]),
+            updatedAt: Date(timeIntervalSince1970: row["updated_at"])
+        )
+    }
+
+    private static func makeStoredMemorySignal(from row: SQLiteRow) -> StoredMemorySignal {
+        StoredMemorySignal(
+            id: row["id"],
+            kind: row["kind"],
+            memoryID: row["memory_id"],
+            canonicalKey: row["canonical_key"],
+            query: row["query"],
+            snippet: row["snippet"],
+            confidence: row["confidence"],
+            sourceID: row["source_id"],
+            createdAt: Date(timeIntervalSince1970: row["created_at"])
         )
     }
 
@@ -3099,6 +3349,23 @@ public actor MemoryStorage {
         guard let raw else { return [] }
         guard let data = raw.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([StoredMemoryEntity].self, from: data)) ?? []
+    }
+
+    private static func encodeStoredMemoryEvidence(_ values: [StoredMemoryEvidence]) -> String {
+        guard !values.isEmpty else { return "[]" }
+        guard
+            let data = try? JSONEncoder().encode(values),
+            let encoded = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return encoded
+    }
+
+    private static func decodeStoredMemoryEvidence(_ raw: String?) -> [StoredMemoryEvidence] {
+        guard let raw else { return [] }
+        guard let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([StoredMemoryEvidence].self, from: data)) ?? []
     }
 
     private static func encodeMetadata(_ metadata: [String: String]) -> String {

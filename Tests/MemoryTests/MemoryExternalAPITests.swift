@@ -722,6 +722,188 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func heuristicExtractFocusesOnUserSelfLocationAndRejectsAssistantCapabilityRefusals() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(
+                    role: .user,
+                    content: "i live in sf, what's a fun thing to do tonight there?"
+                ),
+                ConversationMessage(
+                    role: .assistant,
+                    content: """
+                    I don't have real-time, location-specific entertainment suggestions like "fun things to do tonight" in San Francisco. My capabilities are focused on executing code, interacting with device APIs (like calendar, photos, etc.), and running shell commands in the workspace.
+
+                    For local recommendations, I suggest checking websites like Yelp, TripAdvisor, or local event listings for San Francisco!
+                    """
+                ),
+            ],
+            limit: 10
+        )
+
+        #expect(extracted.count == 1)
+        let profile = try #require(extracted.first)
+        #expect(profile.kind == .profile)
+        #expect(profile.text == "The user lives in San Francisco, CA.")
+        #expect(profile.subject == .user)
+        #expect(profile.canonicalKey == "profile:user:location")
+        #expect(profile.evidence.first?.role == .user)
+        #expect(profile.facetTags.contains(.factAboutUser))
+        #expect(profile.facetTags.contains(.location))
+        #expect(profile.entities.contains { entity in
+            entity.label == .location && entity.normalizedValue == "san francisco"
+        })
+    }
+
+    @Test
+    func capturePreviewAndIngestUseSubjectAwareEvidence() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let preview = try await index.capture(
+            MemoryCaptureRequest(
+                messages: [
+                    ConversationMessage(role: .user, content: "i live in sf, what's a fun thing to do tonight there?"),
+                ],
+                mode: .preview,
+                sourceID: "session-1"
+            )
+        )
+
+        #expect(preview.ingestResult == nil)
+        let previewCandidate = try #require(preview.extraction.candidates.first)
+        #expect(previewCandidate.text == "The user lives in San Francisco, CA.")
+        #expect(previewCandidate.subject == .user)
+        #expect(previewCandidate.canonicalKey == "profile:user:location")
+        #expect(previewCandidate.evidence.first?.sourceID == "session-1")
+
+        let ingested = try await index.capture(
+            MemoryCaptureRequest(
+                messages: [
+                    ConversationMessage(role: .user, content: "i live in sf, what's a fun thing to do tonight there?"),
+                ],
+                mode: .ingest,
+                sourceID: "session-1"
+            )
+        )
+
+        let record = try #require(ingested.ingestResult?.records.first)
+        #expect(record.subject == .user)
+        #expect(record.canonicalKey == "profile:user:location")
+        #expect(record.evidence.first?.sourceID == "session-1")
+    }
+
+    @Test
+    func prepareContextFramesUntrustedMemoryAndSurfacesPathHints() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let saved = try await index.save(
+            text: "The user lives in San Francisco, CA.",
+            kind: .profile,
+            facetTags: [.factAboutUser, .location],
+            entities: [
+                MemoryEntity(label: .location, value: "San Francisco", normalizedValue: "san francisco"),
+            ],
+            canonicalKey: "profile:user:location",
+            subject: .user,
+            evidence: [
+                MemoryEvidence(role: .user, excerpt: "I live in sf", messageIndex: 0, sourceID: "session-1"),
+            ]
+        )
+        try await index.setContextHint(
+            MemoryContextHint(pathPrefix: "memory://", context: "Memory records are durable user-facing facts.")
+        )
+
+        let response = try await index.prepareContext(
+            MemoryContextRequest(
+                messages: [
+                    ConversationMessage(role: .user, content: "What should I do tonight in San Francisco?"),
+                ],
+                budget: MemoryContextBudget(maxReferences: 4, maxTokens: 200),
+                sourceID: "session-2"
+            )
+        )
+
+        #expect(response.contextBlock.contains("UNTRUSTED MEMORY CONTEXT"))
+        #expect(response.contextBlock.contains("The user lives in San Francisco"))
+        #expect(response.references.contains { $0.memoryID == saved.id })
+        #expect(response.hints.contains { $0.context.contains("durable user-facing facts") })
+
+        let maintenance = try await index.runMaintenance(
+            MemoryMaintenanceRequest(
+                mode: .preview,
+                minSignalCount: 1,
+                minDistinctQueries: 1,
+                minConfidence: 0.1
+            )
+        )
+        #expect(maintenance.consideredSignalCount >= 1)
+    }
+
+    @Test
+    func maintenancePreviewPromotesRepeatedRecallSignalsForExistingMemory() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let saved = try await index.save(
+            text: "The user prefers ramen for casual dinners.",
+            kind: .profile,
+            facetTags: [.factAboutUser, .preference],
+            canonicalKey: "profile:user:preference:ramen",
+            subject: .user,
+            evidence: [
+                MemoryEvidence(role: .user, excerpt: "I love ramen", messageIndex: 0, sourceID: "session-1"),
+            ]
+        )
+
+        try await index.recordSignal(MemorySignal(kind: .recall, memoryID: saved.id, query: "dinner ideas", snippet: saved.text, confidence: 0.9))
+        try await index.recordSignal(MemorySignal(kind: .recall, memoryID: saved.id, query: "casual food", snippet: saved.text, confidence: 0.9))
+        try await index.recordSignal(MemorySignal(kind: .recall, memoryID: saved.id, query: "dinner ideas", snippet: saved.text, confidence: 0.9))
+
+        let maintenance = try await index.runMaintenance(
+            MemoryMaintenanceRequest(mode: .preview)
+        )
+
+        #expect(maintenance.proposedCandidates.contains { candidate in
+            candidate.canonicalKey == "profile:user:preference:ramen"
+                && candidate.source == "maintenance"
+                && candidate.evidence.first?.sourceID == "session-1"
+        })
+    }
+
+    @Test
     func detailedExtractReportsRejectedSpansAndProposedActions() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")
@@ -747,7 +929,7 @@ struct MemoryExternalAPITests {
         #expect(result.proposedActions.contains(.replaceActive))
         #expect(result.proposedActions.contains(.create))
         let extractedProfile = result.candidates.first { candidate in
-            candidate.kind == .profile && candidate.canonicalKey == "profile:role"
+            candidate.kind == .profile && candidate.canonicalKey == "profile:user:role"
         }
         let extractedCommitment = result.candidates.first { candidate in
             candidate.kind == .commitment

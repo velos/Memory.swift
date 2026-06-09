@@ -216,6 +216,7 @@ public struct SearchResult: Sendable {
     public var memoryType: String?
     public var memoryTypeConfidence: Double?
     public var score: SearchScoreBreakdown
+    public var contextHints: [MemoryContextHint]
 
     public init(
         chunkID: Int64,
@@ -229,7 +230,8 @@ public struct SearchResult: Sendable {
         memoryStatus: MemoryStatus? = nil,
         memoryType: String? = nil,
         memoryTypeConfidence: Double? = nil,
-        score: SearchScoreBreakdown
+        score: SearchScoreBreakdown,
+        contextHints: [MemoryContextHint] = []
     ) {
         self.chunkID = chunkID
         self.documentPath = documentPath
@@ -243,6 +245,7 @@ public struct SearchResult: Sendable {
         self.memoryType = memoryType
         self.memoryTypeConfidence = memoryTypeConfidence
         self.score = score
+        self.contextHints = contextHints
     }
 }
 
@@ -363,6 +366,15 @@ public enum ConversationRole: String, Codable, Sendable {
     case assistant
 }
 
+public enum MemorySubject: String, CaseIterable, Codable, Sendable, Hashable {
+    case user
+    case assistant
+    case workspace
+    case world
+    case thirdParty = "third_party"
+    case unknown
+}
+
 public struct ConversationMessage: Sendable, Codable, Hashable {
     public var role: ConversationRole
     public var content: String
@@ -372,6 +384,28 @@ public struct ConversationMessage: Sendable, Codable, Hashable {
         self.role = role
         self.content = content
         self.createdAt = createdAt
+    }
+}
+
+public struct MemoryEvidence: Sendable, Codable, Hashable {
+    public var role: ConversationRole
+    public var excerpt: String
+    public var messageIndex: Int?
+    public var timestamp: Date?
+    public var sourceID: String?
+
+    public init(
+        role: ConversationRole,
+        excerpt: String,
+        messageIndex: Int? = nil,
+        timestamp: Date? = nil,
+        sourceID: String? = nil
+    ) {
+        self.role = role
+        self.excerpt = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.messageIndex = messageIndex
+        self.timestamp = timestamp
+        self.sourceID = sourceID?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -390,6 +424,8 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
     public var topics: [String]
     public var canonicalKey: String?
     public var metadata: [String: String]
+    public var subject: MemorySubject?
+    public var evidence: [MemoryEvidence]
 
     public init(
         text: String,
@@ -405,7 +441,9 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
         entities: [MemoryEntity] = [],
         topics: [String] = [],
         canonicalKey: String? = nil,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        subject: MemorySubject? = nil,
+        evidence: [MemoryEvidence] = []
     ) {
         self.text = text
         self.kind = kind
@@ -421,6 +459,92 @@ public struct MemoryCandidate: Sendable, Codable, Hashable {
         self.topics = topics
         self.canonicalKey = canonicalKey
         self.metadata = metadata
+        self.subject = subject
+        self.evidence = evidence
+    }
+}
+
+public enum MemoryCaptureMode: String, Sendable, Codable, Hashable {
+    case preview
+    case ingest
+}
+
+public enum MemoryCaptureFocus: String, Sendable, Codable, Hashable {
+    case user
+    case assistant
+    case workspace
+    case all
+}
+
+public struct MemoryCapturePolicy: Sendable, Codable, Hashable {
+    public var focus: MemoryCaptureFocus
+    public var minimumConfidence: Double
+    public var allowAssistantAuthoredWorkflowFacts: Bool
+
+    public init(
+        focus: MemoryCaptureFocus = .user,
+        minimumConfidence: Double = 0.55,
+        allowAssistantAuthoredWorkflowFacts: Bool = true
+    ) {
+        self.focus = focus
+        self.minimumConfidence = min(1, max(0, minimumConfidence))
+        self.allowAssistantAuthoredWorkflowFacts = allowAssistantAuthoredWorkflowFacts
+    }
+
+    public static let agentDefault = MemoryCapturePolicy()
+}
+
+public struct MemoryCompactionObservation: Sendable, Codable, Hashable {
+    public var summary: String
+    public var messages: [ConversationMessage]
+    public var sessionID: String?
+    public var createdAt: Date
+
+    public init(
+        summary: String,
+        messages: [ConversationMessage] = [],
+        sessionID: String? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.summary = summary
+        self.messages = messages
+        self.sessionID = sessionID
+        self.createdAt = createdAt
+    }
+}
+
+public struct MemoryCaptureRequest: Sendable, Codable, Hashable {
+    public var messages: [ConversationMessage]
+    public var mode: MemoryCaptureMode
+    public var policy: MemoryCapturePolicy
+    public var limit: Int
+    public var sourceID: String?
+    public var compactionObservation: MemoryCompactionObservation?
+
+    public init(
+        messages: [ConversationMessage],
+        mode: MemoryCaptureMode = .preview,
+        policy: MemoryCapturePolicy = .agentDefault,
+        limit: Int = 50,
+        sourceID: String? = nil,
+        compactionObservation: MemoryCompactionObservation? = nil
+    ) {
+        self.messages = messages
+        self.mode = mode
+        self.policy = policy
+        self.limit = max(1, limit)
+        self.sourceID = sourceID
+        self.compactionObservation = compactionObservation
+    }
+}
+
+public struct MemoryCaptureResult: Sendable, Codable, Hashable {
+    public var extraction: MemoryExtractionResult
+    public var ingestResult: MemoryIngestResult?
+
+    public init(extraction: MemoryExtractionResult, ingestResult: MemoryIngestResult? = nil) {
+        self.extraction = extraction
+        self.ingestResult = ingestResult
     }
 }
 
@@ -488,6 +612,8 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
     public var topics: [String]
     public var metadata: [String: String]
     public var score: SearchScoreBreakdown?
+    public var subject: MemorySubject?
+    public var evidence: [MemoryEvidence]
 
     public init(
         id: String,
@@ -511,7 +637,9 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         entities: [MemoryEntity] = [],
         topics: [String] = [],
         metadata: [String: String] = [:],
-        score: SearchScoreBreakdown? = nil
+        score: SearchScoreBreakdown? = nil,
+        subject: MemorySubject? = nil,
+        evidence: [MemoryEvidence] = []
     ) {
         self.id = id
         self.chunkID = chunkID
@@ -535,6 +663,8 @@ public struct MemoryRecord: Sendable, Codable, Hashable {
         self.topics = topics
         self.metadata = metadata
         self.score = score
+        self.subject = subject
+        self.evidence = evidence
     }
 }
 
@@ -626,7 +756,7 @@ public struct MemoryDebugPage: Sendable, Codable, Hashable {
     }
 }
 
-public struct RecallFeatures: OptionSet, Sendable, Hashable {
+public struct RecallFeatures: OptionSet, Sendable, Hashable, Codable {
     public let rawValue: Int
 
     public init(rawValue: Int) {
@@ -648,6 +778,173 @@ public struct MemoryRecallResponse: Sendable, Codable, Hashable {
 
     public init(records: [MemoryRecord]) {
         self.records = records
+    }
+}
+
+public enum MemoryContextQueryMode: String, Sendable, Codable, Hashable {
+    case message
+    case recent
+    case full
+}
+
+public struct MemoryContextBudget: Sendable, Codable, Hashable {
+    public var maxReferences: Int
+    public var maxTokens: Int
+
+    public init(maxReferences: Int = 8, maxTokens: Int = 1_024) {
+        self.maxReferences = max(1, maxReferences)
+        self.maxTokens = max(64, maxTokens)
+    }
+}
+
+public struct MemoryContextHint: Sendable, Codable, Hashable, Identifiable {
+    public var id: String
+    public var pathPrefix: String
+    public var context: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String = UUID().uuidString.lowercased(),
+        pathPrefix: String,
+        context: String,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.pathPrefix = pathPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.context = context.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct MemoryContextRequest: Sendable, Codable, Hashable {
+    public var messages: [ConversationMessage]
+    public var mode: MemoryContextQueryMode
+    public var budget: MemoryContextBudget
+    public var features: RecallFeatures
+    public var sourceID: String?
+
+    public init(
+        messages: [ConversationMessage],
+        mode: MemoryContextQueryMode = .message,
+        budget: MemoryContextBudget = MemoryContextBudget(),
+        features: RecallFeatures = .hybridDefault,
+        sourceID: String? = nil
+    ) {
+        self.messages = messages
+        self.mode = mode
+        self.budget = budget
+        self.features = features
+        self.sourceID = sourceID
+    }
+}
+
+public struct MemoryContextResponse: Sendable, Codable, Hashable {
+    public var contextBlock: String
+    public var references: [MemorySearchReference]
+    public var hints: [MemoryContextHint]
+
+    public init(
+        contextBlock: String,
+        references: [MemorySearchReference],
+        hints: [MemoryContextHint] = []
+    ) {
+        self.contextBlock = contextBlock
+        self.references = references
+        self.hints = hints
+    }
+}
+
+public enum MemorySignalKind: String, Sendable, Codable, Hashable {
+    case recall
+    case capture
+    case compaction
+    case explicit
+    case maintenance
+}
+
+public struct MemorySignal: Sendable, Codable, Hashable, Identifiable {
+    public var id: String
+    public var kind: MemorySignalKind
+    public var memoryID: String?
+    public var canonicalKey: String?
+    public var query: String?
+    public var snippet: String?
+    public var confidence: Double
+    public var sourceID: String?
+    public var createdAt: Date
+
+    public init(
+        id: String = UUID().uuidString.lowercased(),
+        kind: MemorySignalKind,
+        memoryID: String? = nil,
+        canonicalKey: String? = nil,
+        query: String? = nil,
+        snippet: String? = nil,
+        confidence: Double = 1.0,
+        sourceID: String? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.kind = kind
+        self.memoryID = memoryID
+        self.canonicalKey = canonicalKey
+        self.query = query?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.snippet = snippet?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.confidence = min(1, max(0, confidence))
+        self.sourceID = sourceID
+        self.createdAt = createdAt
+    }
+}
+
+public enum MemoryMaintenanceMode: String, Sendable, Codable, Hashable {
+    case preview
+    case apply
+}
+
+public struct MemoryMaintenanceRequest: Sendable, Codable, Hashable {
+    public var mode: MemoryMaintenanceMode
+    public var lookbackDays: Int
+    public var minSignalCount: Int
+    public var minDistinctQueries: Int
+    public var minConfidence: Double
+    public var limit: Int
+    public var compactionObservations: [MemoryCompactionObservation]
+
+    public init(
+        mode: MemoryMaintenanceMode = .preview,
+        lookbackDays: Int = 30,
+        minSignalCount: Int = 3,
+        minDistinctQueries: Int = 2,
+        minConfidence: Double = 0.75,
+        limit: Int = 20,
+        compactionObservations: [MemoryCompactionObservation] = []
+    ) {
+        self.mode = mode
+        self.lookbackDays = max(1, lookbackDays)
+        self.minSignalCount = max(1, minSignalCount)
+        self.minDistinctQueries = max(1, minDistinctQueries)
+        self.minConfidence = min(1, max(0, minConfidence))
+        self.limit = max(1, limit)
+        self.compactionObservations = compactionObservations
+    }
+}
+
+public struct MemoryMaintenanceResult: Sendable, Codable, Hashable {
+    public var proposedCandidates: [MemoryCandidate]
+    public var ingestResult: MemoryIngestResult?
+    public var consideredSignalCount: Int
+
+    public init(
+        proposedCandidates: [MemoryCandidate] = [],
+        ingestResult: MemoryIngestResult? = nil,
+        consideredSignalCount: Int = 0
+    ) {
+        self.proposedCandidates = proposedCandidates
+        self.ingestResult = ingestResult
+        self.consideredSignalCount = max(0, consideredSignalCount)
     }
 }
 
@@ -683,6 +980,7 @@ public struct MemorySearchReference: Sendable, Codable, Hashable {
     public let memoryType: String?
     public let memoryTypeConfidence: Double?
     public let score: SearchScoreBreakdown
+    public let contextHints: [MemoryContextHint]
 }
 
 public struct MemoryGetResponse: Sendable, Codable, Hashable {
@@ -691,6 +989,7 @@ public struct MemoryGetResponse: Sendable, Codable, Hashable {
     public let totalLineCount: Int
     public let lineRange: MemoryLineRange
     public let content: String
+    public let contextHints: [MemoryContextHint]
 }
 
 public enum DocumentKind: String, Sendable {
