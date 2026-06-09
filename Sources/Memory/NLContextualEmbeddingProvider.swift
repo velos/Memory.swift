@@ -1,6 +1,6 @@
+#if MEMORY_NATURAL_LANGUAGE
 import Foundation
 import NaturalLanguage
-import Memory
 
 public enum PoolingStrategy: String, Sendable {
     case mean
@@ -311,3 +311,5 @@ public extension MemoryConfiguration {
         )
     }
 }
+
+#endif

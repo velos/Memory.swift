@@ -2,7 +2,6 @@ import CryptoKit
 import Foundation
 import Testing
 @testable import Memory
-import MemoryNaturalLanguage
 
 private actor IntegrationMockEmbeddingProvider: EmbeddingProvider {
     let identifier = "integration-mock"

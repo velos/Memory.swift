@@ -1,6 +1,5 @@
 import Foundation
 import Memory
-import MemoryUI
 import Testing
 
 struct MemoryUITests {

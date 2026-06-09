@@ -30,6 +30,15 @@ let developerLibraryLinkerSettings: [LinkerSetting] = [
 
 let developerTestLinkerSettings = developerFrameworkLinkerSettings + developerLibraryLinkerSettings
 
+private let memoryTraitSwiftSettings: [SwiftSetting] = [
+    .define("MEMORY_NATURAL_LANGUAGE", .when(traits: ["default"])),
+    .define("MEMORY_NATURAL_LANGUAGE", .when(traits: ["MemoryNaturalLanguage"])),
+    .define("MEMORY_APPLE_INTELLIGENCE", .when(traits: ["MemoryAppleIntelligence"])),
+    .define("MEMORY_COREML_EMBEDDING", .when(traits: ["CoreMLEmbedding"])),
+]
+
+private let memoryTestSwiftSettings = memoryTraitSwiftSettings + developerFrameworkSwiftSettings
+
 let package = Package(
     name: "Memory.swift",
     platforms: [
@@ -38,12 +47,23 @@ let package = Package(
     ],
     products: [
         .library(name: "Memory", targets: ["Memory"]),
-        .library(name: "MemoryNaturalLanguage", targets: ["MemoryNaturalLanguage"]),
-        .library(name: "MemoryAppleIntelligence", targets: ["MemoryAppleIntelligence"]),
-        .library(name: "MemoryCoreMLEmbedding", targets: ["MemoryCoreMLEmbedding"]),
-        .library(name: "MemoryUI", targets: ["MemoryUI"]),
         .executable(name: "memory", targets: ["memory_cli"]),
         .executable(name: "memory_eval", targets: ["memory_eval"]),
+    ],
+    traits: [
+        .default(enabledTraits: ["MemoryNaturalLanguage"]),
+        .trait(
+            name: "MemoryNaturalLanguage",
+            description: "Enable NaturalLanguage-backed embedding, tokenization, and default configuration APIs."
+        ),
+        .trait(
+            name: "MemoryAppleIntelligence",
+            description: "Enable Apple Intelligence provider APIs when FoundationModels is available."
+        ),
+        .trait(
+            name: "CoreMLEmbedding",
+            description: "Enable bundled Core ML embedding, tokenizer, and reranking APIs."
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -58,8 +78,12 @@ let package = Package(
         ),
         .target(
             name: "Memory",
-            dependencies: ["MemoryStorage"],
-            path: "Sources/Memory"
+            dependencies: [
+                "MemoryStorage",
+                .target(name: "MemoryCoreMLAssets", condition: .when(traits: ["CoreMLEmbedding"])),
+            ],
+            path: "Sources/Memory",
+            swiftSettings: memoryTraitSwiftSettings
         ),
         .target(
             name: "MemoryStorage",
@@ -78,51 +102,32 @@ let package = Package(
             ]
         ),
         .target(
-            name: "MemoryNaturalLanguage",
-            dependencies: ["Memory"],
-            path: "Sources/MemoryNaturalLanguage"
-        ),
-        .target(
-            name: "MemoryAppleIntelligence",
-            dependencies: ["Memory"],
-            path: "Sources/MemoryAppleIntelligence"
-        ),
-        .target(
-            name: "MemoryCoreMLEmbedding",
-            dependencies: ["Memory", "MemoryNaturalLanguage"],
-            path: "Sources/MemoryCoreMLEmbedding",
+            name: "MemoryCoreMLAssets",
+            path: "Sources/MemoryCoreMLAssets",
             resources: [
                 .copy("Resources/vocab.txt"),
                 .copy("Resources/tokenizer.json"),
+                .copy("Resources/embedding-v1.mlmodelc"),
             ]
-        ),
-        .target(
-            name: "MemoryUI",
-            dependencies: ["Memory"],
-            path: "Sources/MemoryUI"
         ),
         .executableTarget(
             name: "memory_cli",
             dependencies: [
                 "Memory",
-                "MemoryNaturalLanguage",
-                "MemoryAppleIntelligence",
-                "MemoryCoreMLEmbedding",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
-            path: "Sources/MemoryCLI"
+            path: "Sources/MemoryCLI",
+            swiftSettings: memoryTraitSwiftSettings
         ),
         .executableTarget(
             name: "memory_eval",
             dependencies: [
                 "Memory",
-                "MemoryNaturalLanguage",
-                "MemoryAppleIntelligence",
-                "MemoryCoreMLEmbedding",
                 "SQLiteSupport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
-            path: "Sources/MemoryEvalCLI"
+            path: "Sources/MemoryEvalCLI",
+            swiftSettings: memoryTraitSwiftSettings
         ),
         .testTarget(
             name: "MemoryTests",
@@ -132,43 +137,42 @@ let package = Package(
                 "SQLiteSupport",
             ],
             path: "Tests/MemoryTests",
-            swiftSettings: developerFrameworkSwiftSettings,
+            swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryIntegrationTests",
-            dependencies: [
-                "Memory",
-                "MemoryNaturalLanguage",
-            ],
+            dependencies: ["Memory"],
             path: "Tests/MemoryIntegrationTests",
-            swiftSettings: developerFrameworkSwiftSettings,
+            swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryPerformanceTests",
             dependencies: ["Memory"],
             path: "Tests/MemoryPerformanceTests",
-            swiftSettings: developerFrameworkSwiftSettings,
+            swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryCoreMLEmbeddingTests",
-            dependencies: ["MemoryCoreMLEmbedding"],
+            dependencies: ["Memory"],
             path: "Tests/MemoryCoreMLEmbeddingTests",
-            swiftSettings: developerFrameworkSwiftSettings,
+            swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryUITests",
-            dependencies: ["Memory", "MemoryUI"],
-            path: "Tests/MemoryUITests"
+            dependencies: ["Memory"],
+            path: "Tests/MemoryUITests",
+            swiftSettings: memoryTestSwiftSettings,
+            linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryEvalCLITests",
             dependencies: ["memory_eval"],
             path: "Tests/MemoryEvalCLITests",
-            swiftSettings: developerFrameworkSwiftSettings,
+            swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
     ]

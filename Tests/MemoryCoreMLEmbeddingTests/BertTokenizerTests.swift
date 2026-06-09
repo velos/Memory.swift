@@ -1,15 +1,14 @@
+#if MEMORY_COREML_EMBEDDING
 import Foundation
 import Testing
-@testable import MemoryCoreMLEmbedding
+@testable import Memory
 
 @Suite("BertTokenizer")
 struct BertTokenizerTests {
     let tokenizer: BertTokenizer
 
     init() throws {
-        guard let vocabURL = Bundle.module.url(forResource: "vocab", withExtension: "txt") else {
-            throw TestError("vocab.txt not found in bundle")
-        }
+        let vocabURL = try CoreMLBundledResources.vocabURL()
         self.tokenizer = try BertTokenizer(vocabURL: vocabURL, maxSequenceLength: 32)
     }
 
@@ -66,3 +65,4 @@ private struct TestError: Error, CustomStringConvertible {
     let description: String
     init(_ message: String) { self.description = message }
 }
+#endif

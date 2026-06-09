@@ -24,17 +24,19 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 - Fixed facet tags plus open `entities` and `topics` for retrieval
 - Optional Apple Intelligence augmentation on supported OS versions
 
-## Package Products
+## Package Product and Traits
 
-- `Memory`: core indexing, retrieval, and agent-facing APIs
-- `MemoryNaturalLanguage`: NaturalLanguage-based embedding defaults, tokenizers, and query analysis
-- `MemoryCoreMLEmbedding`: CoreML embedding and reranker providers
-- `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging
-- `MemoryUI`: optional SwiftUI debug views for inspecting stored memories in app builds
+- `Memory`: indexing, retrieval, agent-facing APIs, provider APIs, and SwiftUI debug views
 - `memory`: local CLI for indexing, querying, and benchmark bridge experiments
 - `memory_eval`: eval harness for storage, recall, query expansion, agent-memory behavior, and regression gates
 
-`MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `Memory` product and, optionally, one provider product.
+Provider families are controlled with SwiftPM traits:
+
+- `MemoryNaturalLanguage`: NaturalLanguage-backed embedding defaults, tokenizers, and query analysis. This is the only default trait.
+- `CoreMLEmbedding`: CoreML embedding, tokenizer, reranker, and bundled default model resources.
+- `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging.
+
+`MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `Memory` product and enable only the traits they need.
 
 ## Installation
 
@@ -46,15 +48,24 @@ dependencies: [
 ]
 ```
 
-Most integrations need `Memory` plus one provider product:
+Most integrations use the default `MemoryNaturalLanguage` trait:
 
 ```swift
 .target(
     name: "YourTarget",
     dependencies: [
         .product(name: "Memory", package: "Memory.swift"),
-        .product(name: "MemoryNaturalLanguage", package: "Memory.swift"),
     ]
+)
+```
+
+Opt into CoreML or Apple Intelligence traits from the package dependency declaration when needed:
+
+```swift
+.package(
+    url: "https://github.com/velos/Memory.swift.git",
+    branch: "main",
+    traits: ["MemoryNaturalLanguage", "CoreMLEmbedding"]
 )
 ```
 
@@ -63,7 +74,6 @@ Most integrations need `Memory` plus one provider product:
 ```swift
 import Foundation
 import Memory
-import MemoryNaturalLanguage
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 let config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
@@ -75,32 +85,25 @@ let results = try await index.search(SearchQuery(text: "swift concurrency actors
 
 ## Quick Start (CoreML default)
 
-Provide your own compiled model URLs from the app bundle or local filesystem. The model files in this repository are reference assets, not package resources exposed by the library product.
+Enable the `CoreMLEmbedding` trait to use the bundled default embedding model and tokenizer resources:
 
 ```swift
 import Foundation
 import Memory
-import MemoryCoreMLEmbedding
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
-let embeddingModel = URL(fileURLWithPath: "Models/embedding-v1.mlpackage")
-let config = try MemoryConfiguration.coreMLDefault(
-    databaseURL: dbURL,
-    models: CoreMLDefaultModels(
-        embedding: embeddingModel
-    )
-)
+let config = try MemoryConfiguration.coreMLDefault(databaseURL: dbURL)
 let index = try MemoryIndex(configuration: config)
 ```
 
-`coreMLDefault` is the shipped on-device path: CoreML embeddings, hybrid retrieval, heuristic structured expansion, NaturalLanguage query analysis, and no neural reranker in the default hot path. The CLI and eval harness resolve `Models/embedding-v1.mlpackage` by default when run from this repository.
+`coreMLDefault` is the shipped on-device path: CoreML embeddings, hybrid retrieval, heuristic structured expansion, NaturalLanguage query analysis when that trait is also enabled, and no neural reranker in the default hot path. Advanced integrations can still pass explicit `.mlmodelc`, `.mlpackage`, or `.mlmodel` URLs through `CoreMLDefaultModels`.
 
 ## Recommended Public API Surface
 
 Most integrations only need:
 
 - `MemoryIndex` for indexing and retrieval
-- `MemoryConfiguration` plus one embedding provider product
+- `MemoryConfiguration` plus a trait-enabled or custom embedding provider
 - `rebuildIndex`, `syncDocuments`, and `removeDocuments` for document lifecycle
 - `save`, `extract`, `ingest`, and `recall` for agent memory workflows
 - `memorySearch` and `memoryGet` for tool-style retrieval
@@ -140,17 +143,18 @@ Supported recall modes:
 
 ## SwiftUI Debug View
 
-SwiftUI apps can opt into the `MemoryUI` product and mount a read-mostly memory inspector wherever debug UI belongs:
+SwiftUI apps can mount a read-mostly memory inspector wherever debug UI belongs:
 
 ```swift
 import Memory
-import MemoryUI
 import SwiftUI
 
 MemoryDebugView(index: index)
 ```
 
 `MemoryDebugView` lists canonical memories with paging, lexical search, kind/status filters, sort controls, metadata detail views, and an archive action. The underlying `MemoryIndex.debugMemories(_:)` API is side-effect-free and does not increment memory access counts.
+
+See `Examples/DebugViewApp` for a minimal iOS app that saves demo memories and mounts the debug view.
 
 ## Agent Integration API (`memory_search` + `memory_get`)
 
@@ -187,8 +191,6 @@ if let first = refs.first {
 ```swift
 import Foundation
 import Memory
-import MemoryAppleIntelligence
-import MemoryNaturalLanguage
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 var config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)

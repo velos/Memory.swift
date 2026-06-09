@@ -1,6 +1,6 @@
+#if MEMORY_NATURAL_LANGUAGE
 import Foundation
 import NaturalLanguage
-import Memory
 
 public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
     public let identifier = "nl-query-analyzer"
@@ -200,3 +200,5 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         "where", "when", "who", "why", "which", "this", "that", "with",
     ]
 }
+
+#endif

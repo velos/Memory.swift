@@ -1,7 +1,7 @@
+#if MEMORY_COREML_EMBEDDING
 import Accelerate
 import CoreML
 import Foundation
-import Memory
 
 /// ColBERT-style reranker using MaxSim scoring over per-token embeddings.
 ///
@@ -31,10 +31,8 @@ public actor CoreMLColBERTReranker: Reranker {
         let resolvedTokenizerURL: URL
         if let tokenizerURL {
             resolvedTokenizerURL = tokenizerURL
-        } else if let bundledURL = Bundle.module.url(forResource: "tokenizer", withExtension: "json") {
-            resolvedTokenizerURL = bundledURL
         } else {
-            throw MemoryError.embedding("No tokenizer.json found. Provide tokenizerURL or include tokenizer.json in bundle.")
+            resolvedTokenizerURL = try CoreMLBundledResources.tokenizerURL()
         }
 
         self.tokenizer = try BPETokenizer(tokenizerURL: resolvedTokenizerURL, maxSequenceLength: maxSequenceLength)
@@ -42,12 +40,7 @@ public actor CoreMLColBERTReranker: Reranker {
         let config = MLModelConfiguration()
         config.computeUnits = computeUnits
 
-        let compiledURL: URL
-        if modelURL.pathExtension == "mlmodelc" {
-            compiledURL = modelURL
-        } else {
-            compiledURL = try MLModel.compileModel(at: modelURL)
-        }
+        let compiledURL = try CoreMLModelResolver.compiledModelURL(for: modelURL)
         self.model = try MLModel(contentsOf: compiledURL, configuration: config)
     }
 
@@ -178,3 +171,5 @@ public actor CoreMLColBERTReranker: Reranker {
         return Double((normalizedScore + 1) / 2)
     }
 }
+
+#endif

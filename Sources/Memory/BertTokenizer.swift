@@ -1,3 +1,4 @@
+#if MEMORY_COREML_EMBEDDING
 import Foundation
 
 public struct BertTokenizer: Sendable {
@@ -387,3 +388,5 @@ public struct BertTokenizer: Sendable {
 private extension CharacterSet {
     static let carriageReturns = CharacterSet(charactersIn: "\r")
 }
+
+#endif
