@@ -2,9 +2,6 @@ import ArgumentParser
 import CryptoKit
 import Foundation
 import Memory
-import MemoryAppleIntelligence
-import MemoryCoreMLEmbedding
-import MemoryNaturalLanguage
 import SQLiteSupport
 
 private let datasetReadmeTemplate = """
@@ -6913,15 +6910,24 @@ private func buildConfiguration(
 ) throws -> MemoryConfiguration {
     switch profile {
     case .nlBaseline:
+        #if MEMORY_NATURAL_LANGUAGE
         return MemoryConfiguration.naturalLanguageDefault(databaseURL: databaseURL)
+        #else
+        throw ValidationError("The nl_baseline profile requires the MemoryNaturalLanguage trait.")
+        #endif
     case .oracleCeiling, .coreMLDefault, .coreMLLeafIR:
+        #if MEMORY_COREML_EMBEDDING
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
                 embedding: locateCoreMLModel(name: RepoCoreMLModels.embedding)
             )
         )
+        #else
+        throw ValidationError("The \(profile.rawValue) profile requires the CoreMLEmbedding trait.")
+        #endif
     case .coreMLRerank:
+        #if MEMORY_COREML_EMBEDDING
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
@@ -6929,7 +6935,11 @@ private func buildConfiguration(
                 reranker: locateCoreMLModel(name: RepoCoreMLModels.reranker)
             )
         )
+        #else
+        throw ValidationError("The \(profile.rawValue) profile requires the CoreMLEmbedding trait.")
+        #endif
     case .coreMLFastRerank:
+        #if MEMORY_COREML_EMBEDDING
         return try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
@@ -6940,7 +6950,11 @@ private func buildConfiguration(
             semanticCandidateLimit: 40,
             lexicalCandidateLimit: 40
         )
+        #else
+        throw ValidationError("The \(profile.rawValue) profile requires the CoreMLEmbedding trait.")
+        #endif
     case .appleAugmented:
+        #if MEMORY_COREML_EMBEDDING
         var configuration = try MemoryConfiguration.coreMLDefault(
             databaseURL: databaseURL,
             models: CoreMLDefaultModels(
@@ -6954,6 +6968,9 @@ private func buildConfiguration(
             try enableAppleExpansionCapabilities(on: &configuration)
         }
         return configuration
+        #else
+        throw ValidationError("The apple_augmented profile requires the CoreMLEmbedding trait.")
+        #endif
     }
 }
 
@@ -7357,6 +7374,7 @@ private func recallFeatures(for configuration: MemoryConfiguration) -> RecallFea
 }
 
 private func enableAppleContentTagging(on configuration: inout MemoryConfiguration) throws {
+    #if MEMORY_APPLE_INTELLIGENCE
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isContentTaggingAvailable {
         configuration.contentTagger = AppleIntelligenceContentTagger()
@@ -7366,9 +7384,13 @@ private func enableAppleContentTagging(on configuration: inout MemoryConfigurati
     throw ValidationError(
         "Apple content tagging is unavailable for this runtime. Apple tag profiles require FoundationModels contentTagging support on iOS 26/macOS 26/visionOS 26 with Apple Intelligence enabled."
     )
+    #else
+    throw ValidationError("The apple_augmented profile requires the MemoryAppleIntelligence trait.")
+    #endif
 }
 
 private func enableAppleExpansionCapabilities(on configuration: inout MemoryConfiguration) throws {
+    #if MEMORY_APPLE_INTELLIGENCE
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
         configuration.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander(responseTimeoutSeconds: 5.0)
@@ -7378,9 +7400,13 @@ private func enableAppleExpansionCapabilities(on configuration: inout MemoryConf
     throw ValidationError(
         "Apple Intelligence is unavailable for this runtime. Apple expansion profiles require query expansion support."
     )
+    #else
+    throw ValidationError("The apple_augmented profile requires the MemoryAppleIntelligence trait.")
+    #endif
 }
 
 private func enableAppleRecallCapabilities(on configuration: inout MemoryConfiguration) throws {
+    #if MEMORY_APPLE_INTELLIGENCE
     #if canImport(FoundationModels)
     if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.isAvailable {
         configuration.structuredQueryExpander = AppleIntelligenceStructuredQueryExpander(responseTimeoutSeconds: 5.0)
@@ -7396,6 +7422,9 @@ private func enableAppleRecallCapabilities(on configuration: inout MemoryConfigu
     throw ValidationError(
         "Apple Intelligence is unavailable for this runtime. Apple recall profiles require query expansion/reranking support."
     )
+    #else
+    throw ValidationError("The apple_augmented profile requires the MemoryAppleIntelligence trait.")
+    #endif
 }
 
 private func checkForRegressions(

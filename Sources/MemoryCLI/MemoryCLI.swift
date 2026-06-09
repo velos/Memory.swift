@@ -1,9 +1,6 @@
 import ArgumentParser
 import Foundation
 import Memory
-import MemoryAppleIntelligence
-import MemoryCoreMLEmbedding
-import MemoryNaturalLanguage
 
 struct StoredCollection: Codable, Hashable {
     var name: String
@@ -109,6 +106,7 @@ struct CLIContext {
     }
 
     func makeIndex() throws -> MemoryIndex {
+        #if MEMORY_COREML_EMBEDDING
         if let models = resolveDefaultCoreMLModels() {
             let configuration = try MemoryConfiguration.coreMLDefault(
                 databaseURL: paths.indexFileURL,
@@ -116,9 +114,17 @@ struct CLIContext {
             )
             return try MemoryIndex(configuration: configuration)
         }
+        if let configuration = try? MemoryConfiguration.coreMLDefault(databaseURL: paths.indexFileURL) {
+            return try MemoryIndex(configuration: configuration)
+        }
+        #endif
 
+        #if MEMORY_NATURAL_LANGUAGE
         let configuration = MemoryConfiguration.naturalLanguageDefault(databaseURL: paths.indexFileURL)
         return try MemoryIndex(configuration: configuration)
+        #else
+        throw ValidationError("The memory CLI requires the MemoryNaturalLanguage trait or a CoreMLEmbedding build with bundled/default models.")
+        #endif
     }
 
     func requireCollection(named name: String) throws -> StoredCollection {
@@ -129,6 +135,7 @@ struct CLIContext {
     }
 }
 
+#if MEMORY_COREML_EMBEDDING
 private enum CLIDefaultCoreMLModels {
     static let embedding = "embedding-v1"
 }
@@ -163,6 +170,7 @@ private func resolveDefaultModelURL(environmentKey: String, modelName: String) -
     ]
     return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
 }
+#endif
 
 @main
 struct MemoryCLI: AsyncParsableCommand {

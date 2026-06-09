@@ -1,6 +1,6 @@
+#if MEMORY_COREML_EMBEDDING
 import CoreML
 import Foundation
-import Memory
 
 public actor CoreMLReranker: Reranker {
     public let identifier: String
@@ -28,10 +28,8 @@ public actor CoreMLReranker: Reranker {
         let resolvedVocabURL: URL
         if let vocabURL {
             resolvedVocabURL = vocabURL
-        } else if let bundledURL = Bundle.module.url(forResource: "vocab", withExtension: "txt") {
-            resolvedVocabURL = bundledURL
         } else {
-            throw MemoryError.embedding("No vocab.txt found. Provide vocabURL or include vocab.txt in bundle.")
+            resolvedVocabURL = try CoreMLBundledResources.vocabURL()
         }
 
         self.tokenizer = try BertTokenizer(vocabURL: resolvedVocabURL, maxSequenceLength: maxSequenceLength)
@@ -39,12 +37,7 @@ public actor CoreMLReranker: Reranker {
         let config = MLModelConfiguration()
         config.computeUnits = computeUnits
 
-        let compiledURL: URL
-        if modelURL.pathExtension == "mlmodelc" {
-            compiledURL = modelURL
-        } else {
-            compiledURL = try MLModel.compileModel(at: modelURL)
-        }
+        let compiledURL = try CoreMLModelResolver.compiledModelURL(for: modelURL)
         self.model = try MLModel(contentsOf: compiledURL, configuration: config)
     }
 
@@ -152,3 +145,5 @@ public actor CoreMLReranker: Reranker {
         1.0 / (1.0 + exp(-x))
     }
 }
+
+#endif

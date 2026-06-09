@@ -366,6 +366,23 @@ public enum StoredMemorySort: Sendable {
     case mostAccessed
 }
 
+public enum StoredMemoryDebugSort: Sendable {
+    case createdAtDescending
+    case updatedAtDescending
+    case importanceDescending
+    case mostAccessed
+}
+
+public struct StoredMemoryDebugPage: Sendable {
+    public var records: [StoredMemoryRecord]
+    public var totalCount: Int
+
+    public init(records: [StoredMemoryRecord], totalCount: Int) {
+        self.records = records
+        self.totalCount = max(0, totalCount)
+    }
+}
+
 public struct LexicalHit: Sendable {
     public var chunkID: Int64
     public var score: Double
@@ -408,6 +425,23 @@ public actor MemoryStorage {
         vectorConfigTableName,
         vectorTableName,
     ]
+    private static let storedMemoryDebugSearchExpression = """
+    LOWER(
+        COALESCE(m.id, '') || ' ' ||
+        COALESCE(m.title, '') || ' ' ||
+        COALESCE(m.kind, '') || ' ' ||
+        COALESCE(m.status, '') || ' ' ||
+        COALESCE(m.canonical_key, '') || ' ' ||
+        COALESCE(m.text, '') || ' ' ||
+        COALESCE(m.source, '') || ' ' ||
+        COALESCE(m.tags_json, '') || ' ' ||
+        COALESCE(m.facet_tags_json, '') || ' ' ||
+        COALESCE(m.entities_json, '') || ' ' ||
+        COALESCE(m.topics_json, '') || ' ' ||
+        COALESCE(m.metadata_json, '') || ' ' ||
+        COALESCE(d.path, '')
+    )
+    """
 
     public init(databaseURL: URL) throws {
         try FileManager.default.createDirectory(
@@ -1041,6 +1075,120 @@ public actor MemoryStorage {
             """,
             arguments: arguments
         ).map(Self.makeStoredMemoryRecord(from:))
+    }
+
+    public func debugStoredMemories(
+        searchText: String,
+        limit: Int,
+        offset: Int,
+        sort: StoredMemoryDebugSort,
+        kinds: Set<String>? = nil,
+        statuses: Set<String>? = nil
+    ) throws -> StoredMemoryDebugPage {
+        let effectiveLimit = max(1, limit)
+        let effectiveOffset = max(0, offset)
+        var arguments: [Any?] = []
+        var filters: [String] = []
+
+        if let kinds {
+            let orderedKinds = kinds
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+                .sorted()
+            if orderedKinds.isEmpty {
+                filters.append("1 = 0")
+            } else {
+                filters.append("m.kind IN (\(SQLiteDatabase.placeholders(count: orderedKinds.count)))")
+                arguments.append(contentsOf: orderedKinds)
+            }
+        }
+
+        if let statuses {
+            let orderedStatuses = statuses
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+                .sorted()
+            if orderedStatuses.isEmpty {
+                filters.append("1 = 0")
+            } else {
+                filters.append("m.status IN (\(SQLiteDatabase.placeholders(count: orderedStatuses.count)))")
+                arguments.append(contentsOf: orderedStatuses)
+            }
+        }
+
+        for token in Self.debugSearchTokens(from: searchText) {
+            filters.append("\(Self.storedMemoryDebugSearchExpression) LIKE ? ESCAPE '\\'")
+            arguments.append("%\(Self.escapeLikePattern(token))%")
+        }
+
+        let whereClause = filters.isEmpty ? "" : "WHERE " + filters.joined(separator: " AND ")
+        let fromClause = """
+        FROM memories m
+        LEFT JOIN documents d ON d.memory_id = m.id
+        LEFT JOIN chunks c ON c.document_id = d.id AND c.ordinal = 0
+        \(whereClause)
+        """
+
+        let totalCount = try database.fetchOne(
+            sql: "SELECT COUNT(*) \(fromClause)",
+            arguments: arguments,
+            as: Int.self
+        ) ?? 0
+
+        let orderClause: String
+        switch sort {
+        case .createdAtDescending:
+            orderClause = "ORDER BY m.created_at DESC, m.id DESC"
+        case .updatedAtDescending:
+            orderClause = "ORDER BY m.updated_at DESC, m.created_at DESC, m.id DESC"
+        case .importanceDescending:
+            orderClause = "ORDER BY m.importance DESC, m.created_at DESC, m.id DESC"
+        case .mostAccessed:
+            orderClause = "ORDER BY COALESCE(c.access_count, 0) DESC, COALESCE(c.last_accessed_at, 0) DESC, m.created_at DESC, m.id DESC"
+        }
+
+        var pageArguments = arguments
+        pageArguments.append(effectiveLimit)
+        pageArguments.append(effectiveOffset)
+
+        let records = try database.fetchAll(
+            sql: """
+            SELECT
+                m.id AS id,
+                m.title AS title,
+                m.kind AS kind,
+                m.status AS status,
+                m.canonical_key AS canonical_key,
+                m.text AS text,
+                m.tags_json AS tags_json,
+                COALESCE(m.facet_tags_json, '[]') AS facet_tags_json,
+                COALESCE(m.entities_json, '[]') AS entities_json,
+                COALESCE(m.topics_json, '[]') AS topics_json,
+                m.importance AS importance,
+                m.confidence AS confidence,
+                m.source AS source,
+                m.created_at AS created_at,
+                m.event_at AS event_at,
+                m.updated_at AS updated_at,
+                m.supersedes_id AS supersedes_id,
+                m.superseded_by_id AS superseded_by_id,
+                m.metadata_json AS metadata_json,
+                c.id AS chunk_id,
+                d.path AS document_path,
+                COALESCE(c.access_count, 0) AS access_count,
+                c.last_accessed_at AS last_accessed_at,
+                COALESCE(c.memory_type_override, d.memory_type, 'document') AS legacy_document_type,
+                COALESCE(c.memory_type_override_source, d.memory_type_source, 'system') AS legacy_document_type_source,
+                COALESCE(c.memory_type_override_confidence, d.memory_type_confidence) AS legacy_document_type_confidence,
+                COALESCE(c.content_tags_json, '[]') AS content_tags_json
+            \(fromClause)
+            \(orderClause)
+            LIMIT ? OFFSET ?
+            """,
+            arguments: pageArguments
+        ).map(Self.makeStoredMemoryRecord(from:))
+
+        return StoredMemoryDebugPage(records: records, totalCount: totalCount)
     }
 
     public func findStoredMemory(
@@ -2749,6 +2897,30 @@ public actor MemoryStorage {
             }
         }
         return escaped
+    }
+
+    private static func debugSearchTokens(from searchText: String) -> [String] {
+        let normalizedSearch = searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedSearch.isEmpty else { return [] }
+        if normalizedSearch.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
+            return [normalizedSearch]
+        }
+
+        let separators = CharacterSet.alphanumerics.inverted
+        var seen: Set<String> = []
+        var tokens: [String] = []
+
+        for token in normalizedSearch
+            .components(separatedBy: separators)
+        {
+            guard !token.isEmpty else { continue }
+            guard seen.insert(token).inserted else { continue }
+            tokens.append(token)
+        }
+
+        return tokens
     }
 
     private static func makeChunkEmbedding(from row: SQLiteRow) -> StoredChunkEmbedding? {

@@ -1,5 +1,5 @@
+#if MEMORY_APPLE_INTELLIGENCE
 import Foundation
-import Memory
 
 #if canImport(FoundationModels)
 import FoundationModels
@@ -1026,4 +1026,6 @@ private func withGenerationTimeout<T: Sendable>(
         return result
     }
 }
+#endif
+
 #endif

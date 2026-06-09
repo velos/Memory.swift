@@ -1,6 +1,6 @@
+#if MEMORY_COREML_EMBEDDING
 import CoreML
 import Foundation
-import Memory
 
 public final class CoreMLStructuredQueryExpander: @unchecked Sendable, StructuredQueryExpander {
     public let identifier: String
@@ -23,12 +23,7 @@ public final class CoreMLStructuredQueryExpander: @unchecked Sendable, Structure
         let configuration = MLModelConfiguration()
         configuration.computeUnits = computeUnits
 
-        let compiledURL: URL
-        if modelURL.pathExtension == "mlmodelc" {
-            compiledURL = modelURL
-        } else {
-            compiledURL = try MLModel.compileModel(at: modelURL)
-        }
+        let compiledURL = try CoreMLModelResolver.compiledModelURL(for: modelURL)
         self.model = try MLModel(contentsOf: compiledURL, configuration: configuration)
     }
 
@@ -206,3 +201,5 @@ private struct StructuredEntityPayload: Codable {
     var normalizedValue: String?
     var confidence: Double?
 }
+
+#endif

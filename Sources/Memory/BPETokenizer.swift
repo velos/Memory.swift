@@ -1,3 +1,4 @@
+#if MEMORY_COREML_EMBEDDING
 import Foundation
 
 /// Byte-level BPE tokenizer compatible with GPT-2/GPT-NeoX/ModernBERT tokenizers.
@@ -230,3 +231,5 @@ public struct BPETokenizer: Sendable {
         return encoder
     }
 }
+
+#endif
