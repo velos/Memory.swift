@@ -8,6 +8,23 @@ Each dataset folder can also include a `manifest.json` describing provenance, wh
 
 The default committed suite should remain commercially safe. If you want to experiment with stronger non-commercial-only eval sets, keep them under `Evals/local_nc/` so they stay out of the public default workflow.
 
+## Shared Row Metadata
+
+Runnable row files may include metadata fields so reports can slice metrics by
+coverage area and provenance:
+
+- `case_category`: `golden`, `edge`, `adversarial`, `known_regression`, `holdout`, or `synthetic_expansion`.
+- `source_family`: free-form stable family label such as `profile_update`, `no_write`, `maintenance`, or `context_preparation`.
+- `difficulty`: `easy`, `medium`, or `hard`.
+- `generation_method`: `seed`, `template`, `synthetic_seed`, `model_generated`, `converted`, or `external`.
+- `review_status`: `curated`, `reviewed`, or `needs_review`.
+- `synthetic_status`: `human`, `synthetic`, `external`, or `hybrid`.
+
+If a dataset manifest sets `metadata_required: true`, every storage case,
+recall query, query-expansion case, and agent-memory scenario must include all
+six fields. When present, enum values are validated by
+`swift run memory_eval validate-datasets --strict`.
+
 ## Files
 
 ### `storage_cases.jsonl`
