@@ -170,6 +170,9 @@ private struct StorageCase: Decodable {
     var expectedFacets: [String]?
     var requiredEntities: [String]?
     var requiredTopics: [String]?
+    var expectedSubject: String?
+    var requiredEvidenceRoles: [String]?
+    var forbiddenTextContains: [String]?
     var expectedUpdateBehavior: String?
     var canonicalKey: String?
     var setupMemories: [StorageSeedMemory]?
@@ -224,10 +227,14 @@ private struct AgentMemoryScenarioCase: Decodable {
     var id: String
     var messages: [AgentMemoryScenarioMessage]
     var setupMemories: [StorageSeedMemory]?
+    var setupContextHints: [AgentMemoryContextHintSeed]?
     var expectedWriteCount: Int?
     var expectedMemories: [AgentMemoryExpectedMemory]?
     var expectedUpdateBehavior: String?
     var recallQueries: [AgentMemoryRecallExpectation]?
+    var workflow: String?
+    var contextExpectations: [AgentMemoryContextExpectation]?
+    var maintenanceExpectation: AgentMemoryMaintenanceExpectation?
 }
 
 private struct AgentMemoryScenarioMessage: Decodable {
@@ -235,14 +242,23 @@ private struct AgentMemoryScenarioMessage: Decodable {
     var content: String
 }
 
+private struct AgentMemoryContextHintSeed: Decodable {
+    var pathPrefix: String?
+    var context: String
+}
+
 private struct AgentMemoryExpectedMemory: Decodable {
     var kind: String?
     var status: String?
     var canonicalKey: String?
     var textContains: [String]?
+    var forbiddenTextContains: [String]?
     var facets: [String]?
     var entities: [String]?
     var topics: [String]?
+    var subject: String?
+    var requiredEvidenceRoles: [String]?
+    var requiredEvidenceSourceIds: [String]?
 }
 
 private struct AgentMemoryRecallExpectation: Decodable {
@@ -251,6 +267,29 @@ private struct AgentMemoryRecallExpectation: Decodable {
     var expectedTextContains: [String]?
     var expectedKinds: [String]?
     var expectedStatuses: [String]?
+}
+
+private struct AgentMemoryContextExpectation: Decodable {
+    var messages: [AgentMemoryScenarioMessage]?
+    var query: String?
+    var maxReferences: Int?
+    var maxTokens: Int?
+    var expectedTextContains: [String]?
+    var forbiddenTextContains: [String]?
+    var expectedHintContains: [String]?
+    var requireUntrustedFraming: Bool?
+}
+
+private struct AgentMemoryMaintenanceExpectation: Decodable {
+    var signalMemoryCanonicalKey: String?
+    var signalQueries: [String]?
+    var signalConfidence: Double?
+    var minSignalCount: Int?
+    var minDistinctQueries: Int?
+    var minConfidence: Double?
+    var expectedProposalTextContains: [String]?
+    var forbiddenProposalTextContains: [String]?
+    var expectedProposalCount: Int?
 }
 
 enum EvalProfile: String, CaseIterable, Codable, ExpressibleByArgument {
@@ -285,6 +324,11 @@ private struct StorageCaseResult: Codable {
     var predictedEntities: [String]?
     var expectedTopics: [String]?
     var predictedTopics: [String]?
+    var expectedSubject: String?
+    var predictedSubject: String?
+    var expectedEvidenceRoles: [String]?
+    var predictedEvidenceRoles: [String]?
+    var forbiddenTextViolations: [String]?
     var expectedUpdateBehavior: String?
     var observedUpdateBehavior: String?
 }
@@ -311,6 +355,9 @@ private struct StorageSuiteReport: Codable {
     var entityPrecision: Double?
     var entityRecall: Double?
     var topicRecall: Double?
+    var subjectAccuracy: Double?
+    var evidenceRoleRecall: Double?
+    var forbiddenTextPassRate: Double?
     var updateBehaviorAccuracy: Double?
     var confusionMatrix: [String: [String: Int]]
     var caseResults: [StorageCaseResult]
@@ -815,6 +862,12 @@ private struct AgentMemoryScenarioResult: Codable {
     var recallHitCount: Int
     var recallQueryCount: Int
     var reciprocalRanks: [Double]
+    var contextHitCount: Int
+    var contextExpectationCount: Int
+    var contextForbiddenViolationCount: Int
+    var contextTokenBudgetPassCount: Int
+    var maintenanceProposalMatched: Bool?
+    var maintenanceForbiddenViolationCount: Int
     var latencyMs: Double
 }
 
@@ -826,6 +879,14 @@ private struct AgentMemorySuiteReport: Codable {
     var updateBehaviorAccuracy: Double
     var recallHitRate: Double
     var recallMRR: Double
+    var subjectAccuracy: Double?
+    var evidenceRoleRecall: Double?
+    var forbiddenTextPassRate: Double?
+    var contextHitRate: Double?
+    var contextForbiddenPassRate: Double?
+    var contextTokenBudgetPassRate: Double?
+    var maintenanceProposalHitRate: Double?
+    var maintenanceForbiddenPassRate: Double?
     var latencyStats: RecallLatencyStats?
     var caseResults: [AgentMemoryScenarioResult]
 }
@@ -1829,6 +1890,15 @@ struct RunCommand: AsyncParsableCommand {
             if let topicRecall = report.storage.topicRecall {
                 print("Storage topic recall: \(percent(topicRecall))")
             }
+            if let subjectAccuracy = report.storage.subjectAccuracy {
+                print("Storage subject accuracy: \(percent(subjectAccuracy))")
+            }
+            if let evidenceRoleRecall = report.storage.evidenceRoleRecall {
+                print("Storage evidence role recall: \(percent(evidenceRoleRecall))")
+            }
+            if let forbiddenTextPassRate = report.storage.forbiddenTextPassRate {
+                print("Storage forbidden text pass rate: \(percent(forbiddenTextPassRate))")
+            }
             if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
                 print("Storage update behavior accuracy: \(percent(updateBehaviorAccuracy))")
             }
@@ -1873,6 +1943,30 @@ struct RunCommand: AsyncParsableCommand {
             print("Agent memory update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
             print("Agent memory recall Hit: \(percent(agentMemory.recallHitRate))")
             print("Agent memory recall MRR: \(format(agentMemory.recallMRR))")
+            if let subjectAccuracy = agentMemory.subjectAccuracy {
+                print("Agent memory subject accuracy: \(percent(subjectAccuracy))")
+            }
+            if let evidenceRoleRecall = agentMemory.evidenceRoleRecall {
+                print("Agent memory evidence role recall: \(percent(evidenceRoleRecall))")
+            }
+            if let forbiddenTextPassRate = agentMemory.forbiddenTextPassRate {
+                print("Agent memory forbidden text pass rate: \(percent(forbiddenTextPassRate))")
+            }
+            if let contextHitRate = agentMemory.contextHitRate {
+                print("Agent memory context hit rate: \(percent(contextHitRate))")
+            }
+            if let contextForbiddenPassRate = agentMemory.contextForbiddenPassRate {
+                print("Agent memory context forbidden pass rate: \(percent(contextForbiddenPassRate))")
+            }
+            if let contextTokenBudgetPassRate = agentMemory.contextTokenBudgetPassRate {
+                print("Agent memory context token-budget pass rate: \(percent(contextTokenBudgetPassRate))")
+            }
+            if let maintenanceProposalHitRate = agentMemory.maintenanceProposalHitRate {
+                print("Agent memory maintenance proposal hit rate: \(percent(maintenanceProposalHitRate))")
+            }
+            if let maintenanceForbiddenPassRate = agentMemory.maintenanceForbiddenPassRate {
+                print("Agent memory maintenance forbidden pass rate: \(percent(maintenanceForbiddenPassRate))")
+            }
         }
         if let ingestTotal = report.storage.stageLatencyStats?.totalMs {
             print("Indexing total/doc: p50=\(String(format: "%.0f", ingestTotal.p50Ms))ms p95=\(String(format: "%.0f", ingestTotal.p95Ms))ms mean=\(String(format: "%.0f", ingestTotal.meanMs))ms")
@@ -3168,6 +3262,9 @@ private func makeEmptyStorageSuiteReport() -> StorageSuiteReport {
         entityPrecision: nil,
         entityRecall: nil,
         topicRecall: nil,
+        subjectAccuracy: nil,
+        evidenceRoleRecall: nil,
+        forbiddenTextPassRate: nil,
         updateBehaviorAccuracy: nil,
         confusionMatrix: [:],
         caseResults: [],
@@ -3296,6 +3393,9 @@ private func storageIndexCacheSeed(profile: EvalProfile, dataset: [StorageCase])
         parts.append("required_spans=\((entry.requiredSpans ?? []).joined(separator: "\u{1E}"))")
         parts.append("required_entities=\((entry.requiredEntities ?? []).joined(separator: "\u{1E}"))")
         parts.append("required_topics=\((entry.requiredTopics ?? []).joined(separator: "\u{1E}"))")
+        parts.append("expected_subject=\(entry.expectedSubject ?? "")")
+        parts.append("required_evidence_roles=\((entry.requiredEvidenceRoles ?? []).joined(separator: "\u{1E}"))")
+        parts.append("forbidden_text=\((entry.forbiddenTextContains ?? []).joined(separator: "\u{1E}"))")
         parts.append("update=\(entry.expectedUpdateBehavior ?? "")")
         parts.append("canonical_key=\(entry.canonicalKey ?? "")")
         parts.append("text=\(entry.text)")
@@ -3542,7 +3642,24 @@ private func runStorageSuite(
             predictedSource: predictedSource,
             predictedConfidence: predictedConfidence,
             missingSpans: missing,
-            chunkCount: chunkContents.count
+            chunkCount: chunkContents.count,
+            expectedKind: nil,
+            predictedKind: nil,
+            expectedStatus: nil,
+            predictedStatus: nil,
+            expectedFacets: nil,
+            predictedFacets: nil,
+            expectedEntities: nil,
+            predictedEntities: nil,
+            expectedTopics: nil,
+            predictedTopics: nil,
+            expectedSubject: nil,
+            predictedSubject: nil,
+            expectedEvidenceRoles: nil,
+            predictedEvidenceRoles: nil,
+            forbiddenTextViolations: nil,
+            expectedUpdateBehavior: nil,
+            observedUpdateBehavior: nil
         )
         results.append(caseResult)
 
@@ -3575,6 +3692,9 @@ private func runStorageSuite(
         entityPrecision: nil,
         entityRecall: nil,
         topicRecall: nil,
+        subjectAccuracy: nil,
+        evidenceRoleRecall: nil,
+        forbiddenTextPassRate: nil,
         updateBehaviorAccuracy: nil,
         confusionMatrix: confusion,
         caseResults: results.sorted { $0.id < $1.id },
@@ -4473,6 +4593,9 @@ private func usesCanonicalMemorySchemaStorageEval(_ dataset: [StorageCase]) -> B
             || !(entry.expectedFacets ?? []).isEmpty
             || !(entry.requiredEntities ?? []).isEmpty
             || !(entry.requiredTopics ?? []).isEmpty
+            || entry.expectedSubject != nil
+            || !(entry.requiredEvidenceRoles ?? []).isEmpty
+            || !(entry.forbiddenTextContains ?? []).isEmpty
             || entry.expectedUpdateBehavior != nil
     }
 }
@@ -4511,6 +4634,15 @@ private func runCanonicalStorageSuite(
 
     var totalExpectedTopics = 0
     var totalMatchedTopics = 0
+
+    var subjectExpectedCount = 0
+    var subjectCorrectCount = 0
+
+    var totalExpectedEvidenceRoles = 0
+    var totalMatchedEvidenceRoles = 0
+
+    var forbiddenTextExpectationCount = 0
+    var forbiddenTextPassCount = 0
 
     var updateExpectedCount = 0
     var updateCorrectCount = 0
@@ -4578,6 +4710,33 @@ private func runCanonicalStorageSuite(
         let expectedTopicValues = Set((entry.requiredTopics ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
         let predictedTopicValues = Set((stored?.topics ?? candidate?.topics ?? []).map(normalizeForMatch))
 
+        let expectedSubject = entry.expectedSubject.map(normalizeForMatch)
+        let predictedSubject = stored?.subject?.rawValue ?? candidate?.subject?.rawValue
+        if let expectedSubject {
+            subjectExpectedCount += 1
+            if normalizeForMatch(predictedSubject ?? "") == expectedSubject {
+                subjectCorrectCount += 1
+            }
+        }
+
+        let expectedEvidenceRoles = Set((entry.requiredEvidenceRoles ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let predictedEvidenceRoles = Set((stored?.evidence ?? candidate?.evidence ?? []).map { $0.role.rawValue }.map(normalizeForMatch))
+        let matchedEvidenceRoles = expectedEvidenceRoles.intersection(predictedEvidenceRoles)
+        totalExpectedEvidenceRoles += expectedEvidenceRoles.count
+        totalMatchedEvidenceRoles += matchedEvidenceRoles.count
+
+        let forbiddenTextViolations = (entry.forbiddenTextContains ?? [])
+            .filter { !normalizeForMatch($0).isEmpty }
+            .filter { forbidden in
+                normalizeForMatch(stored?.text ?? candidate?.text ?? "").contains(normalizeForMatch(forbidden))
+            }
+        if !(entry.forbiddenTextContains ?? []).isEmpty {
+            forbiddenTextExpectationCount += 1
+            if forbiddenTextViolations.isEmpty {
+                forbiddenTextPassCount += 1
+            }
+        }
+
         if let expectedKind {
             expectedKinds.append(expectedKind.rawValue)
             predictedKinds.append(predictedKind?.rawValue ?? "none")
@@ -4633,6 +4792,11 @@ private func runCanonicalStorageSuite(
                 predictedEntities: Array(predictedEntityValues).sorted(),
                 expectedTopics: Array(expectedTopicValues).sorted(),
                 predictedTopics: Array(predictedTopicValues).sorted(),
+                expectedSubject: expectedSubject,
+                predictedSubject: expectedSubject == nil ? nil : predictedSubject,
+                expectedEvidenceRoles: expectedEvidenceRoles.isEmpty ? nil : Array(expectedEvidenceRoles).sorted(),
+                predictedEvidenceRoles: expectedEvidenceRoles.isEmpty ? nil : Array(predictedEvidenceRoles).sorted(),
+                forbiddenTextViolations: (entry.forbiddenTextContains ?? []).isEmpty ? nil : forbiddenTextViolations,
                 expectedUpdateBehavior: entry.expectedUpdateBehavior,
                 observedUpdateBehavior: observedUpdateBehavior
             )
@@ -4657,6 +4821,9 @@ private func runCanonicalStorageSuite(
     let entityPrecision = safeRatio(totalMatchedEntities, totalPredictedEntities, emptyDefault: 1)
     let entityRecall = safeRatio(totalMatchedEntities, totalExpectedEntities, emptyDefault: 1)
     let topicRecall = safeRatio(totalMatchedTopics, totalExpectedTopics, emptyDefault: 1)
+    let subjectAccuracy = subjectExpectedCount == 0 ? nil : safeRatio(subjectCorrectCount, subjectExpectedCount, emptyDefault: 1)
+    let evidenceRoleRecall = totalExpectedEvidenceRoles == 0 ? nil : safeRatio(totalMatchedEvidenceRoles, totalExpectedEvidenceRoles, emptyDefault: 1)
+    let forbiddenTextPassRate = forbiddenTextExpectationCount == 0 ? nil : safeRatio(forbiddenTextPassCount, forbiddenTextExpectationCount, emptyDefault: 1)
     let updateAccuracy = updateExpectedCount == 0 ? 1 : Double(updateCorrectCount) / Double(updateExpectedCount)
 
     return StorageSuiteReport(
@@ -4672,6 +4839,9 @@ private func runCanonicalStorageSuite(
         entityPrecision: entityPrecision,
         entityRecall: entityRecall,
         topicRecall: topicRecall,
+        subjectAccuracy: subjectAccuracy,
+        evidenceRoleRecall: evidenceRoleRecall,
+        forbiddenTextPassRate: forbiddenTextPassRate,
         updateBehaviorAccuracy: updateAccuracy,
         confusionMatrix: confusion,
         caseResults: results.sorted { $0.id < $1.id },
@@ -4760,6 +4930,22 @@ private func runAgentMemorySuite(
     var totalRecallQueries = 0
     var totalRecallHits = 0
     var reciprocalRanks: [Double] = []
+    var subjectExpectedCount = 0
+    var subjectCorrectCount = 0
+    var totalExpectedEvidenceRoles = 0
+    var totalMatchedEvidenceRoles = 0
+    var forbiddenTextExpectationCount = 0
+    var forbiddenTextPassCount = 0
+    var totalContextExpectations = 0
+    var totalContextHits = 0
+    var contextForbiddenExpectationCount = 0
+    var contextForbiddenPassCount = 0
+    var contextTokenBudgetExpectationCount = 0
+    var contextTokenBudgetPassCount = 0
+    var maintenanceExpectationCount = 0
+    var maintenanceProposalHitCount = 0
+    var maintenanceForbiddenExpectationCount = 0
+    var maintenanceForbiddenPassCount = 0
     var latencies: [Double] = []
 
     let templateDatabaseURL = workspace.root
@@ -4793,10 +4979,40 @@ private func runAgentMemorySuite(
         for seed in scenario.setupMemories ?? [] {
             setupRecords.append(try await saveSeedMemory(seed, in: index, context: "agent-memory scenario \(scenario.id)"))
         }
+        for hint in scenario.setupContextHints ?? [] {
+            try await index.setContextHint(
+                MemoryContextHint(
+                    pathPrefix: hint.pathPrefix ?? "memory://",
+                    context: hint.context
+                )
+            )
+        }
 
         let messages = try parseScenarioMessages(scenario.messages, context: "agent-memory scenario \(scenario.id)")
-        let extracted = try await index.extract(from: messages, limit: 20)
-        let ingestResult = try await index.ingest(extracted)
+        let extracted: [MemoryCandidate]
+        let ingestResult: MemoryIngestResult
+        switch scenario.workflow?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case nil, "", "extract_ingest":
+            extracted = try await index.extract(from: messages, limit: 20)
+            ingestResult = try await index.ingest(extracted)
+        case "capture":
+            let capture = try await index.capture(
+                MemoryCaptureRequest(
+                    messages: messages,
+                    mode: .ingest,
+                    sourceID: scenario.id
+                )
+            )
+            extracted = capture.extraction.candidates
+            ingestResult = capture.ingestResult ?? MemoryIngestResult(
+                requestedCount: capture.extraction.candidates.count,
+                storedCount: 0,
+                discardedCount: capture.extraction.candidates.count,
+                records: []
+            )
+        default:
+            throw ValidationError("Unsupported agent-memory scenario \(scenario.id) workflow '\(scenario.workflow ?? "")'.")
+        }
         let allRecords = try await fetchAllMemoryRecords(index: index)
         var scoringRecordsByID = Dictionary(uniqueKeysWithValues: allRecords.map { ($0.id, $0) })
         for record in ingestResult.records {
@@ -4817,6 +5033,14 @@ private func runAgentMemorySuite(
             context: "agent-memory scenario \(scenario.id)"
         )
         totalMatchedExpectedWrites += min(expectedWriteCount, matchedExpectedWrites)
+
+        let metadataScore = scoreExpectedMemoryMetadata(expectedMemories, records: scoringRecords)
+        subjectExpectedCount += metadataScore.subjectExpected
+        subjectCorrectCount += metadataScore.subjectCorrect
+        totalExpectedEvidenceRoles += metadataScore.evidenceRolesExpected
+        totalMatchedEvidenceRoles += metadataScore.evidenceRolesMatched
+        forbiddenTextExpectationCount += metadataScore.forbiddenTextExpected
+        forbiddenTextPassCount += metadataScore.forbiddenTextPassed
 
         let falseWriteCount = expectedWriteCount == 0
             ? ingestResult.storedCount
@@ -4880,6 +5104,59 @@ private func runAgentMemorySuite(
             }
         }
 
+        var scenarioContextHits = 0
+        var scenarioContextForbiddenViolations = 0
+        var scenarioContextTokenBudgetPasses = 0
+        for expectation in scenario.contextExpectations ?? [] {
+            totalContextExpectations += 1
+            let score = try await evaluateContextExpectation(
+                expectation,
+                index: index,
+                configuration: config,
+                scenarioID: scenario.id
+            )
+            if score.hit {
+                scenarioContextHits += 1
+                totalContextHits += 1
+            }
+            if score.hasForbiddenExpectation {
+                contextForbiddenExpectationCount += 1
+                if score.forbiddenViolationCount == 0 {
+                    contextForbiddenPassCount += 1
+                }
+            }
+            scenarioContextForbiddenViolations += score.forbiddenViolationCount
+            if score.hasTokenBudgetExpectation {
+                contextTokenBudgetExpectationCount += 1
+                if score.tokenBudgetPassed {
+                    scenarioContextTokenBudgetPasses += 1
+                    contextTokenBudgetPassCount += 1
+                }
+            }
+        }
+
+        let maintenanceScore: AgentMemoryMaintenanceScore?
+        if let maintenanceExpectation = scenario.maintenanceExpectation {
+            maintenanceExpectationCount += 1
+            maintenanceScore = try await evaluateMaintenanceExpectation(
+                maintenanceExpectation,
+                index: index,
+                records: scoringRecords,
+                scenarioID: scenario.id
+            )
+            if maintenanceScore?.proposalMatched == true {
+                maintenanceProposalHitCount += 1
+            }
+            if maintenanceScore?.hasForbiddenExpectation == true {
+                maintenanceForbiddenExpectationCount += 1
+                if maintenanceScore?.forbiddenViolationCount == 0 {
+                    maintenanceForbiddenPassCount += 1
+                }
+            }
+        } else {
+            maintenanceScore = nil
+        }
+
         let latencyMs = Date().timeIntervalSince(started) * 1000.0
         latencies.append(latencyMs)
 
@@ -4897,6 +5174,12 @@ private func runAgentMemorySuite(
                 recallHitCount: scenarioRecallHits,
                 recallQueryCount: scenario.recallQueries?.count ?? 0,
                 reciprocalRanks: scenarioReciprocalRanks,
+                contextHitCount: scenarioContextHits,
+                contextExpectationCount: scenario.contextExpectations?.count ?? 0,
+                contextForbiddenViolationCount: scenarioContextForbiddenViolations,
+                contextTokenBudgetPassCount: scenarioContextTokenBudgetPasses,
+                maintenanceProposalMatched: maintenanceScore?.proposalMatched,
+                maintenanceForbiddenViolationCount: maintenanceScore?.forbiddenViolationCount ?? 0,
                 latencyMs: latencyMs
             )
         )
@@ -4915,6 +5198,14 @@ private func runAgentMemorySuite(
         updateBehaviorAccuracy: safeRatio(updateCorrectCount, updateExpectedCount, emptyDefault: 1),
         recallHitRate: safeRatio(totalRecallHits, totalRecallQueries, emptyDefault: 1),
         recallMRR: reciprocalRanks.isEmpty ? 1 : reciprocalRanks.reduce(0, +) / Double(reciprocalRanks.count),
+        subjectAccuracy: subjectExpectedCount == 0 ? nil : safeRatio(subjectCorrectCount, subjectExpectedCount, emptyDefault: 1),
+        evidenceRoleRecall: totalExpectedEvidenceRoles == 0 ? nil : safeRatio(totalMatchedEvidenceRoles, totalExpectedEvidenceRoles, emptyDefault: 1),
+        forbiddenTextPassRate: forbiddenTextExpectationCount == 0 ? nil : safeRatio(forbiddenTextPassCount, forbiddenTextExpectationCount, emptyDefault: 1),
+        contextHitRate: totalContextExpectations == 0 ? nil : safeRatio(totalContextHits, totalContextExpectations, emptyDefault: 1),
+        contextForbiddenPassRate: contextForbiddenExpectationCount == 0 ? nil : safeRatio(contextForbiddenPassCount, contextForbiddenExpectationCount, emptyDefault: 1),
+        contextTokenBudgetPassRate: contextTokenBudgetExpectationCount == 0 ? nil : safeRatio(contextTokenBudgetPassCount, contextTokenBudgetExpectationCount, emptyDefault: 1),
+        maintenanceProposalHitRate: maintenanceExpectationCount == 0 ? nil : safeRatio(maintenanceProposalHitCount, maintenanceExpectationCount, emptyDefault: 1),
+        maintenanceForbiddenPassRate: maintenanceForbiddenExpectationCount == 0 ? nil : safeRatio(maintenanceForbiddenPassCount, maintenanceForbiddenExpectationCount, emptyDefault: 1),
         latencyStats: computeLatencyStats(samples: latencies),
         caseResults: results.sorted { $0.id < $1.id }
     )
@@ -4942,6 +5233,29 @@ private func saveSeedMemory(
     )
 }
 
+private struct AgentMemoryMetadataScore {
+    var subjectExpected: Int = 0
+    var subjectCorrect: Int = 0
+    var evidenceRolesExpected: Int = 0
+    var evidenceRolesMatched: Int = 0
+    var forbiddenTextExpected: Int = 0
+    var forbiddenTextPassed: Int = 0
+}
+
+private struct AgentMemoryContextScore {
+    var hit: Bool
+    var hasForbiddenExpectation: Bool
+    var forbiddenViolationCount: Int
+    var hasTokenBudgetExpectation: Bool
+    var tokenBudgetPassed: Bool
+}
+
+private struct AgentMemoryMaintenanceScore {
+    var proposalMatched: Bool
+    var hasForbiddenExpectation: Bool
+    var forbiddenViolationCount: Int
+}
+
 private func parseScenarioMessages(
     _ rawMessages: [AgentMemoryScenarioMessage],
     context: String
@@ -4952,6 +5266,126 @@ private func parseScenarioMessages(
         }
         return ConversationMessage(role: role, content: raw.content)
     }
+}
+
+private func evaluateContextExpectation(
+    _ expectation: AgentMemoryContextExpectation,
+    index: MemoryIndex,
+    configuration: MemoryConfiguration,
+    scenarioID: String
+) async throws -> AgentMemoryContextScore {
+    let messages: [ConversationMessage]
+    if let rawMessages = expectation.messages {
+        messages = try parseScenarioMessages(rawMessages, context: "agent-memory scenario \(scenarioID) context expectation")
+    } else if let query = expectation.query {
+        messages = [ConversationMessage(role: .user, content: query)]
+    } else {
+        throw ValidationError("Agent-memory scenario \(scenarioID) context expectation needs messages or query.")
+    }
+
+    let maxTokens = expectation.maxTokens ?? 1_024
+    let response = try await index.prepareContext(
+        MemoryContextRequest(
+            messages: messages,
+            budget: MemoryContextBudget(
+                maxReferences: expectation.maxReferences ?? 8,
+                maxTokens: maxTokens
+            ),
+            sourceID: scenarioID
+        )
+    )
+    let normalizedBlock = normalizeForMatch(response.contextBlock)
+    let expectedTextHit = (expectation.expectedTextContains ?? [])
+        .map(normalizeForMatch)
+        .filter { !$0.isEmpty }
+        .allSatisfy { normalizedBlock.contains($0) }
+    let expectedHintHit = (expectation.expectedHintContains ?? [])
+        .map(normalizeForMatch)
+        .filter { !$0.isEmpty }
+        .allSatisfy { expected in
+            response.hints.contains { hint in
+                normalizeForMatch(hint.context).contains(expected)
+                    || normalizeForMatch(hint.pathPrefix).contains(expected)
+            } || normalizedBlock.contains(expected)
+        }
+    let framingHit = expectation.requireUntrustedFraming == true
+        ? normalizedBlock.contains("untrusted memory context")
+        : true
+    let forbiddenViolations = (expectation.forbiddenTextContains ?? [])
+        .map(normalizeForMatch)
+        .filter { !$0.isEmpty && normalizedBlock.contains($0) }
+    let tokenCount = configuration.tokenizer.tokenize(response.contextBlock).count
+
+    return AgentMemoryContextScore(
+        hit: expectedTextHit && expectedHintHit && framingHit,
+        hasForbiddenExpectation: !(expectation.forbiddenTextContains ?? []).isEmpty,
+        forbiddenViolationCount: forbiddenViolations.count,
+        hasTokenBudgetExpectation: expectation.maxTokens != nil,
+        tokenBudgetPassed: tokenCount <= maxTokens
+    )
+}
+
+private func evaluateMaintenanceExpectation(
+    _ expectation: AgentMemoryMaintenanceExpectation,
+    index: MemoryIndex,
+    records: [MemoryRecord],
+    scenarioID: String
+) async throws -> AgentMemoryMaintenanceScore {
+    let signalQueries = expectation.signalQueries ?? []
+    if !signalQueries.isEmpty {
+        guard let canonicalKey = expectation.signalMemoryCanonicalKey else {
+            throw ValidationError("Agent-memory scenario \(scenarioID) maintenance expectation with signal queries needs signal_memory_canonical_key.")
+        }
+        guard let record = records.first(where: { $0.canonicalKey == canonicalKey }) else {
+            throw ValidationError("Agent-memory scenario \(scenarioID) maintenance expectation could not find memory with canonical key '\(canonicalKey)'.")
+        }
+        for query in signalQueries {
+            try await index.recordSignal(
+                MemorySignal(
+                    kind: .recall,
+                    memoryID: record.id,
+                    canonicalKey: record.canonicalKey,
+                    query: query,
+                    snippet: record.text,
+                    confidence: expectation.signalConfidence ?? 0.9,
+                    sourceID: scenarioID
+                )
+            )
+        }
+    }
+
+    let result = try await index.runMaintenance(
+        MemoryMaintenanceRequest(
+            mode: .preview,
+            minSignalCount: expectation.minSignalCount ?? 3,
+            minDistinctQueries: expectation.minDistinctQueries ?? 2,
+            minConfidence: expectation.minConfidence ?? 0.75
+        )
+    )
+    let expectedCountMatched = expectation.expectedProposalCount.map {
+        result.proposedCandidates.count == $0
+    } ?? true
+    let expectedText = (expectation.expectedProposalTextContains ?? [])
+        .map(normalizeForMatch)
+        .filter { !$0.isEmpty }
+    let expectedTextMatched = expectedText.isEmpty || result.proposedCandidates.contains { candidate in
+        let text = normalizeForMatch(candidate.text)
+        return expectedText.allSatisfy { text.contains($0) }
+    }
+    let forbiddenViolations = (expectation.forbiddenProposalTextContains ?? [])
+        .map(normalizeForMatch)
+        .filter { !$0.isEmpty }
+        .filter { forbidden in
+            result.proposedCandidates.contains { candidate in
+                normalizeForMatch(candidate.text).contains(forbidden)
+            }
+        }
+
+    return AgentMemoryMaintenanceScore(
+        proposalMatched: expectedCountMatched && expectedTextMatched,
+        hasForbiddenExpectation: !(expectation.forbiddenProposalTextContains ?? []).isEmpty,
+        forbiddenViolationCount: forbiddenViolations.count
+    )
 }
 
 private func fetchAllMemoryRecords(index: MemoryIndex) async throws -> [MemoryRecord] {
@@ -4986,6 +5420,54 @@ private func countMatchedExpectedMemories(
     }
     _ = context
     return count
+}
+
+private func scoreExpectedMemoryMetadata(
+    _ expectedMemories: [AgentMemoryExpectedMemory],
+    records: [MemoryRecord]
+) -> AgentMemoryMetadataScore {
+    var score = AgentMemoryMetadataScore()
+    var usedIDs: Set<String> = []
+    for expected in expectedMemories {
+        guard let record = records.first(where: { record in
+            !usedIDs.contains(record.id) && expectedMemoryBaseMatches(expected, record: record)
+        }) else {
+            if expected.subject != nil {
+                score.subjectExpected += 1
+            }
+            score.evidenceRolesExpected += Set((expected.requiredEvidenceRoles ?? []).map(normalizeForMatch)).count
+            if !(expected.forbiddenTextContains ?? []).isEmpty {
+                score.forbiddenTextExpected += 1
+            }
+            continue
+        }
+        usedIDs.insert(record.id)
+
+        if let subject = expected.subject {
+            score.subjectExpected += 1
+            if normalizeForMatch(record.subject?.rawValue ?? "") == normalizeForMatch(subject) {
+                score.subjectCorrect += 1
+            }
+        }
+
+        let expectedRoles = Set((expected.requiredEvidenceRoles ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+        let recordRoles = Set(record.evidence.map { normalizeForMatch($0.role.rawValue) })
+        score.evidenceRolesExpected += expectedRoles.count
+        score.evidenceRolesMatched += expectedRoles.intersection(recordRoles).count
+
+        if !(expected.forbiddenTextContains ?? []).isEmpty {
+            score.forbiddenTextExpected += 1
+            let text = normalizeForMatch(record.text)
+            let hasViolation = (expected.forbiddenTextContains ?? [])
+                .map(normalizeForMatch)
+                .filter { !$0.isEmpty }
+                .contains { text.contains($0) }
+            if !hasViolation {
+                score.forbiddenTextPassed += 1
+            }
+        }
+    }
+    return score
 }
 
 private func activeStateMatchesExpected(
@@ -5037,6 +5519,39 @@ private func firstMatchingRecallRank(
 }
 
 private func expectedMemoryMatches(
+    _ expected: AgentMemoryExpectedMemory,
+    record: MemoryRecord
+) -> Bool {
+    guard expectedMemoryBaseMatches(expected, record: record) else {
+        return false
+    }
+
+    if let subject = expected.subject,
+       normalizeForMatch(record.subject?.rawValue ?? "") != normalizeForMatch(subject) {
+        return false
+    }
+
+    let recordEvidenceRoles = Set(record.evidence.map { normalizeForMatch($0.role.rawValue) })
+    let expectedEvidenceRoles = Set((expected.requiredEvidenceRoles ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+    if !expectedEvidenceRoles.isSubset(of: recordEvidenceRoles) {
+        return false
+    }
+
+    let recordEvidenceSourceIDs = Set(record.evidence.compactMap(\.sourceID).map(normalizeForMatch))
+    let expectedEvidenceSourceIDs = Set((expected.requiredEvidenceSourceIds ?? []).map(normalizeForMatch).filter { !$0.isEmpty })
+    if !expectedEvidenceSourceIDs.isSubset(of: recordEvidenceSourceIDs) {
+        return false
+    }
+
+    let text = normalizeForMatch(record.text)
+    if (expected.forbiddenTextContains ?? []).map(normalizeForMatch).contains(where: { !$0.isEmpty && text.contains($0) }) {
+        return false
+    }
+
+    return true
+}
+
+private func expectedMemoryBaseMatches(
     _ expected: AgentMemoryExpectedMemory,
     record: MemoryRecord
 ) -> Bool {
@@ -7518,6 +8033,15 @@ private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
     if let topicRecall = report.storage.topicRecall {
         metrics["storage.topic_recall"] = topicRecall
     }
+    if let subjectAccuracy = report.storage.subjectAccuracy {
+        metrics["storage.subject_accuracy"] = subjectAccuracy
+    }
+    if let evidenceRoleRecall = report.storage.evidenceRoleRecall {
+        metrics["storage.evidence_role_recall"] = evidenceRoleRecall
+    }
+    if let forbiddenTextPassRate = report.storage.forbiddenTextPassRate {
+        metrics["storage.forbidden_text_pass_rate"] = forbiddenTextPassRate
+    }
     if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
         metrics["storage.update_behavior_accuracy"] = updateBehaviorAccuracy
     }
@@ -7591,6 +8115,30 @@ private func reducedMetrics(from report: EvalRunReport) -> [String: Double] {
         metrics["agent_memory.update_behavior_accuracy"] = agentMemory.updateBehaviorAccuracy
         metrics["agent_memory.recall_hit_rate"] = agentMemory.recallHitRate
         metrics["agent_memory.recall_mrr"] = agentMemory.recallMRR
+        if let subjectAccuracy = agentMemory.subjectAccuracy {
+            metrics["agent_memory.subject_accuracy"] = subjectAccuracy
+        }
+        if let evidenceRoleRecall = agentMemory.evidenceRoleRecall {
+            metrics["agent_memory.evidence_role_recall"] = evidenceRoleRecall
+        }
+        if let forbiddenTextPassRate = agentMemory.forbiddenTextPassRate {
+            metrics["agent_memory.forbidden_text_pass_rate"] = forbiddenTextPassRate
+        }
+        if let contextHitRate = agentMemory.contextHitRate {
+            metrics["agent_memory.context_hit_rate"] = contextHitRate
+        }
+        if let contextForbiddenPassRate = agentMemory.contextForbiddenPassRate {
+            metrics["agent_memory.context_forbidden_pass_rate"] = contextForbiddenPassRate
+        }
+        if let contextTokenBudgetPassRate = agentMemory.contextTokenBudgetPassRate {
+            metrics["agent_memory.context_token_budget_pass_rate"] = contextTokenBudgetPassRate
+        }
+        if let maintenanceProposalHitRate = agentMemory.maintenanceProposalHitRate {
+            metrics["agent_memory.maintenance_proposal_hit_rate"] = maintenanceProposalHitRate
+        }
+        if let maintenanceForbiddenPassRate = agentMemory.maintenanceForbiddenPassRate {
+            metrics["agent_memory.maintenance_forbidden_pass_rate"] = maintenanceForbiddenPassRate
+        }
     }
 
     return metrics
@@ -7948,8 +8496,19 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
             "- Entity precision: \(percent(report.storage.entityPrecision ?? 0))",
             "- Entity recall: \(percent(report.storage.entityRecall ?? 0))",
             "- Topic recall: \(percent(report.storage.topicRecall ?? 0))",
-            "- Update behavior accuracy: \(percent(report.storage.updateBehaviorAccuracy ?? 0))",
         ], at: 8)
+        if let updateBehaviorAccuracy = report.storage.updateBehaviorAccuracy {
+            lines.insert("- Update behavior accuracy: \(percent(updateBehaviorAccuracy))", at: 17)
+        }
+        if let forbiddenTextPassRate = report.storage.forbiddenTextPassRate {
+            lines.insert("- Forbidden text pass rate: \(percent(forbiddenTextPassRate))", at: 17)
+        }
+        if let evidenceRoleRecall = report.storage.evidenceRoleRecall {
+            lines.insert("- Evidence role recall: \(percent(evidenceRoleRecall))", at: 17)
+        }
+        if let subjectAccuracy = report.storage.subjectAccuracy {
+            lines.insert("- Subject accuracy: \(percent(subjectAccuracy))", at: 17)
+        }
     } else {
         lines.insert(contentsOf: [
             "- Type accuracy: \(percent(report.storage.typeAccuracy))",
@@ -8067,6 +8626,30 @@ private func makeMarkdownSummary(_ report: EvalRunReport) -> String {
         lines.append("- Update behavior accuracy: \(percent(agentMemory.updateBehaviorAccuracy))")
         lines.append("- Recall Hit: \(percent(agentMemory.recallHitRate))")
         lines.append("- Recall MRR: \(format(agentMemory.recallMRR))")
+        if let subjectAccuracy = agentMemory.subjectAccuracy {
+            lines.append("- Subject accuracy: \(percent(subjectAccuracy))")
+        }
+        if let evidenceRoleRecall = agentMemory.evidenceRoleRecall {
+            lines.append("- Evidence role recall: \(percent(evidenceRoleRecall))")
+        }
+        if let forbiddenTextPassRate = agentMemory.forbiddenTextPassRate {
+            lines.append("- Forbidden text pass rate: \(percent(forbiddenTextPassRate))")
+        }
+        if let contextHitRate = agentMemory.contextHitRate {
+            lines.append("- Context hit rate: \(percent(contextHitRate))")
+        }
+        if let contextForbiddenPassRate = agentMemory.contextForbiddenPassRate {
+            lines.append("- Context forbidden pass rate: \(percent(contextForbiddenPassRate))")
+        }
+        if let contextTokenBudgetPassRate = agentMemory.contextTokenBudgetPassRate {
+            lines.append("- Context token-budget pass rate: \(percent(contextTokenBudgetPassRate))")
+        }
+        if let maintenanceProposalHitRate = agentMemory.maintenanceProposalHitRate {
+            lines.append("- Maintenance proposal hit rate: \(percent(maintenanceProposalHitRate))")
+        }
+        if let maintenanceForbiddenPassRate = agentMemory.maintenanceForbiddenPassRate {
+            lines.append("- Maintenance forbidden pass rate: \(percent(maintenanceForbiddenPassRate))")
+        }
         if let latency = agentMemory.latencyStats {
             lines.append("- Scenario latency p95: \(String(format: "%.1f", latency.p95Ms)) ms")
         }

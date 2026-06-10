@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-05-06T22:59:02Z",
+  "created_at": "2026-06-09T22:13:10Z",
   "freshness_hours": 48,
   "regression_threshold": 0.02,
   "latency_regression_threshold": 0.15,
@@ -13,7 +13,8 @@
     "LongMemEval thresholds now promote the generalized recall adjustment gains proven by three fresh no-cache/no-index repeats on 2026-05-06.",
     "Held-out LifeBench-style retrieval diagnostics showed the same adjustment layer transfers on top-k quality without relying on benchmark-derived runtime behavior.",
     "The promoted LongMemEval floor protects generic aggregate/support preservation, not benchmark-specific rescue phrases, IDs, or aliases.",
-    "agent_memory_gold_v1 remains locked at the current 100% behavior baseline; rerun before release when agent-memory code changes."
+    "agent_memory_gold_v1 remains locked at the current 100% behavior baseline; rerun before release when agent-memory code changes.",
+    "Storage and agent-memory gates now cover subject attribution, evidence preservation, assistant-text contamination, prepared context, and maintenance promotion behavior."
   ],
   "required_runs": [
     {
@@ -21,11 +22,14 @@
       "dataset_root": "Evals/memory_schema_gold_v2",
       "profile": "coreml_default",
       "metrics": {
-        "storage.type_accuracy": 0.9642857142857143,
+        "storage.type_accuracy": 0.9649122807017544,
         "storage.macro_f1": 0.8509803921568628,
-        "storage.facet_micro_f1": 0.9518072289156626,
+        "storage.facet_micro_f1": 0.9529411764705883,
         "storage.entity_recall": 1,
         "storage.topic_recall": 1,
+        "storage.subject_accuracy": 1,
+        "storage.evidence_role_recall": 1,
+        "storage.forbidden_text_pass_rate": 1,
         "storage.update_behavior_accuracy": 1
       },
       "minimum_metrics": {
@@ -34,6 +38,9 @@
         "storage.facet_micro_f1": 0.93,
         "storage.entity_recall": 0.98,
         "storage.topic_recall": 0.98,
+        "storage.subject_accuracy": 1,
+        "storage.evidence_role_recall": 1,
+        "storage.forbidden_text_pass_rate": 1,
         "storage.update_behavior_accuracy": 0.98
       }
     },
@@ -48,7 +55,15 @@
         "agent_memory.active_state_accuracy": 1,
         "agent_memory.update_behavior_accuracy": 1,
         "agent_memory.recall_hit_rate": 1,
-        "agent_memory.recall_mrr": 1
+        "agent_memory.recall_mrr": 1,
+        "agent_memory.subject_accuracy": 1,
+        "agent_memory.evidence_role_recall": 1,
+        "agent_memory.forbidden_text_pass_rate": 1,
+        "agent_memory.context_hit_rate": 1,
+        "agent_memory.context_forbidden_pass_rate": 1,
+        "agent_memory.context_token_budget_pass_rate": 1,
+        "agent_memory.maintenance_proposal_hit_rate": 1,
+        "agent_memory.maintenance_forbidden_pass_rate": 1
       },
       "maximum_metrics": {
         "agent_memory.false_write_rate": 0
@@ -58,7 +73,15 @@
         "agent_memory.active_state_accuracy": 1,
         "agent_memory.update_behavior_accuracy": 1,
         "agent_memory.recall_hit_rate": 1,
-        "agent_memory.recall_mrr": 1
+        "agent_memory.recall_mrr": 1,
+        "agent_memory.subject_accuracy": 1,
+        "agent_memory.evidence_role_recall": 1,
+        "agent_memory.forbidden_text_pass_rate": 1,
+        "agent_memory.context_hit_rate": 1,
+        "agent_memory.context_forbidden_pass_rate": 1,
+        "agent_memory.context_token_budget_pass_rate": 1,
+        "agent_memory.maintenance_proposal_hit_rate": 1,
+        "agent_memory.maintenance_forbidden_pass_rate": 1
       }
     },
     {
