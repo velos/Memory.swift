@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate eval datasets for Memory.swift by repeatedly calling codex exec.
+Generate eval datasets for AgentMemory by repeatedly calling codex exec.
 
 This path is designed for authenticated Codex/ChatGPT workflows and uses
 small, atomic generation batches instead of large one-shot calls.
@@ -1054,7 +1054,7 @@ Rules:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate Memory.swift eval data via codex exec (atomic batches, resumable)."
+        description="Generate AgentMemory eval data via codex exec (atomic batches, resumable)."
     )
     parser.add_argument("--dataset-root", default="Evals", help="Dataset root folder (default: Evals).")
     parser.add_argument("--workspace", default=".", help="Workspace passed to codex exec -C (default: current dir).")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tag and augment Memory.swift eval datasets via MiniMax's Anthropic-compatible API."""
+"""Tag and augment AgentMemory eval datasets via MiniMax's Anthropic-compatible API."""
 
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ def tag_queries(
         return
 
     system_prompt = (
-        "You tag retrieval benchmark queries for Memory.swift. "
+        "You tag retrieval benchmark queries for AgentMemory. "
         "Infer one to three memory types that best describe the retrieval intent. "
         "Difficulty should reflect retrieval challenge, not answer complexity."
     )
@@ -328,7 +328,7 @@ def tag_documents(
         return
 
     system_prompt = (
-        "You tag retrieval corpus documents for Memory.swift. "
+        "You tag retrieval corpus documents for AgentMemory. "
         "Choose the single dominant memory type a query would most likely filter on."
     )
 
@@ -430,7 +430,7 @@ def derive_storage_cases(
         return
 
     system_prompt = (
-        "You derive storage evaluation cases for Memory.swift from existing documents. "
+        "You derive storage evaluation cases for AgentMemory from existing documents. "
         "Choose the dominant memory type and 2-4 verbatim required spans that a good storage pipeline must preserve."
     )
 
@@ -605,7 +605,7 @@ def augment_adversarial_queries(
     rng = random.Random(seed)
 
     system_prompt = (
-        "You create hard adversarial retrieval queries for Memory.swift. "
+        "You create hard adversarial retrieval queries for AgentMemory. "
         "Each query should still have a clear relevant document set, but should be paraphrased, indirect, or distractor-prone."
     )
 
@@ -674,7 +674,7 @@ def augment_adversarial_queries(
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Tag and augment Memory.swift eval datasets via MiniMax API.")
+    parser = argparse.ArgumentParser(description="Tag and augment AgentMemory eval datasets via MiniMax API.")
     parser.add_argument("--dataset-root", required=True, help="Dataset root containing eval JSONL files.")
     parser.add_argument(
         "--mode",

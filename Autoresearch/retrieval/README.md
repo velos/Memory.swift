@@ -1,6 +1,6 @@
-# Memory.swift Retrieval Autoresearch
+# AgentMemory Retrieval Autoresearch
 
-Apple-silicon autonomous optimization loop for the CoreML retrieval stack used by this `Memory.swift` checkout.
+Apple-silicon autonomous optimization loop for the CoreML retrieval stack used by this `AgentMemory` checkout.
 
 This tool keeps the original autoresearch process and changes the purpose:
 
@@ -21,7 +21,7 @@ The loop trains and evaluates three separate CoreML artifacts:
 - `memory-embedder.mlpackage`
 - `memory-reranker.mlpackage`
 
-These map onto `Memory.swift`'s current extension points:
+These map onto `AgentMemory`'s current extension points:
 
 - `MemoryTypeClassifier`
 - `EmbeddingProvider`
@@ -34,7 +34,7 @@ Requirements:
 - Apple Silicon Mac
 - Python 3.10+
 - Xcode command line tools
-- Swift toolchain capable of building `Memory.swift`
+- Swift toolchain capable of building `AgentMemory`
 - [uv](https://docs.astral.sh/uv/)
 
 ```bash
@@ -43,7 +43,7 @@ cd Autoresearch
 # install dependencies
 uv sync
 
-# bootstrap this Memory.swift checkout, eval datasets, baselines, and hardware profile
+# bootstrap this AgentMemory checkout, eval datasets, baselines, and hardware profile
 uv run retrieval/prepare.py
 
 # run one fixed-budget experiment
@@ -55,7 +55,7 @@ uv run retrieval/train.py > retrieval/run.log 2>&1
 
 ## Files That Matter
 
-- `retrieval/prepare.py` - fixed bootstrapper for the local `Memory.swift` checkout, dataset cache, baselines, and hardware profile
+- `retrieval/prepare.py` - fixed bootstrapper for the local `AgentMemory` checkout, dataset cache, baselines, and hardware profile
 - `retrieval/train.py` - the only retrieval setup file the outer agent edits
 - `retrieval/program.md` - the autonomous experiment protocol for OpenCode
 - `retrieval/results.tsv` - local append-only experiment ledger
@@ -85,7 +85,7 @@ decision_reason
 - fixed train budget: 300 seconds
 - training stack: MLX-first
 - export path: PyTorch mirror -> `coremltools`
-- eval source of truth: the current `Memory.swift` checkout built locally
+- eval source of truth: the current `AgentMemory` checkout built locally
 - datasets:
   - tracked defaults: `general_v2` and `longmemeval_v2`
   - optional local extras: `tech`, `scifact`, `nfcorpus`, or other corpora generated under the gitignored `Explorations/` tree

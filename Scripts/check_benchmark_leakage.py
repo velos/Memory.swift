@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 DEFAULT_PATHS = [
-    Path("Sources/Memory"),
+    Path("Sources/AgentMemory"),
     Path("Tests/MemoryTests"),
 ]
 

@@ -1,6 +1,6 @@
-# Memory.swift
+# AgentMemory
 
-`Memory.swift` is a pure Swift retrieval and agent-memory library for Apple platforms. It combines a SQLite-backed canonical memory store, hybrid retrieval, and optional NaturalLanguage, CoreML, and Apple Intelligence providers behind a single Swift-native API.
+`AgentMemory` is a pure Swift retrieval and agent-memory library for Apple platforms. It combines a SQLite-backed canonical memory store, hybrid retrieval, and optional NaturalLanguage, CoreML, and Apple Intelligence providers behind a single Swift-native API.
 
 ## Inspiration
 
@@ -26,7 +26,7 @@ This project is explicitly inspired by [`tobi/qmd`](https://github.com/tobi/qmd)
 
 ## Package Product and Traits
 
-- `Memory`: indexing, retrieval, agent-facing APIs, provider APIs, and SwiftUI debug views
+- `AgentMemory`: indexing, retrieval, agent-facing APIs, provider APIs, and SwiftUI debug views
 - `memory`: local CLI for indexing, querying, and benchmark bridge experiments
 - `memory_eval`: eval harness for storage, recall, query expansion, agent-memory behavior, and regression gates
 
@@ -36,7 +36,7 @@ Provider families are controlled with SwiftPM traits:
 - `CoreMLEmbedding`: CoreML embedding, tokenizer, reranker, and bundled default model resources.
 - `MemoryAppleIntelligence`: optional FoundationModels-based query expansion, reranking, and content tagging.
 
-`MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `Memory` product and enable only the traits they need.
+`MemoryStorage` is intentionally kept as an internal implementation target. External integrations should depend on the `AgentMemory` product and enable only the traits they need.
 
 ## Installation
 
@@ -44,7 +44,7 @@ Until tagged releases are available, depend on `main`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/velos/Memory.swift.git", branch: "main")
+    .package(url: "https://github.com/velos/AgentMemory.git", branch: "main")
 ]
 ```
 
@@ -54,7 +54,7 @@ Most integrations use the default `MemoryNaturalLanguage` trait:
 .target(
     name: "YourTarget",
     dependencies: [
-        .product(name: "Memory", package: "Memory.swift"),
+        .product(name: "AgentMemory", package: "AgentMemory"),
     ]
 )
 ```
@@ -63,7 +63,7 @@ Opt into CoreML or Apple Intelligence traits from the package dependency declara
 
 ```swift
 .package(
-    url: "https://github.com/velos/Memory.swift.git",
+    url: "https://github.com/velos/AgentMemory.git",
     branch: "main",
     traits: ["MemoryNaturalLanguage", "CoreMLEmbedding"]
 )
@@ -73,7 +73,7 @@ Opt into CoreML or Apple Intelligence traits from the package dependency declara
 
 ```swift
 import Foundation
-import Memory
+import AgentMemory
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 let config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
@@ -89,7 +89,7 @@ Enable the `CoreMLEmbedding` trait to use the bundled default embedding model an
 
 ```swift
 import Foundation
-import Memory
+import AgentMemory
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 let config = try MemoryConfiguration.coreMLDefault(databaseURL: dbURL)
@@ -112,7 +112,7 @@ Most integrations only need:
 
 ## Agent Memory Workflows
 
-Memory.swift exposes three generic workflows for host apps that want durable agent memory without adopting a host-specific schema.
+AgentMemory exposes three generic workflows for host apps that want durable agent memory without adopting a host-specific schema.
 
 Capture extracts durable user-focused memories from conversation turns and can run in preview or ingest mode:
 
@@ -195,7 +195,7 @@ Supported recall modes:
 SwiftUI apps can mount a read-mostly memory inspector wherever debug UI belongs:
 
 ```swift
-import Memory
+import AgentMemory
 import SwiftUI
 
 MemoryDebugView(index: index)
@@ -239,7 +239,7 @@ if let first = refs.first {
 
 ```swift
 import Foundation
-import Memory
+import AgentMemory
 
 let dbURL = URL(fileURLWithPath: "/tmp/memory.sqlite")
 var config = MemoryConfiguration.naturalLanguageDefault(databaseURL: dbURL)
@@ -256,7 +256,7 @@ if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *), AppleIntelligenceSupport.
 
 ## Notes
 
-- `Memory.swift` is inspired by qmd, but intentionally not qmd-CLI or qmd-data compatible.
+- `AgentMemory` is inspired by qmd, but intentionally not qmd-CLI or qmd-data compatible.
 - Semantic search runs via embedded `sqlite-vec` (`vec0`) in SQLite.
 - Canonical agent memory is modeled with `MemoryKind`, `FacetTag`, `entities`, and `topics`.
 
@@ -298,7 +298,7 @@ swift run memory search "API" --all --files --min-score 0.3
 
 ## Eval Harness (`memory_eval`)
 
-The eval harness is the release gate for Memory.swift behavior. Prefer `coreml_default` for shipped-path validation.
+The eval harness is the release gate for AgentMemory behavior. Prefer `coreml_default` for shipped-path validation.
 
 ```bash
 swift run memory_eval validate-datasets

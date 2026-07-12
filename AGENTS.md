@@ -15,18 +15,15 @@ docs/manifests instead of duplicating detailed policy here.
 
 ## Architecture Map
 
-- `Sources/Memory/`: public types, `MemoryIndex`, recall/search planning, agent
-  memory APIs, and provider protocols.
+- `Sources/AgentMemory/`: public types, `MemoryIndex`, recall/search planning,
+  agent memory APIs, provider protocols, and the trait-gated NaturalLanguage,
+  Core ML, and Apple Intelligence providers (behind `MEMORY_NATURAL_LANGUAGE`,
+  `MEMORY_COREML_EMBEDDING`, and `MEMORY_APPLE_INTELLIGENCE` defines).
 - `Sources/MemoryStorage/`: internal SQLite, FTS, and sqlite-vec persistence.
-  External integrations should use the `Memory` product, not this target.
+  External integrations should use the `AgentMemory` product, not this target.
 - `Sources/CSQLiteVec/`: vendored sqlite-vec C shim.
-- `Sources/MemoryNaturalLanguage/`: Apple NaturalLanguage query analysis and
-  fallback embedding helpers.
-- `Sources/MemoryCoreMLEmbedding/`: Core ML embedding/reranker providers plus
-  tokenizer resources. `Models/embedding-v1.mlpackage` is the default local
-  Core ML embedding artifact used by eval/CLI profiles.
-- `Sources/MemoryAppleIntelligence/`: optional FoundationModels-backed
-  expansion, reranking, and tagging providers.
+- `Sources/MemoryCoreMLAssets/`: bundled Core ML embedding model and tokenizer
+  resources used by the `CoreMLEmbedding` trait and eval/CLI profiles.
 - `Sources/MemoryCLI/`: `memory` CLI and persistent JSON-lines bridge.
 - `Sources/MemoryEvalCLI/`: `memory_eval` harness, reports, diagnostics, gates,
   and eval profile definitions.
@@ -80,7 +77,7 @@ defaults unchanged unless reports show broad no-harm gains.
 
 ## External Benchmarks
 
-The useful Memory.swift-side lessons and command shapes are summarized in
+The useful AgentMemory-side lessons and command shapes are summarized in
 `Docs/agent-memory-benchmark.md`.
 
 For cost control, prefer AMB `retrieval-diagnostics` runs over answer-generation

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert RepLiQA into Memory.swift eval format."""
+"""Convert RepLiQA into AgentMemory eval format."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def build_manifest(splits: Sequence[str]) -> Dict[str, Any]:
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Convert RepLiQA into Memory.swift eval format.")
+    parser = argparse.ArgumentParser(description="Convert RepLiQA into AgentMemory eval format.")
     parser.add_argument("--output-dir", required=True, help="Output dataset directory.")
     parser.add_argument(
         "--splits",

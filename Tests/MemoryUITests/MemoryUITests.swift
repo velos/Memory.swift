@@ -1,5 +1,5 @@
 import Foundation
-import Memory
+import AgentMemory
 import Testing
 
 struct MemoryUITests {

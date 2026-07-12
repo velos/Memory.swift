@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert LongMemEval-cleaned data into Memory.swift eval format.
+"""Convert LongMemEval-cleaned data into AgentMemory eval format.
 
 Usage examples:
   python3 Scripts/convert_longmemeval_to_eval.py --output-dir ./Evals/longmemeval
@@ -24,7 +24,7 @@ SPLIT_TO_FILENAME = {
     "m_cleaned": "longmemeval_m_cleaned.json",
 }
 
-# LongMemEval question types are mapped into Memory.swift memory taxonomy.
+# LongMemEval question types are mapped into AgentMemory memory taxonomy.
 QUESTION_TYPE_TO_MEMORY_TYPE = {
     "temporal-reasoning": "temporal",
     "knowledge-update": "contextual",
@@ -346,7 +346,7 @@ def convert(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert LongMemEval-cleaned dataset to Memory.swift eval format.")
+    parser = argparse.ArgumentParser(description="Convert LongMemEval-cleaned dataset to AgentMemory eval format.")
     parser.add_argument("--output-dir", required=True, help="Output directory for eval files.")
     parser.add_argument(
         "--split",

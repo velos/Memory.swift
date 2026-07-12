@@ -342,7 +342,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
 
     system_prompt = (
-        "You are auditing evaluation data for Memory.swift.\n"
+        "You are auditing evaluation data for AgentMemory.\n"
         "Be conservative.\n"
         "Do not invent facts not supported by the provided records.\n"
         "Prefer `needs_edit` over `reject` when the example can be fixed with a small metadata change."

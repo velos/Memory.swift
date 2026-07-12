@@ -40,13 +40,13 @@ private let memoryTraitSwiftSettings: [SwiftSetting] = [
 private let memoryTestSwiftSettings = memoryTraitSwiftSettings + developerFrameworkSwiftSettings
 
 let package = Package(
-    name: "Memory.swift",
+    name: "AgentMemory",
     platforms: [
         .iOS(.v18),
         .macOS(.v15),
     ],
     products: [
-        .library(name: "Memory", targets: ["Memory"]),
+        .library(name: "AgentMemory", targets: ["AgentMemory"]),
         .executable(name: "memory", targets: ["memory_cli"]),
         .executable(name: "memory_eval", targets: ["memory_eval"]),
     ],
@@ -77,12 +77,12 @@ let package = Package(
             ]
         ),
         .target(
-            name: "Memory",
+            name: "AgentMemory",
             dependencies: [
                 "MemoryStorage",
                 .target(name: "MemoryCoreMLAssets", condition: .when(traits: ["CoreMLEmbedding"])),
             ],
-            path: "Sources/Memory",
+            path: "Sources/AgentMemory",
             swiftSettings: memoryTraitSwiftSettings
         ),
         .target(
@@ -113,7 +113,7 @@ let package = Package(
         .executableTarget(
             name: "memory_cli",
             dependencies: [
-                "Memory",
+                "AgentMemory",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/MemoryCLI",
@@ -122,7 +122,7 @@ let package = Package(
         .executableTarget(
             name: "memory_eval",
             dependencies: [
-                "Memory",
+                "AgentMemory",
                 "SQLiteSupport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -132,7 +132,7 @@ let package = Package(
         .testTarget(
             name: "MemoryTests",
             dependencies: [
-                "Memory",
+                "AgentMemory",
                 "MemoryStorage",
                 "SQLiteSupport",
             ],
@@ -142,28 +142,28 @@ let package = Package(
         ),
         .testTarget(
             name: "MemoryIntegrationTests",
-            dependencies: ["Memory"],
+            dependencies: ["AgentMemory"],
             path: "Tests/MemoryIntegrationTests",
             swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryPerformanceTests",
-            dependencies: ["Memory"],
+            dependencies: ["AgentMemory"],
             path: "Tests/MemoryPerformanceTests",
             swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryCoreMLEmbeddingTests",
-            dependencies: ["Memory"],
+            dependencies: ["AgentMemory"],
             path: "Tests/MemoryCoreMLEmbeddingTests",
             swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings
         ),
         .testTarget(
             name: "MemoryUITests",
-            dependencies: ["Memory"],
+            dependencies: ["AgentMemory"],
             path: "Tests/MemoryUITests",
             swiftSettings: memoryTestSwiftSettings,
             linkerSettings: developerTestLinkerSettings

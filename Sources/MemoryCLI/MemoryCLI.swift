@@ -1,6 +1,6 @@
 import ArgumentParser
 import Foundation
-import Memory
+import AgentMemory
 
 struct StoredCollection: Codable, Hashable {
     var name: String

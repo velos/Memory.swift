@@ -1,6 +1,6 @@
 ---
 name: memory-evals
-description: Run and compare Memory.swift evaluation harness (`memory_eval`) profiles with correct cache behavior, repeatable commands, and metric summaries. Use when asked to rerun evals, benchmark retrieval/storage changes, compare profiles, diagnose inconsistent scores, or produce report paths from `Evals/runs`.
+description: Run and compare AgentMemory evaluation harness (`memory_eval`) profiles with correct cache behavior, repeatable commands, and metric summaries. Use when asked to rerun evals, benchmark retrieval/storage changes, compare profiles, diagnose inconsistent scores, or produce report paths from `Evals/runs`.
 ---
 
 # Memory Evals
@@ -50,7 +50,7 @@ autoresearch cache and always restore or remove it afterward:
 cd Autoresearch
 uv run python -c 'import subprocess; from memory_autoresearch.cache import configure_setup, candidate_artifact_path, baseline_artifact_path; from memory_autoresearch.upstream import install_artifact_into_upstream, restore_baseline_artifacts; configure_setup("reranker"); artifact = candidate_artifact_path("reranker"); artifact = artifact if artifact.exists() else baseline_artifact_path("reranker"); install_artifact_into_upstream("reranker", artifact)
 try:
-    subprocess.run(["swift", "run", "memory_eval", "run", "--profile", "coreml_rerank", "--dataset-root", "./Evals/longmemeval_ranking_v1", "--no-cache", "--no-index-cache"], cwd="/Users/zac/Projects/collab/Memory.swift", check=True)
+    subprocess.run(["swift", "run", "memory_eval", "run", "--profile", "coreml_rerank", "--dataset-root", "./Evals/longmemeval_ranking_v1", "--no-cache", "--no-index-cache"], cwd="/Users/zac/Projects/collab/AgentMemory", check=True)
 finally:
     restore_baseline_artifacts()'
 ```
@@ -178,7 +178,7 @@ swift run memory_eval validate-datasets
 Use `--strict` when sidecar warnings such as `.DS_Store`, `review_queue.jsonl`,
 `repair_report.*`, or model-draft scenario files should fail the check instead
 of only being reported. Keep bulky external benchmark artifacts and local
-provider wrappers in `references/agent-memory-benchmark` out of the Memory.swift
+provider wrappers in `references/agent-memory-benchmark` out of the AgentMemory
 release gate; preserve only benchmark summaries or generic diagnostics in this
 repo.
 

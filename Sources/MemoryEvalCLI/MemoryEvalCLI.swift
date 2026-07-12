@@ -1,7 +1,7 @@
 import ArgumentParser
 import CryptoKit
 import Foundation
-import Memory
+import AgentMemory
 import SQLiteSupport
 
 private let datasetReadmeTemplate = """
@@ -1747,7 +1747,7 @@ private final class SearchStageTimingCollector: @unchecked Sendable {
 struct MemoryEvalCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "memory_eval",
-        abstract: "Evaluation harness for Memory.swift storage and recall quality.",
+        abstract: "Evaluation harness for AgentMemory storage and recall quality.",
         subcommands: [
             InitCommand.self,
             RunCommand.self,
@@ -2138,7 +2138,7 @@ struct RetrievalDiagnosticsCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Comma-separated k values, e.g. 1,3,10.")
     var kValues: String = "1,3,10"
 
-    @Option(name: .long, help: "Maximum documents to pull from Memory.swift before context packing.")
+    @Option(name: .long, help: "Maximum documents to pull from AgentMemory before context packing.")
     var candidatePoolDepth: Int = 40
 
     @Option(name: .long, help: "Estimated token budget for packed retrieved context. Use 0 for unlimited.")
@@ -6370,7 +6370,7 @@ private func runRetrievalDiagnostics(
     var config = try buildConfiguration(profile: profile, suite: .recall, databaseURL: workspace.databaseURL)
     var notes: [String] = [
         "Retrieval diagnostics score packed retrieval context only; no answer LLM is used.",
-        "Context token counts use Memory.swift's deterministic tokenizer and include a small per-document separator overhead.",
+        "Context token counts use AgentMemory's deterministic tokenizer and include a small per-document separator overhead.",
     ]
     if perDocumentTokenBudget > 0 {
         notes.append("Packed documents are capped at \(perDocumentTokenBudget) estimated tokens each before filling the remaining context budget.")

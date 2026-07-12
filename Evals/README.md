@@ -34,7 +34,7 @@ One JSON object per line. The primary supported shape is the canonical memory sc
 {
   "id": "profile-1",
   "kind": "markdown",
-  "text": "Zac prefers Zed for Memory.swift work.",
+  "text": "Zac prefers Zed for AgentMemory work.",
   "expected_kind": "profile",
   "expected_status": "active",
   "expected_facets": ["preference", "project", "fact_about_user"],
@@ -214,7 +214,7 @@ Use `triage.md` as the manual review inbox. The merge step prioritizes:
 
 Use this when replacing or upgrading the default synthetic corpora with public staged datasets:
 
-1. Convert public source datasets into Memory.swift eval format.
+1. Convert public source datasets into AgentMemory eval format.
 2. Merge them into staged corpora such as `Evals/general_v2`.
 3. Run Codex or MiniMax tagging for query tags, document tags, and storage-case derivation.
 4. Audit the resulting `review_queue.jsonl`.
