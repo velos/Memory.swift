@@ -22,7 +22,7 @@ def _run(command: list[str], cwd: Path | None = None) -> None:
 def prepare_memory_swift_checkout() -> Path:
     repo_path = memory_swift_repo_path()
     if not (repo_path / "Package.swift").exists():
-        raise FileNotFoundError(f"Memory.swift repo root not found at {repo_path}")
+        raise FileNotFoundError(f"AgentMemory repo root not found at {repo_path}")
     return repo_path
 
 

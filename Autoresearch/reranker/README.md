@@ -1,7 +1,7 @@
-# Memory.swift Reranker Autoresearch
+# AgentMemory Reranker Autoresearch
 
 Focused autonomous loop for training an opt-in CoreML reranker for
-`Memory.swift`.
+`AgentMemory`.
 
 This setup has one purpose:
 

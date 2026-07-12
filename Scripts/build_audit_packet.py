@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic audit packets for staged Memory.swift eval datasets."""
+"""Build deterministic audit packets for staged AgentMemory eval datasets."""
 
 from __future__ import annotations
 

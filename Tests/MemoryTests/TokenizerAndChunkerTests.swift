@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Memory
+@testable import AgentMemory
 
 struct TokenizerAndChunkerTests {
     @Test

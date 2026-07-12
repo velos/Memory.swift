@@ -191,7 +191,7 @@ def build_manifest(
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge multiple Memory.swift eval dataset roots.")
+    parser = argparse.ArgumentParser(description="Merge multiple AgentMemory eval dataset roots.")
     parser.add_argument("--output-dir", required=True, help="Output merged dataset directory.")
     parser.add_argument("--dataset-name", required=True, help="Dataset name written to manifest.json.")
     parser.add_argument(

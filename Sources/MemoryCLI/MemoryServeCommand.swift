@@ -1,6 +1,6 @@
 import ArgumentParser
 import Foundation
-import Memory
+import AgentMemory
 
 struct ServeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a simplified SWE-bench Verified slice into Memory.swift eval format."""
+"""Convert a simplified SWE-bench Verified slice into AgentMemory eval format."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def build_manifest(split: str, difficulties: Sequence[str], max_instances: Optio
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Convert a simplified SWE-bench Verified slice into Memory.swift eval format.")
+    parser = argparse.ArgumentParser(description="Convert a simplified SWE-bench Verified slice into AgentMemory eval format.")
     parser.add_argument("--output-dir", required=True, help="Output dataset directory.")
     parser.add_argument("--split", default="test", help="Dataset split to load (default: test).")
     parser.add_argument("--cache-dir", default="/tmp/swebench_verified_cache", help="Hugging Face cache directory.")

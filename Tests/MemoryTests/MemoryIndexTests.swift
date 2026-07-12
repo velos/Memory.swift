@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Memory
+@testable import AgentMemory
 
 private final class SearchEventRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -1267,7 +1267,7 @@ struct MemoryIndexTests {
     func runtimeRetrievalCodeDoesNotContainBenchmarkRescueIdentifiers() throws {
         let fileManager = FileManager.default
         let packageRoot = URL(fileURLWithPath: fileManager.currentDirectoryPath)
-        let sourceRoot = packageRoot.appendingPathComponent("Sources/Memory")
+        let sourceRoot = packageRoot.appendingPathComponent("Sources/AgentMemory")
         let longMemoryBenchmarkName = ["long", "memeval"].joined()
         let queryExpansionFocusedName = [
             "query",

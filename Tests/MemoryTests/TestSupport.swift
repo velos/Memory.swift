@@ -1,6 +1,6 @@
 import CryptoKit
 import Foundation
-@testable import Memory
+@testable import AgentMemory
 
 actor MockEmbeddingProvider: EmbeddingProvider {
     let identifier = "mock-embedding"

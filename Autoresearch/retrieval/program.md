@@ -1,18 +1,18 @@
-# Memory.swift Retrieval Autoresearch
+# AgentMemory Retrieval Autoresearch
 
-This repo is a fixed-budget autonomous experiment loop for improving the MLX-trained CoreML components used by `Memory.swift`.
+This repo is a fixed-budget autonomous experiment loop for improving the MLX-trained CoreML components used by `AgentMemory`.
 
 The outer agent for this workflow is OpenCode. The repo itself is not the agent. The repo defines the protocol that OpenCode follows.
 
 ## Monorepo note
 
-This project lives inside the `Memory.swift` repo. Always stage only `Autoresearch/` paths unless you are explicitly changing `Memory.swift` runtime code as part of the experiment system. Never use blind `git add -A`.
+This project lives inside the `AgentMemory` repo. Always stage only `Autoresearch/` paths unless you are explicitly changing `AgentMemory` runtime code as part of the experiment system. Never use blind `git add -A`.
 
 ## Setup
 
 To start a new run:
 
-1. Work from a dedicated feature branch in `Memory.swift`.
+1. Work from a dedicated feature branch in `AgentMemory`.
 2. Read these files before you touch anything:
    - `Autoresearch/README.md`
    - `Autoresearch/retrieval/README.md`
@@ -22,7 +22,7 @@ To start a new run:
 3. From `Autoresearch/`, run `uv run retrieval/prepare.py` once if the cache is missing.
 4. Confirm that:
    - you are inside `Autoresearch/`
-   - the local `memory_eval` binary was built from the parent `Memory.swift` checkout
+   - the local `memory_eval` binary was built from the parent `AgentMemory` checkout
    - the parent repo contains `Evals/` and `Models/`
    - `typing_train.jsonl`, `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/retrieval/datasets/`
    - the hardware profile JSON exists under `~/.cache/memory-swift-autoresearch/hardware/`
@@ -38,7 +38,7 @@ Do not edit during normal experiment iteration:
 - `Autoresearch/retrieval/prepare.py`
 - `memory_autoresearch/`
 - the scoring contract
-- the parent `Memory.swift` runtime unless that is the explicit goal of the run
+- the parent `AgentMemory` runtime unless that is the explicit goal of the run
 
 Do not add ad-hoc dependencies during the loop. All required dependencies belong in `pyproject.toml` and are treated as fixed once the run starts.
 

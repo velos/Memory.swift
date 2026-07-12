@@ -1,11 +1,11 @@
 ---
 name: memory-eval-design
-description: Design and implement Memory.swift evaluations as durable quality gates. Use when adding or changing eval datasets, metrics, scenario rows, baseline gates, or MemoryEvalCLI scoring for storage, recall, query expansion, and agent-memory behavior.
+description: Design and implement AgentMemory evaluations as durable quality gates. Use when adding or changing eval datasets, metrics, scenario rows, baseline gates, or MemoryEvalCLI scoring for storage, recall, query expansion, and agent-memory behavior.
 ---
 
 # Memory Eval Design
 
-Use this skill when the task is to add, reshape, or promote Memory.swift
+Use this skill when the task is to add, reshape, or promote AgentMemory
 evaluations. Pair it with `memory-evals` when you need to run existing suites.
 
 This skill is based on Apple Evaluations guidance: treat evaluations as a

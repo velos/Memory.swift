@@ -1,6 +1,6 @@
 ---
 name: memory-autoresearch
-description: Explain and operate the `Memory.swift` autoresearch loop in `Autoresearch`. Use when asked what the autoresearch tooling is, how the optimization loop works, how to bootstrap it, how to kick off a run, or how to inspect its outputs and status.
+description: Explain and operate the `AgentMemory` autoresearch loop in `Autoresearch`. Use when asked what the autoresearch tooling is, how the optimization loop works, how to bootstrap it, how to kick off a run, or how to inspect its outputs and status.
 ---
 
 # Memory Autoresearch
@@ -17,13 +17,13 @@ Read the setup-specific `prepare.py` only if you need to confirm bootstrap behav
 
 Explain the tool as:
 
-- an OpenCode-driven optimization loop for `Memory.swift`
+- an OpenCode-driven optimization loop for `AgentMemory`
 - split into setup folders under `Autoresearch/`
 - `retrieval` is the broad loop for typing, embedding, and retrieval-oriented model work
 - `reranker` is the focused neural reranker loop evaluated through `coreml_rerank`
 - fixed around `prepare.py`, the support package, scoring, and a 5-minute MLX train budget
 - mutable only through the setup's `train.py` during normal experiment iteration
-- evaluated with the real local `memory_eval` binary from the current `Memory.swift` checkout
+- evaluated with the real local `memory_eval` binary from the current `AgentMemory` checkout
 
 Mention these paths when useful:
 
@@ -130,7 +130,7 @@ Also mention whether a row was appended to the setup's `results.tsv`.
 
 ## Guardrails
 
-- Do not present the tool as a separate external repo; it now lives inside `Memory.swift`.
+- Do not present the tool as a separate external repo; it now lives inside `AgentMemory`.
 - Do not say the repo itself is the agent. The outer operator is OpenCode or another coding agent.
 - Do not edit the fixed support package or scoring contract unless the user explicitly asks for infrastructure changes.
 - If the user only asks for an explanation, answer from the docs and code first instead of kicking off a long run.

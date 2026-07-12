@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate eval datasets for Memory.swift using MiniMax's Anthropic-compatible API.
+Generate eval datasets for AgentMemory using MiniMax's Anthropic-compatible API.
 
 Outputs:
   - Evals/storage_cases.jsonl
@@ -1173,7 +1173,7 @@ Rules:
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate Memory.swift eval data via MiniMax Anthropic-compatible API.")
+    parser = argparse.ArgumentParser(description="Generate AgentMemory eval data via MiniMax Anthropic-compatible API.")
     parser.add_argument("--dataset-root", default="Evals", help="Dataset root folder (default: Evals).")
     parser.add_argument("--env-file", default=".env", help="Path to .env file (default: .env).")
     parser.add_argument("--base-url", default=None, help="Anthropic-compatible base URL.")

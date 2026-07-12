@@ -1,4 +1,4 @@
-"""Fixed bootstrapper for the Memory.swift reranker autoresearch loop."""
+"""Fixed bootstrapper for the AgentMemory reranker autoresearch loop."""
 
 from __future__ import annotations
 

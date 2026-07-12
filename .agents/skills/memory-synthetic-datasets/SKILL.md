@@ -1,12 +1,12 @@
 ---
 name: memory-synthetic-datasets
-description: Generate, review, and promote synthetic Memory.swift evaluation datasets. Use when creating synthetic storage, recall, query-expansion, or agent-memory samples; expanding seed cases; auditing generated JSONL; or preparing synthetic data for Memory.swift eval gates.
+description: Generate, review, and promote synthetic AgentMemory evaluation datasets. Use when creating synthetic storage, recall, query-expansion, or agent-memory samples; expanding seed cases; auditing generated JSONL; or preparing synthetic data for AgentMemory eval gates.
 ---
 
 # Memory Synthetic Datasets
 
 Use this skill when the user wants new synthetic evaluation data or wants to
-expand a small seed set into a larger Memory.swift eval dataset.
+expand a small seed set into a larger AgentMemory eval dataset.
 
 This skill follows Apple Evaluations dataset guidance: start from high-quality
 manual seeds, expand by category instead of asking for generic diversity,
@@ -54,7 +54,7 @@ regeneration.
 
 ## Seed Matrix
 
-Create a small hand-written seed matrix before bulk generation. For Memory.swift,
+Create a small hand-written seed matrix before bulk generation. For AgentMemory,
 use axes such as:
 
 - memory kind: profile, fact, decision, commitment, episode, procedure, handoff

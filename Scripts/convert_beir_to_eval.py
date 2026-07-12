@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a BEIR dataset into Memory.swift eval format.
+"""Convert a BEIR dataset into AgentMemory eval format.
 
 Usage:
     python3 Scripts/convert_beir_to_eval.py --dataset scifact --output-dir ./Evals/scifact
@@ -282,7 +282,7 @@ def convert(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert BEIR dataset to Memory.swift eval format")
+    parser = argparse.ArgumentParser(description="Convert BEIR dataset to AgentMemory eval format")
     parser.add_argument("--dataset", required=True, help="BEIR dataset name (e.g., scifact, nfcorpus)")
     parser.add_argument("--output-dir", required=True, help="Output directory for eval files")
     parser.add_argument("--split", default="test", help="Qrels split to use (default: test)")

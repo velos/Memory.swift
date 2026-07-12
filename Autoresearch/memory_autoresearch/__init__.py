@@ -1,4 +1,4 @@
-"""Fixed support package for the Memory.swift autoresearch experiment loop."""
+"""Fixed support package for the AgentMemory autoresearch experiment loop."""
 
 from .config import (
     ACTIVE_COMPONENTS,

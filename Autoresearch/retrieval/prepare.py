@@ -1,4 +1,4 @@
-"""Fixed bootstrapper for the Memory.swift autoresearch MLX loop."""
+"""Fixed bootstrapper for the AgentMemory autoresearch MLX loop."""
 
 from __future__ import annotations
 

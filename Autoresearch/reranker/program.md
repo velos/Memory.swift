@@ -1,14 +1,14 @@
-# Memory.swift Reranker Autoresearch
+# AgentMemory Reranker Autoresearch
 
 This setup is a fixed-budget autonomous experiment loop for improving the
-opt-in CoreML neural reranker used by `Memory.swift`.
+opt-in CoreML neural reranker used by `AgentMemory`.
 
 The outer agent for this workflow is OpenCode or another coding agent. The repo
 itself is not the agent.
 
 ## Monorepo Note
 
-This project lives inside the `Memory.swift` repo. Always stage only the
+This project lives inside the `AgentMemory` repo. Always stage only the
 intended `Autoresearch/reranker/` paths unless you are explicitly changing
 shared infrastructure or runtime wiring. Never use blind `git add -A`.
 
@@ -16,7 +16,7 @@ shared infrastructure or runtime wiring. Never use blind `git add -A`.
 
 To start a new run:
 
-1. Work from a dedicated feature branch in `Memory.swift`.
+1. Work from a dedicated feature branch in `AgentMemory`.
 2. Read these files before you touch anything:
    - `Autoresearch/README.md`
    - `Autoresearch/reranker/README.md`
@@ -25,7 +25,7 @@ To start a new run:
    - `Autoresearch/reranker/program.md`
 3. From `Autoresearch/`, run `uv run reranker/prepare.py` once if the cache is missing.
 4. Confirm that:
-   - the local `memory_eval` binary was built from the parent `Memory.swift` checkout
+   - the local `memory_eval` binary was built from the parent `AgentMemory` checkout
    - `retrieval_train.jsonl`, `quick_eval/`, and `full_eval/` exist under `~/.cache/memory-swift-autoresearch/reranker/datasets/`
    - the hardware profile JSON exists under `~/.cache/memory-swift-autoresearch/hardware/`
    - the reranker baseline exists under `~/.cache/memory-swift-autoresearch/reranker/artifacts/baselines/reranker/current.mlpackage`
@@ -41,7 +41,7 @@ Do not edit during normal experiment iteration:
 - `Autoresearch/reranker/prepare.py`
 - `Autoresearch/memory_autoresearch/`
 - the scoring contract
-- the parent `Memory.swift` runtime unless that is the explicit goal of the run
+- the parent `AgentMemory` runtime unless that is the explicit goal of the run
 
 Do not add ad-hoc dependencies during the loop. All required dependencies
 belong in `Autoresearch/pyproject.toml` and are treated as fixed once the run

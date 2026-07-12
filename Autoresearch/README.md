@@ -1,7 +1,7 @@
-# Memory.swift Autoresearch
+# AgentMemory Autoresearch
 
 Shared workspace for fixed-budget autonomous experiments against this
-`Memory.swift` checkout.
+`AgentMemory` checkout.
 
 The top level contains the shared Python environment and support package:
 

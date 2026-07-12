@@ -2,7 +2,7 @@
 
 These notes preserve the useful findings from local experiments in
 `references/agent-memory-benchmark` without requiring those local benchmark
-repo modifications to be checked into `Memory.swift`.
+repo modifications to be checked into `AgentMemory`.
 
 ## What To Keep Local
 
@@ -12,7 +12,7 @@ repo modifications to be checked into `Memory.swift`.
 - Leaderboard submission scripts and run artifacts.
 
 Those are integration scaffolding for a separate benchmark project, not part of
-the shipped Memory.swift eval harness.
+the shipped AgentMemory eval harness.
 
 ## What Belongs In `memory_eval`
 
@@ -155,7 +155,7 @@ scoped lexical search:
 - Balanced context around 4k tokens is a useful external-benchmark profile, but
   this should remain configurable for on-device 8k-context agents.
 - External benchmark adapters should remain local or live in the benchmark repo;
-  Memory.swift should only absorb generic eval infrastructure and runtime fixes.
+  AgentMemory should only absorb generic eval infrastructure and runtime fixes.
 
 ## ChatGPT-Signed Codex Smoke Runs
 
@@ -206,5 +206,5 @@ through the bridge instead of repacking full chunks only in Python:
 Focused diagnostics on three multi-evidence failures showed document-level
 support Recall@10 improvements from 50.0% to 75.0%, 60.0% to 100.0%, and 66.7%
 to 83.3%. Those did not all convert to judged answer wins because some AMB gold
-matches are document-level while Memory.swift returns chunk-level context; a
+matches are document-level while AgentMemory returns chunk-level context; a
 retrieved gold document can still expose the wrong chunk for a counting answer.

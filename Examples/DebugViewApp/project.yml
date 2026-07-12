@@ -1,10 +1,10 @@
 name: DebugViewApp
 options:
-  bundleIdPrefix: com.memoryswift.examples
+  bundleIdPrefix: com.agentmemory.examples
   deploymentTarget:
     iOS: "18.0"
 packages:
-  MemorySwift:
+  AgentMemory:
     path: ../..
 targets:
   DebugViewApp:
@@ -14,20 +14,20 @@ targets:
     sources:
       - DebugViewApp
     dependencies:
-      - package: MemorySwift
-        product: Memory
+      - package: AgentMemory
+        product: AgentMemory
     settings:
       base:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CURRENT_PROJECT_VERSION: 1
         DEVELOPMENT_TEAM: ""
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Memory Debug
+        INFOPLIST_KEY_CFBundleDisplayName: AgentMemory Debug
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         MARKETING_VERSION: 1.0
-        PRODUCT_BUNDLE_IDENTIFIER: com.memoryswift.examples.DebugViewApp
-        PRODUCT_NAME: MemoryDebug
+        PRODUCT_BUNDLE_IDENTIFIER: com.agentmemory.examples.DebugViewApp
+        PRODUCT_NAME: AgentMemoryDebug
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: 1

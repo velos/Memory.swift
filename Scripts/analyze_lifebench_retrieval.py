@@ -416,7 +416,7 @@ def write_eval_slice(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--memory-run", required=True, help="AMB Memory.swift retrieval JSON.")
+    parser.add_argument("--memory-run", required=True, help="AMB AgentMemory retrieval JSON.")
     parser.add_argument("--baseline-run", help="Optional AMB baseline retrieval JSON, usually BM25.")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--output-prefix", default="Explorations/lifebench/retrieval-analysis")

@@ -351,7 +351,7 @@ def repair_queries(
     unresolved_ids: List[str] = []
 
     system_prompt = (
-        "Repair retrieval benchmark queries for Memory.swift.\n"
+        "Repair retrieval benchmark queries for AgentMemory.\n"
         "Keep a query only when at least one provided relevant document directly supports answering it.\n"
         "If you keep a query, return corrected memory_types, difficulty, and a non-empty subset of the provided relevant_document_ids.\n"
         "Drop vague, contextless, off-topic, or unanswerable queries.\n"
@@ -516,7 +516,7 @@ def repair_storage_review_queue(
     unresolved_ids: List[str] = []
 
     system_prompt = (
-        "Repair storage evaluation cases for Memory.swift.\n"
+        "Repair storage evaluation cases for AgentMemory.\n"
         "For each document, either produce a valid storage case or drop it.\n"
         "A valid storage case needs one dominant memory type and 2-4 short verbatim required_spans copied exactly from the document text.\n"
         "Prefer precise spans over long sentences."

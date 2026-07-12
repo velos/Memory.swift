@@ -1,4 +1,4 @@
-"""Mutable experiment surface for Memory.swift autoresearch."""
+"""Mutable experiment surface for AgentMemory autoresearch."""
 
 from __future__ import annotations
 

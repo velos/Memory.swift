@@ -1,7 +1,7 @@
 #if MEMORY_COREML_EMBEDDING
 import Foundation
 import Testing
-@testable import Memory
+@testable import AgentMemory
 
 @Suite("BertTokenizer")
 struct BertTokenizerTests {

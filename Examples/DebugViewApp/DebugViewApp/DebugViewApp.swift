@@ -1,6 +1,6 @@
 import CryptoKit
 import Foundation
-import Memory
+import AgentMemory
 import SwiftUI
 
 @main
@@ -111,7 +111,7 @@ private struct AddMemoryView: View {
     let index: MemoryIndex
     @Binding var debugViewID: UUID
 
-    @State private var text = "Remember that the iOS debug view can inspect Memory.swift records."
+    @State private var text = "Remember that the iOS debug view can inspect AgentMemory records."
     @State private var kind = MemoryKind.fact
     @State private var status = MemoryStatus.active
     @State private var importance = 0.6
