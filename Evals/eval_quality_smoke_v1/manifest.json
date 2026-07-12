@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "name": "eval_quality_smoke_v1",
+  "purpose": "focused_quality_smoke",
+  "suite_type": "storage_and_agent_memory",
+  "primary_files": [
+    "storage_cases.jsonl",
+    "scenarios.jsonl"
+  ],
+  "description": "Small curated synthetic smoke suite for category-aware eval metadata, grouped metrics, and focused agent-memory quality checks.",
+  "provenance": "Hand-authored synthetic seed rows derived from existing Memory.swift eval patterns.",
+  "gate_status": "focused_not_release_gate",
+  "metadata_required": true,
+  "synthetic_status": "synthetic",
+  "review_status": "curated",
+  "coverage": {
+    "storage_cases": {
+      "profile": 1,
+      "fact": 1,
+      "decision": 1,
+      "commitment": 1,
+      "procedure": 1,
+      "handoff": 1
+    },
+    "agent_memory_scenarios": {
+      "no_write": 1,
+      "capture": 1,
+      "context_preparation": 1,
+      "maintenance_promotion": 1,
+      "maintenance_block": 1,
+      "update_lifecycle": 1
+    },
+    "case_categories": {
+      "golden": 2,
+      "edge": 4,
+      "adversarial": 2,
+      "known_regression": 4
+    }
+  },
+  "notes": [
+    "This dataset is intentionally small and committed under Evals/ because it validates eval infrastructure and smoke behavior rather than broad model quality.",
+    "Do not add this suite to Evals/baselines/current.json until it has proven useful as a stable release-gate signal.",
+    "Rows use commercially safe synthetic project/user facts and avoid external benchmark answer strings."
+  ]
+}

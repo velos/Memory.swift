@@ -1,4 +1,5 @@
 #if MEMORY_COREML_EMBEDDING
+import CoreML
 import Foundation
 import MemoryCoreMLAssets
 
@@ -55,10 +56,14 @@ public extension MemoryConfiguration {
         lexicalCandidateLimit: Int = 500,
         fusionK: Double = 60,
         positionAwareBlending: PositionAwareBlending = .default,
-        ftsTokenizer: (any Tokenizer)? = defaultCoreMLFTSTokenizer()
+        ftsTokenizer: (any Tokenizer)? = defaultCoreMLFTSTokenizer(),
+        computeUnits: MLComputeUnits = .cpuAndGPU
     ) throws -> MemoryConfiguration {
         let resolvedModels = try models ?? CoreMLDefaultModels.bundled()
-        let embeddingProvider = try CoreMLEmbeddingProvider(modelURL: resolvedModels.embedding)
+        let embeddingProvider = try CoreMLEmbeddingProvider(
+            modelURL: resolvedModels.embedding,
+            computeUnits: computeUnits
+        )
         let rerankerProvider: (any Reranker)?
         if let rerankerURL = resolvedModels.reranker {
             rerankerProvider = try CoreMLReranker(modelURL: rerankerURL)

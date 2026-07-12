@@ -106,8 +106,57 @@ Most integrations only need:
 - `MemoryConfiguration` plus a trait-enabled or custom embedding provider
 - `rebuildIndex`, `syncDocuments`, and `removeDocuments` for document lifecycle
 - `save`, `extract`, `ingest`, and `recall` for agent memory workflows
+- `capture`, `prepareContext`, `recordSignal`, and `runMaintenance` for higher-level agent memory workflows
 - `memorySearch` and `memoryGet` for tool-style retrieval
 - customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`) only when you are swapping in your own providers
+
+## Agent Memory Workflows
+
+Memory.swift exposes three generic workflows for host apps that want durable agent memory without adopting a host-specific schema.
+
+Capture extracts durable user-focused memories from conversation turns and can run in preview or ingest mode:
+
+```swift
+let capture = try await index.capture(
+    MemoryCaptureRequest(
+        messages: [
+            ConversationMessage(role: .user, content: "I live in sf, what should I do tonight?"),
+        ],
+        mode: .ingest,
+        policy: .agentDefault,
+        sourceID: "session-123"
+    )
+)
+```
+
+Captured `MemoryCandidate` and stored `MemoryRecord` values can include a `subject` and original-message `evidence`. The default agent policy focuses on user-authored durable facts, rejects assistant capability/refusal text, and keeps embedded declarations separate from raw questions.
+
+Context preparation retrieves bounded memory context for the next model turn:
+
+```swift
+let context = try await index.prepareContext(
+    MemoryContextRequest(
+        messages: recentMessages,
+        budget: MemoryContextBudget(maxReferences: 8, maxTokens: 1_024)
+    )
+)
+```
+
+`context.contextBlock` is wrapped in `<memory_context>...</memory_context>` delimiters and explicitly framed as untrusted retrieved context with compact source references. Incoming messages that still contain a previously injected block are sanitized before retrieval, so host apps can prepend the block to the next turn without polluting future queries. Path-scoped `MemoryContextHint` values can be managed with `setContextHint`, `listContextHints`, and `removeContextHint`; matching hints are surfaced through `memorySearch`, `memoryGet`, and prepared context responses.
+
+Maintenance records recall, capture, compaction, explicit, and maintenance signals, then conservatively proposes consolidations:
+
+```swift
+try await index.recordSignal(
+    MemorySignal(kind: .recall, memoryID: memoryID, query: "dinner ideas")
+)
+
+let preview = try await index.runMaintenance(
+    MemoryMaintenanceRequest(mode: .preview)
+)
+```
+
+Apply mode ingests only candidates that pass the request thresholds. Compaction summaries can be passed as `MemoryCompactionObservation` inputs, but durable promotions still require original message evidence.
 
 ## Tool-Oriented API
 

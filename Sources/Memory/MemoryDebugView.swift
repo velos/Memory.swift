@@ -332,13 +332,7 @@ private struct MemoryDebugRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
 
-            HStack(spacing: 12) {
-                Label(record.kind.displayTitle, systemImage: "tag")
-                Label(record.createdAt.debugFormatted, systemImage: "calendar")
-                Label("Importance \(record.importance.debugScoreFormatted)", systemImage: "star")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            MemoryDebugMetadataStrip(record: record)
 
             if !record.tags.isEmpty {
                 Text(record.tags.prefix(3).map(\.name).joined(separator: ", "))
@@ -348,6 +342,64 @@ private struct MemoryDebugRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct MemoryDebugMetadataStrip: View {
+    let record: MemoryRecord
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            MemoryDebugMetadataItem(
+                systemImage: "tag",
+                value: record.kind.displayTitle,
+                caption: "Kind"
+            )
+
+            MemoryDebugMetadataItem(
+                systemImage: "calendar",
+                value: record.createdAt.debugCompactDate,
+                caption: record.createdAt.debugCompactTime
+            )
+
+            MemoryDebugMetadataItem(
+                systemImage: "star",
+                value: record.importance.debugScoreFormatted,
+                caption: "Importance"
+            )
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct MemoryDebugMetadataItem: View {
+    let systemImage: String
+    let value: String
+    let caption: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
+                Text(caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .allowsTightening(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -554,6 +606,14 @@ private extension MemoryDebugSort {
 private extension Date {
     var debugFormatted: String {
         formatted(date: .abbreviated, time: .shortened)
+    }
+
+    var debugCompactDate: String {
+        formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    var debugCompactTime: String {
+        formatted(.dateTime.hour().minute())
     }
 }
 
