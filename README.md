@@ -108,7 +108,7 @@ Most integrations only need:
 - `save`, `extract`, `ingest`, and `recall` for agent memory workflows
 - `capture`, `prepareContext`, `recordSignal`, and `runMaintenance` for higher-level agent memory workflows
 - `memorySearch` and `memoryGet` for tool-style retrieval
-- customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`) only when you are swapping in your own providers
+- customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`, `EntityTagger`) only when you are swapping in your own providers
 
 ## Agent Memory Workflows
 
@@ -130,6 +130,10 @@ let capture = try await index.capture(
 ```
 
 Captured `MemoryCandidate` and stored `MemoryRecord` values can include a `subject` and original-message `evidence`. The default agent policy focuses on user-authored durable facts, rejects assistant capability/refusal text, and keeps embedded declarations separate from raw questions.
+
+### Linguistic Entity Tagging
+
+When the `MemoryNaturalLanguage` trait is enabled (the default), extraction runs `NLEntityTagger` — an `NLTagger`-backed named entity recognizer — alongside the heuristics. Tagger results are strictly additive: they upgrade generic entity labels to `person`/`location`/`organization`, add entities the heuristics missed in well-capitalized text, and confirm ambiguous self-reported locations ("i'm in portland") before they become durable profile memories. Travel-qualified phrases ("i'm in boston this week") are treated as transient and not recorded as residence. Heuristic behavior is the floor: with `entityTagger: nil` (or the trait disabled) extraction is unchanged, and residence statements ("i live in ...") never require tagger confirmation. Provide a custom `EntityTagger` through `MemoryConfiguration` to swap in your own recognizer.
 
 Context preparation retrieves bounded memory context for the next model turn:
 

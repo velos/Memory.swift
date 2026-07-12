@@ -890,6 +890,127 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func ambiguousLocationRequiresConfirmationWithoutTagger() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                entityTagger: nil
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "btw i'm in lisbon, any dinner recs?"),
+            ],
+            limit: 10
+        )
+
+        #expect(!extracted.contains { $0.text.contains("lives in") })
+    }
+
+#if MEMORY_NATURAL_LANGUAGE
+    @Test
+    func nlEntityTaggerConfirmsPlacesAndRejectsCommonNouns() {
+        let tagger = NLEntityTagger()
+
+        #expect(tagger.isLikelyPlaceName("lisbon"))
+        #expect(tagger.isLikelyPlaceName("tokyo"))
+        #expect(tagger.isLikelyPlaceName("new york"))
+        #expect(!tagger.isLikelyPlaceName("a meeting"))
+        #expect(!tagger.isLikelyPlaceName("fear"))
+        #expect(!tagger.isLikelyPlaceName("my apartment"))
+
+        let entities = tagger.recognizeEntities(in: "Annie retired from Google last year.")
+        #expect(entities.contains { $0.label == .person && $0.normalizedValue == "annie" })
+        #expect(entities.contains { $0.label == .organization && $0.normalizedValue == "google" })
+
+        // Lowercase chat text yields nothing; heuristics remain the floor.
+        #expect(tagger.recognizeEntities(in: "annie retired from google last year").isEmpty)
+    }
+
+    @Test
+    func heuristicExtractAcceptsTaggerConfirmedAmbiguousLocation() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "btw i'm in lisbon, any dinner recs?"),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first { $0.text == "The user lives in Lisbon." })
+        #expect(profile.kind == .profile)
+        #expect(profile.subject == .user)
+        #expect(profile.canonicalKey == "profile:user:location")
+        #expect(profile.facetTags.contains(.location))
+        #expect(profile.entities.contains { entity in
+            entity.label == .location && entity.normalizedValue == "lisbon"
+        })
+    }
+
+    @Test
+    func heuristicExtractRejectsTransientTravelLocation() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "i'm in boston this week, remind me to pack"),
+                ConversationMessage(role: .user, content: "i'm in tokyo tonight, any dinner recs?"),
+            ],
+            limit: 10
+        )
+
+        #expect(!extracted.contains { $0.text.contains("lives in") })
+    }
+
+    @Test
+    func heuristicExtractUpgradesEntityLabelsFromTagger() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "Priya is the maintainer of the ingest pipeline."),
+            ],
+            limit: 10
+        )
+
+        let profile = try #require(extracted.first)
+        #expect(profile.entities.contains { entity in
+            entity.label == .person && entity.normalizedValue == "priya"
+        })
+    }
+#endif
+
+    @Test
     func capturePreviewAndIngestUseSubjectAwareEvidence() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

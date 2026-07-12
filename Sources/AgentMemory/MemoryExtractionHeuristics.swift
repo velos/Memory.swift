@@ -27,7 +27,8 @@ internal enum MemoryExtractionHeuristics {
         messages: [ConversationMessage],
         limit: Int,
         canonicalKey: CanonicalKeyResolver,
-        proposedAction: ProposedActionResolver
+        proposedAction: ProposedActionResolver,
+        entityTagger: (any EntityTagger)? = nil
     ) -> MemoryExtractionResult {
         var extracted: [MemoryCandidate] = []
         extracted.reserveCapacity(limit)
@@ -41,7 +42,11 @@ internal enum MemoryExtractionHeuristics {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { continue }
 
-            let focusedSegments = focusedUserProfileSegments(from: normalized, role: message.role)
+            let focusedSegments = focusedUserProfileSegments(
+                from: normalized,
+                role: message.role,
+                entityTagger: entityTagger
+            )
             let rawSegments = focusedSegments.map(\.text) + splitExtractionSegments(normalized)
 
             for rawSegment in rawSegments {
@@ -75,12 +80,15 @@ internal enum MemoryExtractionHeuristics {
                 let importance = inferredImportance(for: kind)
                 let confidence = inferredConfidence(for: kind)
                 let tags = inferredTags(forExtractedText: segment)
-                let facetTags = inferFacetTags(forExtractedText: segment, kind: kind)
-                    .union(focusedSegment?.facetTags ?? [])
                 let entities = mergeEntities(
                     pinned: focusedSegment?.entities ?? [],
-                    inferred: inferEntities(forExtractedText: segment)
+                    inferred: mergeTaggerEntities(
+                        entityTagger?.recognizeEntities(in: segment) ?? [],
+                        into: inferEntities(forExtractedText: segment)
+                    )
                 )
+                let facetTags = inferFacetTags(forExtractedText: segment, kind: kind, knownEntities: entities)
+                    .union(focusedSegment?.facetTags ?? [])
                 let topics = inferTopics(forExtractedText: segment, seedTags: tags)
                 let subject = inferSubject(forExtractedText: segment, role: message.role, kind: kind)
                 let evidence = MemoryEvidence(
@@ -155,9 +163,13 @@ internal enum MemoryExtractionHeuristics {
         return tags
     }
 
-    internal static func inferFacetTags(forExtractedText text: String, kind: MemoryKind) -> Set<FacetTag> {
+    internal static func inferFacetTags(
+        forExtractedText text: String,
+        kind: MemoryKind,
+        knownEntities: [MemoryEntity]? = nil
+    ) -> Set<FacetTag> {
         let normalizedText = phraseEnvelope(for: text)
-        let knownEntities = inferKnownEntities(forExtractedText: text)
+        let knownEntities = knownEntities ?? inferKnownEntities(forExtractedText: text)
         var facets: Set<FacetTag> = []
 
         if containsAnyNormalizedPhrase(normalizedText, phrases: ["prefer", "prefers", "preferred", "preference", "favorite", "likes", "dislikes"])
@@ -588,11 +600,15 @@ internal enum MemoryExtractionHeuristics {
         var facetTags: Set<FacetTag>
     }
 
-    private static func focusedUserProfileSegments(from text: String, role: ConversationRole) -> [FocusedProfileSegment] {
+    private static func focusedUserProfileSegments(
+        from text: String,
+        role: ConversationRole,
+        entityTagger: (any EntityTagger)? = nil
+    ) -> [FocusedProfileSegment] {
         guard role == .user else { return [] }
 
         var segments: [FocusedProfileSegment] = []
-        if let location = selfReportedLocation(in: text) {
+        if let location = selfReportedLocation(in: text, entityTagger: entityTagger) {
             let city = location.split(separator: ",").first.map(String.init) ?? location
             segments.append(
                 FocusedProfileSegment(
@@ -624,9 +640,55 @@ internal enum MemoryExtractionHeuristics {
         return merged
     }
 
+    /// Merges tagger-recognized entities into heuristic results additively:
+    /// heuristic entities are the floor, tagger results upgrade `.other`
+    /// labels and append entities the heuristics missed.
+    internal static func mergeTaggerEntities(
+        _ tagged: [MemoryEntity],
+        into inferred: [MemoryEntity]
+    ) -> [MemoryEntity] {
+        guard !tagged.isEmpty else { return inferred }
+
+        var merged = inferred
+        var indexByValue: [String: Int] = [:]
+        for (index, entity) in merged.enumerated() {
+            indexByValue[normalizeEntityValue(entity.normalizedValue)] = index
+        }
+
+        for entity in tagged {
+            let normalizedValue = normalizeEntityValue(entity.normalizedValue)
+            guard !normalizedValue.isEmpty, !isGenericExtractedEntity(normalizedValue) else { continue }
+            if let index = indexByValue[normalizedValue] {
+                let existing = merged[index]
+                if existing.label == .other {
+                    merged[index] = MemoryEntity(
+                        label: entity.label,
+                        value: existing.value,
+                        normalizedValue: normalizedValue,
+                        confidence: max(existing.confidence ?? 0, entity.confidence ?? 0)
+                    )
+                }
+            } else if merged.count < 8 {
+                merged.append(
+                    MemoryEntity(
+                        label: entity.label,
+                        value: entity.value,
+                        normalizedValue: normalizedValue,
+                        confidence: entity.confidence
+                    )
+                )
+                indexByValue[normalizedValue] = merged.count - 1
+            }
+        }
+
+        return merged
+    }
+
     // Residence statements ("i live in ...") accept any captured place phrase.
-    // The ambiguous forms ("i'm in ...") only fire for locations in the alias table,
-    // since they commonly describe transient states ("i'm in a meeting").
+    // The ambiguous forms ("i'm in ...") commonly describe transient states
+    // ("i'm in a meeting"), so they require confirmation: an alias-table hit,
+    // or an entity tagger recognizing the phrase as a place — and never with a
+    // travel qualifier ("i'm in boston this week").
     private static let strongLocationTriggerPattern =
         #"\b(?:i\s+live\s+in|i\s+am\s+living\s+in|i['’]m\s+living\s+in|i\s+am\s+based\s+in|i['’]m\s+based\s+in|i\s+(?:just\s+)?moved\s+to|my\s+city\s+is|my\s+location\s+is)\s+([^.!?;\n]+)"#
     private static let weakLocationTriggerPattern =
@@ -649,11 +711,20 @@ internal enum MemoryExtractionHeuristics {
     private static let locationStopTokens: Set<String> = [
         "and", "but", "or", "so", "which", "where", "when", "while", "because",
         "since", "near", "with", "for", "though", "although", "what", "what's",
-        "what’s", "who", "how", "why", "that", "then", "if", "as", "at"
+        "what’s", "who", "how", "why", "that", "then", "if", "as", "at", "about",
+        "this", "next", "until"
     ]
 
     private static let locationTrailingNoiseTokens: Set<String> = [
         "now", "currently", "atm", "too", "btw", "there", "here", "tonight", "today"
+    ]
+
+    // Tokens that mark an ambiguous "i'm in <place>" as a visit rather than
+    // residence, either trailing the place ("i'm in boston tonight") or
+    // immediately following it ("i'm in boston this week").
+    private static let transientLocationQualifiers: Set<String> = [
+        "this", "next", "until", "for", "tonight", "today", "tomorrow",
+        "visiting", "traveling", "travelling", "temporarily"
     ]
 
     private static let locationLeadingRejectTokens: Set<String> = [
@@ -662,13 +733,16 @@ internal enum MemoryExtractionHeuristics {
         "town", "meetings", "meeting"
     ]
 
-    private static func selfReportedLocation(in text: String) -> String? {
+    private static func selfReportedLocation(
+        in text: String,
+        entityTagger: (any EntityTagger)? = nil
+    ) -> String? {
         if let raw = firstRegexCapture(of: strongLocationTriggerPattern, in: text),
-           let location = parseLocationPhrase(raw, requireKnownLocation: false) {
+           let location = parseLocationPhrase(raw, isAmbiguousTrigger: false, entityTagger: entityTagger) {
             return location
         }
         if let raw = firstRegexCapture(of: weakLocationTriggerPattern, in: text),
-           let location = parseLocationPhrase(raw, requireKnownLocation: true) {
+           let location = parseLocationPhrase(raw, isAmbiguousTrigger: true, entityTagger: entityTagger) {
             return location
         }
         return nil
@@ -686,10 +760,15 @@ internal enum MemoryExtractionHeuristics {
         return nsText.substring(with: match.range(at: 1))
     }
 
-    private static func parseLocationPhrase(_ raw: String, requireKnownLocation: Bool) -> String? {
+    private static func parseLocationPhrase(
+        _ raw: String,
+        isAmbiguousTrigger: Bool,
+        entityTagger: (any EntityTagger)? = nil
+    ) -> String? {
         let tokens = raw.split(whereSeparator: \.isWhitespace).map(String.init)
         var cityTokens: [String] = []
         var sawComma = false
+        var sawTransientQualifier = false
         var index = 0
 
         while index < tokens.count, cityTokens.count < 4 {
@@ -711,7 +790,19 @@ internal enum MemoryExtractionHeuristics {
         }
 
         while let last = cityTokens.last, locationTrailingNoiseTokens.contains(last.lowercased()) {
+            if transientLocationQualifiers.contains(last.lowercased()) {
+                sawTransientQualifier = true
+            }
             cityTokens.removeLast()
+        }
+        if index < tokens.count {
+            let following = tokens[index].trimmingCharacters(in: CharacterSet.punctuationCharacters).lowercased()
+            if transientLocationQualifiers.contains(following) {
+                sawTransientQualifier = true
+            }
+        }
+        if isAmbiguousTrigger, sawTransientQualifier {
+            return nil
         }
 
         var regionToken: String?
@@ -748,7 +839,10 @@ internal enum MemoryExtractionHeuristics {
             }
         }
 
-        guard !requireKnownLocation, city.count >= 2 else { return nil }
+        guard city.count >= 2 else { return nil }
+        if isAmbiguousTrigger {
+            guard entityTagger?.isLikelyPlaceName(city) == true else { return nil }
+        }
 
         let displayCity = titleCasedLocation(cityTokens)
         guard let regionToken else { return displayCity }

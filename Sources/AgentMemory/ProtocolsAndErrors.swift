@@ -231,6 +231,20 @@ public protocol Chunker: Sendable {
     func chunk(text: String, kind: DocumentKind, sourceURL: URL?) -> [Chunk]
 }
 
+public protocol EntityTagger: Sendable {
+    var identifier: String { get }
+
+    /// Recognizes named entities (people, places, organizations) in prose.
+    /// Implementations should be conservative: returned entities are merged
+    /// additively into heuristic extraction results.
+    func recognizeEntities(in text: String) -> [MemoryEntity]
+
+    /// Whether a short phrase plausibly names a real-world place.
+    /// Used to confirm ambiguous self-reported location phrases before they
+    /// become durable profile memories.
+    func isLikelyPlaceName(_ phrase: String) -> Bool
+}
+
 public struct MemoryConfiguration: Sendable {
     public var databaseURL: URL
     public var embeddingProvider: any EmbeddingProvider
@@ -249,6 +263,7 @@ public struct MemoryConfiguration: Sendable {
     public var positionAwareBlending: PositionAwareBlending
     public var groundedQueryExpansion: GroundedQueryExpansionConfiguration
     public var ftsTokenizer: (any Tokenizer)?
+    public var entityTagger: (any EntityTagger)?
     /// How long recorded memory signals are kept before being pruned.
     /// Values <= 0 disable pruning.
     public var memorySignalRetention: TimeInterval
@@ -271,6 +286,7 @@ public struct MemoryConfiguration: Sendable {
         positionAwareBlending: PositionAwareBlending = .default,
         groundedQueryExpansion: GroundedQueryExpansionConfiguration = .conservativeDefault,
         ftsTokenizer: (any Tokenizer)? = nil,
+        entityTagger: (any EntityTagger)? = Self.defaultEntityTagger,
         memorySignalRetention: TimeInterval = Self.defaultMemorySignalRetention
     ) {
         self.databaseURL = databaseURL
@@ -290,7 +306,16 @@ public struct MemoryConfiguration: Sendable {
         self.positionAwareBlending = positionAwareBlending
         self.groundedQueryExpansion = groundedQueryExpansion
         self.ftsTokenizer = ftsTokenizer
+        self.entityTagger = entityTagger
         self.memorySignalRetention = memorySignalRetention
+    }
+
+    public static var defaultEntityTagger: (any EntityTagger)? {
+        #if MEMORY_NATURAL_LANGUAGE
+        NLEntityTagger()
+        #else
+        nil
+        #endif
     }
 
     public static let defaultMemorySignalRetention: TimeInterval = 90 * 24 * 60 * 60

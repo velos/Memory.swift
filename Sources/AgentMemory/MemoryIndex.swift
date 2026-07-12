@@ -1961,7 +1961,8 @@ public actor MemoryIndex {
             },
             proposedAction: { candidate in
                 self.proposedWriteAction(for: candidate)
-            }
+            },
+            entityTagger: configuration.entityTagger
         )
     }
 
@@ -2077,7 +2078,15 @@ public actor MemoryIndex {
     }
 
     private func normalizeEntities(_ supplied: [MemoryEntity], text: String) -> [MemoryEntity] {
-        let preferred = supplied.isEmpty ? inferEntities(forExtractedText: text) : supplied
+        let preferred: [MemoryEntity]
+        if supplied.isEmpty {
+            preferred = MemoryExtractionHeuristics.mergeTaggerEntities(
+                configuration.entityTagger?.recognizeEntities(in: text) ?? [],
+                into: inferEntities(forExtractedText: text)
+            )
+        } else {
+            preferred = supplied
+        }
         var normalized: [MemoryEntity] = []
         var seen: Set<String> = []
         normalized.reserveCapacity(min(preferred.count, 8))
