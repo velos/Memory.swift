@@ -42,7 +42,7 @@ internal enum MemoryExtractionHeuristics {
             guard !normalized.isEmpty else { continue }
 
             let focusedSegments = focusedUserProfileSegments(from: normalized, role: message.role)
-            let rawSegments = focusedSegments + splitExtractionSegments(normalized)
+            let rawSegments = focusedSegments.map(\.text) + splitExtractionSegments(normalized)
 
             for rawSegment in rawSegments {
                 let segment = rawSegment.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,12 +59,13 @@ internal enum MemoryExtractionHeuristics {
                     continue
                 }
 
+                let focusedSegment = focusedSegments.first { $0.text == segment }
                 let kind = inferKind(forExtractedText: segment)
                 guard isExtractableMemorySegment(
                     segment,
                     kind: kind,
                     role: message.role,
-                    isFocusedProfileSegment: focusedSegments.contains(segment)
+                    isFocusedProfileSegment: focusedSegment != nil
                 ) else {
                     rejected.append(MemoryRejectedSpan(text: segment, reason: "not_memory_worthy", confidence: 0.85))
                     continue
@@ -75,7 +76,11 @@ internal enum MemoryExtractionHeuristics {
                 let confidence = inferredConfidence(for: kind)
                 let tags = inferredTags(forExtractedText: segment)
                 let facetTags = inferFacetTags(forExtractedText: segment, kind: kind)
-                let entities = inferEntities(forExtractedText: segment)
+                    .union(focusedSegment?.facetTags ?? [])
+                let entities = mergeEntities(
+                    pinned: focusedSegment?.entities ?? [],
+                    inferred: inferEntities(forExtractedText: segment)
+                )
                 let topics = inferTopics(forExtractedText: segment, seedTags: tags)
                 let subject = inferSubject(forExtractedText: segment, role: message.role, kind: kind)
                 let evidence = MemoryEvidence(
@@ -461,8 +466,8 @@ internal enum MemoryExtractionHeuristics {
                 "prefer", "preference", "favorite", "likes", "usually", "works closely",
                 "timezone", "my name", "i am", "i'm", "my role", "role is",
                 " is the maintainer", " is the owner", "release owner", " owner for ",
-                "standing constraint", "i live in", "i'm in", "i am in", "the user lives in",
-                "my city is", "my location is"
+                "standing constraint", "i live in", "the user lives in",
+                "my city is", "my location is", "based in"
             ]
         ) {
             return .profile
@@ -502,8 +507,11 @@ internal enum MemoryExtractionHeuristics {
                    "i have noted", "i noted", "noted that", "i will keep",
                    "i'll keep", "sure, i can", "happy to explain",
                    "i don't have real-time", "i do not have real-time",
-                   "my capabilities are focused", "location-specific",
-                   "checking websites like", "local event listings"
+                   "i don't have access to", "i do not have access to",
+                   "i can't browse", "i cannot browse", "as an ai",
+                   "my capabilities are", "i suggest checking",
+                   "i recommend checking", "you could try", "you might try",
+                   "consider checking"
                ]
            ) {
             return false
@@ -574,47 +582,189 @@ internal enum MemoryExtractionHeuristics {
         )
     }
 
-    private static func focusedUserProfileSegments(from text: String, role: ConversationRole) -> [String] {
+    private struct FocusedProfileSegment {
+        var text: String
+        var entities: [MemoryEntity]
+        var facetTags: Set<FacetTag>
+    }
+
+    private static func focusedUserProfileSegments(from text: String, role: ConversationRole) -> [FocusedProfileSegment] {
         guard role == .user else { return [] }
 
-        var segments: [String] = []
+        var segments: [FocusedProfileSegment] = []
         if let location = selfReportedLocation(in: text) {
-            segments.append("The user lives in \(location).")
+            let city = location.split(separator: ",").first.map(String.init) ?? location
+            segments.append(
+                FocusedProfileSegment(
+                    text: "The user lives in \(location).",
+                    entities: [
+                        MemoryEntity(
+                            label: .location,
+                            value: location,
+                            normalizedValue: normalizeEntityValue(city),
+                            confidence: 0.85
+                        ),
+                    ],
+                    facetTags: [.location]
+                )
+            )
         }
         return segments
     }
 
-    private static func selfReportedLocation(in text: String) -> String? {
-        let patterns = [
-            #"\b(?:i\s+live\s+in|i\s+am\s+in|i'm\s+in|my\s+city\s+is|my\s+location\s+is)\s+(sf|san\s+francisco(?:\s*,?\s*(?:ca|california))?)\b"#,
-        ]
-
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-                continue
-            }
-            let nsText = text as NSString
-            let range = NSRange(location: 0, length: nsText.length)
-            guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1 else {
-                continue
-            }
-            let rawLocation = nsText.substring(with: match.range(at: 1))
-            if let normalized = normalizeKnownLocation(rawLocation) {
-                return normalized
-            }
+    private static func mergeEntities(pinned: [MemoryEntity], inferred: [MemoryEntity]) -> [MemoryEntity] {
+        guard !pinned.isEmpty else { return inferred }
+        var seen: Set<String> = []
+        var merged: [MemoryEntity] = []
+        for entity in pinned + inferred {
+            let normalizedValue = normalizeEntityValue(entity.normalizedValue)
+            guard !normalizedValue.isEmpty, seen.insert(normalizedValue).inserted else { continue }
+            merged.append(entity)
         }
+        return merged
+    }
 
+    // Residence statements ("i live in ...") accept any captured place phrase.
+    // The ambiguous forms ("i'm in ...") only fire for locations in the alias table,
+    // since they commonly describe transient states ("i'm in a meeting").
+    private static let strongLocationTriggerPattern =
+        #"\b(?:i\s+live\s+in|i\s+am\s+living\s+in|i['’]m\s+living\s+in|i\s+am\s+based\s+in|i['’]m\s+based\s+in|i\s+(?:just\s+)?moved\s+to|my\s+city\s+is|my\s+location\s+is)\s+([^.!?;\n]+)"#
+    private static let weakLocationTriggerPattern =
+        #"\b(?:i\s+am\s+in|i['’]m\s+in)\s+([^.!?;\n]+)"#
+
+    private static let knownLocationAliases: [String: String] = [
+        "sf": "San Francisco, CA",
+        "san francisco": "San Francisco, CA",
+        "san francisco ca": "San Francisco, CA",
+        "san francisco california": "San Francisco, CA",
+        "nyc": "New York, NY",
+        "new york": "New York, NY",
+        "new york city": "New York, NY",
+        "new york ny": "New York, NY",
+        "la": "Los Angeles, CA",
+        "los angeles": "Los Angeles, CA",
+        "los angeles ca": "Los Angeles, CA",
+    ]
+
+    private static let locationStopTokens: Set<String> = [
+        "and", "but", "or", "so", "which", "where", "when", "while", "because",
+        "since", "near", "with", "for", "though", "although", "what", "what's",
+        "what’s", "who", "how", "why", "that", "then", "if", "as", "at"
+    ]
+
+    private static let locationTrailingNoiseTokens: Set<String> = [
+        "now", "currently", "atm", "too", "btw", "there", "here", "tonight", "today"
+    ]
+
+    private static let locationLeadingRejectTokens: Set<String> = [
+        "a", "an", "my", "our", "your", "his", "her", "their", "this", "that",
+        "these", "those", "some", "any", "no", "one", "it", "front", "between",
+        "town", "meetings", "meeting"
+    ]
+
+    private static func selfReportedLocation(in text: String) -> String? {
+        if let raw = firstRegexCapture(of: strongLocationTriggerPattern, in: text),
+           let location = parseLocationPhrase(raw, requireKnownLocation: false) {
+            return location
+        }
+        if let raw = firstRegexCapture(of: weakLocationTriggerPattern, in: text),
+           let location = parseLocationPhrase(raw, requireKnownLocation: true) {
+            return location
+        }
         return nil
     }
 
-    private static func normalizeKnownLocation(_ raw: String) -> String? {
-        let normalized = MemorySearchHeuristics.normalizedComparisonKey(for: raw)
-        switch normalized {
-        case "sf", "san francisco", "san francisco ca", "san francisco california":
-            return "San Francisco, CA"
-        default:
+    private static func firstRegexCapture(of pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return nil
         }
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+        guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1 else {
+            return nil
+        }
+        return nsText.substring(with: match.range(at: 1))
+    }
+
+    private static func parseLocationPhrase(_ raw: String, requireKnownLocation: Bool) -> String? {
+        let tokens = raw.split(whereSeparator: \.isWhitespace).map(String.init)
+        var cityTokens: [String] = []
+        var sawComma = false
+        var index = 0
+
+        while index < tokens.count, cityTokens.count < 4 {
+            let token = tokens[index]
+            let cleaned = token.trimmingCharacters(in: CharacterSet.punctuationCharacters)
+            let lower = cleaned.lowercased()
+            guard !cleaned.isEmpty,
+                  !locationStopTokens.contains(lower),
+                  cleaned.allSatisfy({ $0.isLetter || $0 == "-" || $0 == "'" || $0 == "’" })
+            else {
+                break
+            }
+            cityTokens.append(cleaned)
+            index += 1
+            if token.hasSuffix(",") {
+                sawComma = true
+                break
+            }
+        }
+
+        while let last = cityTokens.last, locationTrailingNoiseTokens.contains(last.lowercased()) {
+            cityTokens.removeLast()
+        }
+
+        var regionToken: String?
+        if sawComma, index < tokens.count {
+            let cleaned = tokens[index].trimmingCharacters(in: CharacterSet.punctuationCharacters)
+            let lower = cleaned.lowercased()
+            let isPhraseFinal = index == tokens.count - 1
+                || locationStopTokens.contains(
+                    tokens[index + 1].trimmingCharacters(in: CharacterSet.punctuationCharacters).lowercased()
+                )
+            if !cleaned.isEmpty,
+               cleaned.allSatisfy(\.isLetter),
+               !locationStopTokens.contains(lower),
+               !locationLeadingRejectTokens.contains(lower),
+               cleaned.count <= 2 || isPhraseFinal {
+                regionToken = cleaned
+            }
+        }
+
+        guard let first = cityTokens.first?.lowercased(),
+              !locationLeadingRejectTokens.contains(first)
+        else {
+            return nil
+        }
+
+        let city = cityTokens.joined(separator: " ")
+        let aliasKeys = [
+            regionToken.map { "\(city) \($0)" },
+            city,
+        ].compactMap { $0 }
+        for key in aliasKeys {
+            if let alias = knownLocationAliases[MemorySearchHeuristics.normalizedComparisonKey(for: key)] {
+                return alias
+            }
+        }
+
+        guard !requireKnownLocation, city.count >= 2 else { return nil }
+
+        let displayCity = titleCasedLocation(cityTokens)
+        guard let regionToken else { return displayCity }
+        let displayRegion = regionToken.count <= 3
+            ? regionToken.uppercased()
+            : titleCasedLocation([regionToken])
+        return "\(displayCity), \(displayRegion)"
+    }
+
+    private static func titleCasedLocation(_ tokens: [String]) -> String {
+        tokens
+            .map { token in
+                guard let firstCharacter = token.first, firstCharacter.isLowercase else { return token }
+                return firstCharacter.uppercased() + token.dropFirst()
+            }
+            .joined(separator: " ")
     }
 
     private static func containsEmbeddedQuestionClause(_ lower: String) -> Bool {
@@ -633,15 +783,30 @@ internal enum MemoryExtractionHeuristics {
         role: ConversationRole,
         kind: MemoryKind
     ) -> MemorySubject {
-        let lower = text.lowercased()
         if role == .user,
-           kind == .profile || lower.contains("the user") || lower.contains("i ") || lower.contains("my ") {
+           kind == .profile
+               || containsNormalizedPhrase(phraseEnvelope(for: text), "the user")
+               || containsFirstPersonReference(text) {
             return .user
         }
         if role == .assistant {
             return .assistant
         }
         return .unknown
+    }
+
+    private static let firstPersonTokens: Set<String> = [
+        "i", "i'm", "i’m", "i've", "i’ve", "i'll", "i’ll", "i'd", "i’d",
+        "my", "me", "mine"
+    ]
+
+    private static func containsFirstPersonReference(_ text: String) -> Bool {
+        text
+            .lowercased()
+            .split { character in
+                !character.isLetter && character != "'" && character != "’"
+            }
+            .contains { firstPersonTokens.contains(String($0)) }
     }
 
     private static func subjectAwareCanonicalKey(

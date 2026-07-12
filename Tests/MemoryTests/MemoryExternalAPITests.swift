@@ -766,6 +766,130 @@ struct MemoryExternalAPITests {
     }
 
     @Test
+    func heuristicExtractGeneralizesSelfReportedLocationBeyondKnownAliases() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "i live in chicago, what should i do tonight?"),
+            ],
+            limit: 10
+        )
+
+        #expect(extracted.count == 1)
+        let profile = try #require(extracted.first)
+        #expect(profile.kind == .profile)
+        #expect(profile.text == "The user lives in Chicago.")
+        #expect(profile.subject == .user)
+        #expect(profile.canonicalKey == "profile:user:location")
+        #expect(profile.facetTags.contains(.location))
+        #expect(profile.entities.contains { entity in
+            entity.label == .location && entity.normalizedValue == "chicago"
+        })
+    }
+
+    @Test
+    func heuristicExtractDoesNotTreatTransientStatesAsLocation() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "i'm in a meeting, can you take notes for me?"),
+            ],
+            limit: 10
+        )
+
+        #expect(!extracted.contains { $0.text.contains("lives in") })
+    }
+
+    @Test
+    func prepareContextIgnoresPreviouslyInjectedContextBlocks() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let saved = try await index.save(
+            text: "The user lives in San Francisco, CA.",
+            kind: .profile,
+            facetTags: [.factAboutUser, .location],
+            canonicalKey: "profile:user:location",
+            subject: .user
+        )
+
+        let first = try await index.prepareContext(
+            MemoryContextRequest(
+                messages: [
+                    ConversationMessage(role: .user, content: "What should I do tonight in San Francisco?"),
+                ]
+            )
+        )
+        #expect(first.references.contains { $0.memoryID == saved.id })
+
+        // A host app that prepends the previous context block to the next turn
+        // must not lose the user's actual message to sanitization.
+        let second = try await index.prepareContext(
+            MemoryContextRequest(
+                messages: [
+                    ConversationMessage(
+                        role: .user,
+                        content: "\(first.contextBlock)\n\nWhat should I do tonight in San Francisco?"
+                    ),
+                ]
+            )
+        )
+        #expect(second.references.contains { $0.memoryID == saved.id })
+        #expect(second.contextBlock.contains("UNTRUSTED MEMORY CONTEXT"))
+    }
+
+    @Test
+    func recordSignalPrunesSignalsOlderThanConfiguredRetention() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                memorySignalRetention: 60
+            )
+        )
+
+        try await index.recordSignal(
+            MemorySignal(kind: .recall, query: "old", createdAt: Date().addingTimeInterval(-3_600))
+        )
+        try await index.recordSignal(
+            MemorySignal(kind: .recall, query: "fresh")
+        )
+
+        let maintenance = try await index.runMaintenance(
+            MemoryMaintenanceRequest(mode: .preview, lookbackDays: 30)
+        )
+        #expect(maintenance.consideredSignalCount == 1)
+    }
+
+    @Test
     func capturePreviewAndIngestUseSubjectAwareEvidence() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")

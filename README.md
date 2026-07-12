@@ -142,7 +142,7 @@ let context = try await index.prepareContext(
 )
 ```
 
-`context.contextBlock` is explicitly framed as untrusted retrieved context and includes compact source references. Path-scoped `MemoryContextHint` values can be managed with `setContextHint`, `listContextHints`, and `removeContextHint`; matching hints are surfaced through `memorySearch`, `memoryGet`, and prepared context responses.
+`context.contextBlock` is wrapped in `<memory_context>...</memory_context>` delimiters and explicitly framed as untrusted retrieved context with compact source references. Incoming messages that still contain a previously injected block are sanitized before retrieval, so host apps can prepend the block to the next turn without polluting future queries. Path-scoped `MemoryContextHint` values can be managed with `setContextHint`, `listContextHints`, and `removeContextHint`; matching hints are surfaced through `memorySearch`, `memoryGet`, and prepared context responses.
 
 Maintenance records recall, capture, compaction, explicit, and maintenance signals, then conservatively proposes consolidations:
 

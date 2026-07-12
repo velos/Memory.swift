@@ -249,6 +249,9 @@ public struct MemoryConfiguration: Sendable {
     public var positionAwareBlending: PositionAwareBlending
     public var groundedQueryExpansion: GroundedQueryExpansionConfiguration
     public var ftsTokenizer: (any Tokenizer)?
+    /// How long recorded memory signals are kept before being pruned.
+    /// Values <= 0 disable pruning.
+    public var memorySignalRetention: TimeInterval
 
     public init(
         databaseURL: URL,
@@ -267,7 +270,8 @@ public struct MemoryConfiguration: Sendable {
         fusionK: Double = 60,
         positionAwareBlending: PositionAwareBlending = .default,
         groundedQueryExpansion: GroundedQueryExpansionConfiguration = .conservativeDefault,
-        ftsTokenizer: (any Tokenizer)? = nil
+        ftsTokenizer: (any Tokenizer)? = nil,
+        memorySignalRetention: TimeInterval = Self.defaultMemorySignalRetention
     ) {
         self.databaseURL = databaseURL
         self.embeddingProvider = embeddingProvider
@@ -286,7 +290,10 @@ public struct MemoryConfiguration: Sendable {
         self.positionAwareBlending = positionAwareBlending
         self.groundedQueryExpansion = groundedQueryExpansion
         self.ftsTokenizer = ftsTokenizer
+        self.memorySignalRetention = memorySignalRetention
     }
+
+    public static let defaultMemorySignalRetention: TimeInterval = 90 * 24 * 60 * 60
 
     public static var defaultSupportedExtensions: Set<String> {
         [

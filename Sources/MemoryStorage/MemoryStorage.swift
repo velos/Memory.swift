@@ -1519,6 +1519,13 @@ public actor MemoryStorage {
         )
     }
 
+    public func pruneMemorySignals(olderThan date: Date) throws {
+        try database.execute(
+            sql: "DELETE FROM memory_signals WHERE created_at < ?",
+            arguments: [date.timeIntervalSince1970]
+        )
+    }
+
     public func listMemorySignals(since: Date, limit: Int) throws -> [StoredMemorySignal] {
         try database.fetchAll(
             sql: """
