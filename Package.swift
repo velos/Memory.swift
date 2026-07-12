@@ -3,27 +3,42 @@ import Foundation
 import PackageDescription
 
 // Some Apple Swift CLT/snapshot installs place Swift Testing in Developer
-// frameworks instead of the default SwiftPM search paths.
-let developerFrameworkSwiftSettings: [SwiftSetting] = [
-    "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
-    "/Applications/Xcode.app/Contents/Developer/Library/Developer/Frameworks",
-].compactMap { path in
+// frameworks instead of the default SwiftPM search paths. When DEVELOPER_DIR
+// is set, use only that toolchain's paths: mixing another Xcode's Testing
+// framework with the selected compiler's @Test macro fails to build.
+let developerDir = ProcessInfo.processInfo.environment["DEVELOPER_DIR"]
+
+let developerFrameworkPaths: [String] = {
+    if let developerDir, !developerDir.isEmpty {
+        return [developerDir + "/Library/Developer/Frameworks"]
+    }
+    return [
+        "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
+        "/Applications/Xcode.app/Contents/Developer/Library/Developer/Frameworks",
+    ]
+}()
+
+let developerLibraryPaths: [String] = {
+    if let developerDir, !developerDir.isEmpty {
+        return [developerDir + "/Library/Developer/usr/lib"]
+    }
+    return [
+        "/Library/Developer/CommandLineTools/Library/Developer/usr/lib",
+        "/Applications/Xcode.app/Contents/Developer/Library/Developer/usr/lib",
+    ]
+}()
+
+let developerFrameworkSwiftSettings: [SwiftSetting] = developerFrameworkPaths.compactMap { path in
     guard FileManager.default.fileExists(atPath: path) else { return nil }
     return .unsafeFlags(["-F", path], .when(platforms: [.macOS]))
 }
 
-let developerFrameworkLinkerSettings: [LinkerSetting] = [
-    "/Library/Developer/CommandLineTools/Library/Developer/Frameworks",
-    "/Applications/Xcode.app/Contents/Developer/Library/Developer/Frameworks",
-].compactMap { path in
+let developerFrameworkLinkerSettings: [LinkerSetting] = developerFrameworkPaths.compactMap { path in
     guard FileManager.default.fileExists(atPath: path) else { return nil }
     return .unsafeFlags(["-F", path, "-Xlinker", "-rpath", "-Xlinker", path], .when(platforms: [.macOS]))
 }
 
-let developerLibraryLinkerSettings: [LinkerSetting] = [
-    "/Library/Developer/CommandLineTools/Library/Developer/usr/lib",
-    "/Applications/Xcode.app/Contents/Developer/Library/Developer/usr/lib",
-].compactMap { path in
+let developerLibraryLinkerSettings: [LinkerSetting] = developerLibraryPaths.compactMap { path in
     guard FileManager.default.fileExists(atPath: path) else { return nil }
     return .unsafeFlags(["-L", path, "-Xlinker", "-rpath", "-Xlinker", path], .when(platforms: [.macOS]))
 }
