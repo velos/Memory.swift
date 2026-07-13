@@ -1152,11 +1152,14 @@ public actor MemoryIndex {
         guard limit > 0 else { return MemoryExtractionResult() }
         guard !messages.isEmpty else { return MemoryExtractionResult() }
 
+        let extraction: MemoryExtractionResult
         if let extractor = configuration.memoryExtractor {
-            return try await extractor.extract(messages: messages, limit: limit)
+            extraction = try await extractor.extract(messages: messages, limit: limit)
+        } else {
+            extraction = heuristicExtract(messages: messages, limit: limit)
         }
 
-        return heuristicExtract(messages: messages, limit: limit)
+        return enrichExtractionResult(extraction)
     }
 
     public func capture(_ request: MemoryCaptureRequest) async throws -> MemoryCaptureResult {
@@ -1965,6 +1968,25 @@ public actor MemoryIndex {
         )
     }
 
+    /// Applies the same entity reconciliation to every extraction provider.
+    /// Linguistic annotations enrich candidate metadata but do not create
+    /// candidates, facets, or durable write decisions on their own.
+    private func enrichExtractionResult(_ result: MemoryExtractionResult) -> MemoryExtractionResult {
+        guard let entityTagger = configuration.entityTagger else { return result }
+
+        var enriched = result
+        enriched.candidates = result.candidates.map { candidate in
+            var candidate = candidate
+            candidate.entities = MemoryExtractionHeuristics.enrichedEntities(
+                supplied: candidate.entities,
+                tagged: entityTagger.recognizeEntities(in: candidate.text),
+                text: candidate.text
+            )
+            return candidate
+        }
+        return enriched
+    }
+
     private func inferredTags(forExtractedText text: String) -> [String] {
         MemoryExtractionHeuristics.inferredTags(forExtractedText: text)
     }
@@ -2077,7 +2099,11 @@ public actor MemoryIndex {
     }
 
     private func normalizeEntities(_ supplied: [MemoryEntity], text: String) -> [MemoryEntity] {
-        let preferred = supplied.isEmpty ? inferEntities(forExtractedText: text) : supplied
+        let preferred = MemoryExtractionHeuristics.enrichedEntities(
+            supplied: supplied,
+            tagged: configuration.entityTagger?.recognizeEntities(in: text) ?? [],
+            text: text
+        )
         var normalized: [MemoryEntity] = []
         var seen: Set<String> = []
         normalized.reserveCapacity(min(preferred.count, 8))

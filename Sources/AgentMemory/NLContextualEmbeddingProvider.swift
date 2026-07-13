@@ -279,6 +279,7 @@ public extension MemoryConfiguration {
         structuredQueryExpander: (any StructuredQueryExpander)? = GenericStructuredQueryExpander(),
         reranker: (any Reranker)? = nil,
         contentTagger: (any ContentTagger)? = nil,
+        entityTagger: (any EntityTagger)? = NLEntityTagger(),
         memoryExtractor: (any MemoryExtractor)? = nil,
         recallPlanner: (any RecallPlanner)? = nil,
         queryAnalyzer: (any QueryAnalyzer)? = NLQueryAnalyzer(),
@@ -307,7 +308,8 @@ public extension MemoryConfiguration {
             lexicalCandidateLimit: lexicalCandidateLimit,
             fusionK: fusionK,
             positionAwareBlending: positionAwareBlending,
-            ftsTokenizer: ftsTokenizer
+            ftsTokenizer: ftsTokenizer,
+            entityTagger: entityTagger
         )
     }
 }

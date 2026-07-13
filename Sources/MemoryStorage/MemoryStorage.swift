@@ -1957,7 +1957,10 @@ public actor MemoryStorage {
             sql: "CREATE VIRTUAL TABLE IF NOT EXISTS temp.\(Self.scopedLexicalFTSTableName) USING fts5(content)"
         )
 
-        return try database.transaction {
+        // body must stay outside the transaction closure: Swift 6.2 rejects
+        // capturing the caller's closure there (sending-risk diagnostic), and
+        // the temp table is session-scoped, so its rows survive the commit.
+        try database.transaction {
             try database.execute(sql: "DELETE FROM temp.\(Self.scopedLexicalFTSTableName)")
             for metadata in metadataRows {
                 try database.execute(
@@ -1968,8 +1971,8 @@ public actor MemoryStorage {
                     arguments: [metadata.chunkID, metadata.content]
                 )
             }
-            return try body()
         }
+        return try body()
     }
 
     private static func runPreparedScopedLexicalSearchQuery(

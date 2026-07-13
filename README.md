@@ -108,7 +108,7 @@ Most integrations only need:
 - `save`, `extract`, `ingest`, and `recall` for agent memory workflows
 - `capture`, `prepareContext`, `recordSignal`, and `runMaintenance` for higher-level agent memory workflows
 - `memorySearch` and `memoryGet` for tool-style retrieval
-- customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`) only when you are swapping in your own providers
+- customization protocols (`EmbeddingProvider`, `Reranker`, `StructuredQueryExpander`, `MemoryExtractor`, `RecallPlanner`, `EntityTagger`) only when you are swapping in your own providers
 
 ## Agent Memory Workflows
 
@@ -130,6 +130,12 @@ let capture = try await index.capture(
 ```
 
 Captured `MemoryCandidate` and stored `MemoryRecord` values can include a `subject` and original-message `evidence`. The default agent policy focuses on user-authored durable facts, rejects assistant capability/refusal text, and keeps embedded declarations separate from raw questions.
+
+### Linguistic Entity Tagging
+
+When the `MemoryNaturalLanguage` trait is enabled (the default), every extraction provider is followed by a shared entity-enrichment stage using `NLEntityTagger`, an `NLTagger`-backed named entity recognizer. Extractor-supplied and heuristic entities remain the floor. Linguistic annotations can conservatively specialize generic labels or add missed entities when the surrounding prose supports the proposed person/location/organization label, but they do not independently create candidates, facets, or durable write decisions. NaturalLanguage does not expose calibrated confidence for name tags, so its annotations are intentionally treated as advisory.
+
+Residence extraction requires an explicit durable relation such as "I live in", "I'm based in", or "I moved to". Presence statements such as "I'm in Portland" may describe travel and are not rewritten as residence even when Portland is recognized as a place. Set `entityTagger: nil` to disable linguistic enrichment, or provide a custom `EntityTagger`; high-confidence custom annotations can be accepted without the default contextual corroboration.
 
 Context preparation retrieves bounded memory context for the next model turn:
 

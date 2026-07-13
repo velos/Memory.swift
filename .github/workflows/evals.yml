@@ -1,0 +1,55 @@
+name: Evals
+
+# Manual-only: eval results are OS-sensitive (NaturalLanguage models vary by
+# macOS version), so these run on demand for diagnostics rather than as a
+# PR-blocking gate. The authoritative release gate remains local runs against
+# Evals/baselines/current.json per AGENTS.md.
+on:
+  workflow_dispatch:
+
+jobs:
+  extraction-suites:
+    name: Extraction-affected eval suites (coreml_default)
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          XCODE_DEV="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)/Contents/Developer"
+          sudo xcode-select -s "$XCODE_DEV"
+          echo "DEVELOPER_DIR=$XCODE_DEV" >> "$GITHUB_ENV"
+          swift --version
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-traits-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-traits-
+
+      - name: Run extraction-affected suites
+        run: |
+          for ds in memory_schema_gold_v2 agent_memory_gold_v1 agent_memory_pressure_v1 eval_quality_smoke_v1 storage_heldout_v1; do
+            echo "=== $ds ==="
+            swift run --traits CoreMLEmbedding,MemoryNaturalLanguage memory_eval run \
+              --profile coreml_default --dataset-root "./Evals/$ds" --no-cache --no-index-cache
+          done
+
+      - name: Gate focused baselines
+        run: |
+          pressure_run=$(ls -t Evals/agent_memory_pressure_v1/runs/*-coreml_default.json | head -1)
+          smoke_run=$(ls -t Evals/eval_quality_smoke_v1/runs/*-coreml_default.json | head -1)
+          swift run --traits CoreMLEmbedding,MemoryNaturalLanguage memory_eval gate \
+            --baseline Evals/baselines/pressure.json "$pressure_run"
+          swift run --traits CoreMLEmbedding,MemoryNaturalLanguage memory_eval gate \
+            --baseline Evals/baselines/eval_quality_smoke.json "$smoke_run"
+
+      - name: Upload run reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-runs
+          path: Evals/*/runs/*coreml_default.*
+          if-no-files-found: warn

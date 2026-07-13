@@ -13,33 +13,7 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
 
         let lowered = trimmed.lowercased()
 
-        var entities: [MemoryEntity] = []
-        let nerTagger = NLTagger(tagSchemes: [.nameType])
-        nerTagger.string = trimmed
-        nerTagger.enumerateTags(
-            in: trimmed.startIndex..<trimmed.endIndex,
-            unit: .word,
-            scheme: .nameType,
-            options: [.omitWhitespace, .omitPunctuation, .joinNames]
-        ) { tag, range in
-            if let tag, tag != .otherWord {
-                let value = String(trimmed[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    let normalizedValue = normalizeEntityValue(value)
-                    if !normalizedValue.isEmpty {
-                        entities.append(
-                            MemoryEntity(
-                                label: entityLabel(for: tag),
-                                value: value,
-                                normalizedValue: normalizedValue,
-                                confidence: 0.75
-                            )
-                        )
-                    }
-                }
-            }
-            return true
-        }
+        let entities = NLNamedEntityRecognition.recognize(in: trimmed, confidence: 0.75)
 
         var keyTerms: [String] = []
         var seenKeyTerms: Set<String> = []
@@ -149,27 +123,6 @@ public struct NLQueryAnalyzer: QueryAnalyzer, Sendable {
         }
 
         return base
-    }
-
-    private func normalizeEntityValue(_ raw: String) -> String {
-        raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .lowercased()
-    }
-
-    private func entityLabel(for tag: NLTag) -> EntityLabel {
-        switch tag {
-        case .personalName:
-            return .person
-        case .organizationName:
-            return .organization
-        case .placeName:
-            return .location
-        default:
-            return .other
-        }
     }
 
     private let facetKeywords: [FacetTag: [String]] = [
