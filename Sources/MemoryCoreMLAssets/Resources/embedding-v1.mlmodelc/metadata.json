@@ -1,3 +1,101 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ec2dce9499c4baf92ca72d5fd88c080c47bfd73506015f48518a8584c968a137
-size 2777
+[
+  {
+    "metadataOutputVersion" : "3.0",
+    "storagePrecision" : "Mixed (Float16, Int8)",
+    "outputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float32",
+        "formattedType" : "MultiArray (Float32 1 × 384)",
+        "shortDescription" : "",
+        "shape" : "[1, 384]",
+        "name" : "embedding",
+        "type" : "MultiArray"
+      }
+    ],
+    "modelParameters" : [
+
+    ],
+    "specificationVersion" : 9,
+    "mlProgramOperationTypeHistogram" : {
+      "Ios18.expandDims" : 3,
+      "Ios18.constexprBlockwiseShiftScale" : 38,
+      "Ios18.mul" : 1,
+      "Ios18.realDiv" : 2,
+      "Ios18.scaledDotProductAttention" : 6,
+      "Ios18.greaterEqual" : 2,
+      "Select" : 3,
+      "Tile" : 2,
+      "Ios16.reduceSum" : 2,
+      "Ios18.gather" : 2,
+      "Ios18.add" : 16,
+      "Ios18.layerNorm" : 13,
+      "Ios18.reshape" : 24,
+      "Ios18.maximum" : 1,
+      "Ios18.linear" : 36,
+      "Ios18.gelu" : 6,
+      "Ios18.clip" : 1,
+      "Ios18.sub" : 1,
+      "Ios18.cast" : 9,
+      "Ios18.transpose" : 24,
+      "Ios16.reduceL2Norm" : 1
+    },
+    "computePrecision" : "Mixed (Float16, Float32, Int16, Int32, UInt16)",
+    "isUpdatable" : "0",
+    "stateSchema" : [
+
+    ],
+    "availability" : {
+      "macOS" : "15.0",
+      "tvOS" : "18.0",
+      "visionOS" : "2.0",
+      "watchOS" : "11.0",
+      "iOS" : "18.0",
+      "macCatalyst" : "18.0"
+    },
+    "modelType" : {
+      "name" : "MLModelType_mlProgram"
+    },
+    "userDefinedMetadata" : {
+      "com.github.apple.coremltools.conversion_date" : "2026-02-27",
+      "com.github.apple.coremltools.source" : "torch==2.8.0",
+      "com.github.apple.coremltools.version" : "9.0",
+      "com.github.apple.coremltools.source_dialect" : "TorchScript"
+    },
+    "inputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Int32",
+        "formattedType" : "MultiArray (Int32 1 × 512)",
+        "shortDescription" : "",
+        "shape" : "[1, 512]",
+        "name" : "input_ids",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Int32",
+        "formattedType" : "MultiArray (Int32 1 × 512)",
+        "shortDescription" : "",
+        "shape" : "[1, 512]",
+        "name" : "attention_mask",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Int32",
+        "formattedType" : "MultiArray (Int32 1 × 512)",
+        "shortDescription" : "",
+        "shape" : "[1, 512]",
+        "name" : "token_type_ids",
+        "type" : "MultiArray"
+      }
+    ],
+    "generatedClassName" : "embedding_v1",
+    "method" : "predict"
+  }
+]
