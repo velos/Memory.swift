@@ -181,6 +181,26 @@ actor StaticContentTagger: ContentTagger {
     }
 }
 
+struct StaticMemoryExtractor: MemoryExtractor {
+    let identifier = "static-memory-extractor"
+    let result: MemoryExtractionResult
+
+    func extract(messages: [ConversationMessage], limit: Int) async throws -> MemoryExtractionResult {
+        var limited = result
+        limited.candidates = Array(result.candidates.prefix(limit))
+        return limited
+    }
+}
+
+struct StaticEntityTagger: EntityTagger {
+    let identifier = "static-entity-tagger"
+    let entities: [MemoryEntity]
+
+    func recognizeEntities(in text: String) -> [MemoryEntity] {
+        entities
+    }
+}
+
 func makeTemporaryDirectory(function: String = #function) throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("memory-tests")

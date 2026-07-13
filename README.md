@@ -133,7 +133,9 @@ Captured `MemoryCandidate` and stored `MemoryRecord` values can include a `subje
 
 ### Linguistic Entity Tagging
 
-When the `MemoryNaturalLanguage` trait is enabled (the default), extraction runs `NLEntityTagger` — an `NLTagger`-backed named entity recognizer — alongside the heuristics. Tagger results are strictly additive: they upgrade generic entity labels to `person`/`location`/`organization`, add entities the heuristics missed in well-capitalized text, and confirm ambiguous self-reported locations ("i'm in portland") before they become durable profile memories. Travel-qualified phrases ("i'm in boston this week") are treated as transient and not recorded as residence. Heuristic behavior is the floor: with `entityTagger: nil` (or the trait disabled) extraction is unchanged, and residence statements ("i live in ...") never require tagger confirmation. Provide a custom `EntityTagger` through `MemoryConfiguration` to swap in your own recognizer.
+When the `MemoryNaturalLanguage` trait is enabled (the default), every extraction provider is followed by a shared entity-enrichment stage using `NLEntityTagger`, an `NLTagger`-backed named entity recognizer. Extractor-supplied and heuristic entities remain the floor. Linguistic annotations can conservatively specialize generic labels or add missed entities when the surrounding prose supports the proposed person/location/organization label, but they do not independently create candidates, facets, or durable write decisions. NaturalLanguage does not expose calibrated confidence for name tags, so its annotations are intentionally treated as advisory.
+
+Residence extraction requires an explicit durable relation such as "I live in", "I'm based in", or "I moved to". Presence statements such as "I'm in Portland" may describe travel and are not rewritten as residence even when Portland is recognized as a place. Set `entityTagger: nil` to disable linguistic enrichment, or provide a custom `EntityTagger`; high-confidence custom annotations can be accepted without the default contextual corroboration.
 
 Context preparation retrieves bounded memory context for the next model turn:
 

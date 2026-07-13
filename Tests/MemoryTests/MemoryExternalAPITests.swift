@@ -890,7 +890,7 @@ struct MemoryExternalAPITests {
     }
 
     @Test
-    func ambiguousLocationRequiresConfirmationWithoutTagger() async throws {
+    func ambiguousLocationDoesNotBecomeResidenceWithoutTagger() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")
 
@@ -914,26 +914,20 @@ struct MemoryExternalAPITests {
 
 #if MEMORY_NATURAL_LANGUAGE
     @Test
-    func nlEntityTaggerConfirmsPlacesAndRejectsCommonNouns() {
+    func nlEntityTaggerRecognizesNamedEntitiesConservatively() {
         let tagger = NLEntityTagger()
-
-        #expect(tagger.isLikelyPlaceName("lisbon"))
-        #expect(tagger.isLikelyPlaceName("tokyo"))
-        #expect(tagger.isLikelyPlaceName("new york"))
-        #expect(!tagger.isLikelyPlaceName("a meeting"))
-        #expect(!tagger.isLikelyPlaceName("fear"))
-        #expect(!tagger.isLikelyPlaceName("my apartment"))
 
         let entities = tagger.recognizeEntities(in: "Annie retired from Google last year.")
         #expect(entities.contains { $0.label == .person && $0.normalizedValue == "annie" })
         #expect(entities.contains { $0.label == .organization && $0.normalizedValue == "google" })
+        #expect(entities.allSatisfy { ($0.confidence ?? 1) < 0.9 })
 
         // Lowercase chat text yields nothing; heuristics remain the floor.
         #expect(tagger.recognizeEntities(in: "annie retired from google last year").isEmpty)
     }
 
     @Test
-    func heuristicExtractAcceptsTaggerConfirmedAmbiguousLocation() async throws {
+    func heuristicExtractDoesNotRewritePresenceAsResidence() async throws {
         let root = try makeTemporaryDirectory()
         let dbURL = root.appendingPathComponent("index.sqlite")
 
@@ -947,18 +941,14 @@ struct MemoryExternalAPITests {
         let extracted = try await index.extract(
             from: [
                 ConversationMessage(role: .user, content: "btw i'm in lisbon, any dinner recs?"),
+                ConversationMessage(role: .user, content: "i'm in sf now, what should we do?"),
+                ConversationMessage(role: .user, content: "i am in tokyo currently for work."),
+                ConversationMessage(role: .user, content: "i'm in new york atm."),
             ],
             limit: 10
         )
 
-        let profile = try #require(extracted.first { $0.text == "The user lives in Lisbon." })
-        #expect(profile.kind == .profile)
-        #expect(profile.subject == .user)
-        #expect(profile.canonicalKey == "profile:user:location")
-        #expect(profile.facetTags.contains(.location))
-        #expect(profile.entities.contains { entity in
-            entity.label == .location && entity.normalizedValue == "lisbon"
-        })
+        #expect(extracted.isEmpty)
     }
 
     @Test
@@ -1008,7 +998,82 @@ struct MemoryExternalAPITests {
             entity.label == .person && entity.normalizedValue == "priya"
         })
     }
+
+    @Test
+    func linguisticLabelsRequireContextBeforeChangingFacets() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider()
+            )
+        )
+
+        let extracted = try await index.extract(
+            from: [
+                ConversationMessage(role: .user, content: "On Monday, Rowan reviewed the TrailMap export failure."),
+                ConversationMessage(role: .user, content: "Mina prefers Linear for AtlasKit project triage."),
+                ConversationMessage(role: .user, content: "After the incident, Mina captured a lesson about Redis backoff limits."),
+            ],
+            limit: 10
+        )
+
+        #expect(extracted.count == 3)
+        #expect(extracted.allSatisfy { !$0.facetTags.contains(.location) })
+        #expect(!extracted.flatMap(\.entities).contains { entity in
+            entity.label == .location && ["mina", "rowan"].contains(entity.normalizedValue)
+        })
+        #expect(!extracted.flatMap(\.entities).contains { entity in
+            entity.label == .person && entity.normalizedValue == "redis"
+        })
+    }
 #endif
+
+    @Test
+    func customExtractorCandidatesReceiveCentralEntityEnrichment() async throws {
+        let root = try makeTemporaryDirectory()
+        let dbURL = root.appendingPathComponent("index.sqlite")
+        let candidate = MemoryCandidate(
+            text: "Priya is the maintainer for AtlasKit.",
+            kind: .profile,
+            entities: [
+                MemoryEntity(
+                    label: .project,
+                    value: "AtlasKit",
+                    normalizedValue: "atlaskit",
+                    confidence: 0.98
+                ),
+            ]
+        )
+
+        let index = try MemoryIndex(
+            configuration: MemoryConfiguration(
+                databaseURL: dbURL,
+                embeddingProvider: MockEmbeddingProvider(),
+                memoryExtractor: StaticMemoryExtractor(
+                    result: MemoryExtractionResult(candidates: [candidate])
+                ),
+                entityTagger: StaticEntityTagger(
+                    entities: [
+                        MemoryEntity(
+                            label: .person,
+                            value: "Priya",
+                            normalizedValue: "priya",
+                            confidence: 0.95
+                        ),
+                    ]
+                )
+            )
+        )
+
+        let extracted = try await index.extract(from: "ignored")
+        let enriched = try #require(extracted.first)
+        #expect(enriched.entities.contains { $0.label == .project && $0.normalizedValue == "atlaskit" })
+        #expect(enriched.entities.contains { $0.label == .person && $0.normalizedValue == "priya" })
+        #expect(enriched.facetTags.isEmpty)
+    }
 
     @Test
     func capturePreviewAndIngestUseSubjectAwareEvidence() async throws {

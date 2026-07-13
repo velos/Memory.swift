@@ -6,72 +6,54 @@ import NaturalLanguage
 ///
 /// `NLTagger` name recognition depends on capitalization: it stays silent on
 /// all-lowercase chat text, so `recognizeEntities` degrades to a no-op there
-/// and heuristic extraction remains the behavior floor. `isLikelyPlaceName`
-/// validates short phrases by title-casing them inside a natural carrier
-/// sentence, where place recognition is markedly more precise than tagging
-/// the bare phrase.
+/// and heuristic extraction remains the behavior floor. NaturalLanguage does
+/// not expose calibrated confidence for name tags, so annotations use a
+/// deliberately modest confidence and downstream reconciliation requires
+/// contextual support before specializing heuristic labels.
 public struct NLEntityTagger: EntityTagger {
     public let identifier = "nl-entity-tagger"
 
     public init() {}
 
     public func recognizeEntities(in text: String) -> [MemoryEntity] {
+        NLNamedEntityRecognition.recognize(in: text, confidence: 0.55)
+    }
+}
+
+internal enum NLNamedEntityRecognition {
+    internal static func recognize(in text: String, confidence: Double) -> [MemoryEntity] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
         var entities: [MemoryEntity] = []
         var seen: Set<String> = []
-        enumerateNameTags(in: trimmed) { value, label in
-            let normalizedValue = MemoryExtractionHeuristics.normalizeEntityValue(value)
-            guard !normalizedValue.isEmpty, seen.insert(normalizedValue).inserted else { return }
-            entities.append(
-                MemoryEntity(
-                    label: label,
-                    value: value,
-                    normalizedValue: normalizedValue,
-                    confidence: 0.8
-                )
-            )
-        }
-        return entities
-    }
-
-    public func isLikelyPlaceName(_ phrase: String) -> Bool {
-        let trimmed = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.count <= 60 else { return false }
-
-        let candidate = titleCased(trimmed)
-        let carrier = "They moved to \(candidate) last month."
-        var foundPlace = false
-        enumerateNameTags(in: carrier) { value, label in
-            guard label == .location else { return }
-            if candidate.range(of: value, options: [.caseInsensitive]) != nil {
-                foundPlace = true
-            }
-        }
-        return foundPlace
-    }
-
-    private func enumerateNameTags(in text: String, handler: (String, EntityLabel) -> Void) {
         let tagger = NLTagger(tagSchemes: [.nameType])
-        tagger.string = text
+        tagger.string = trimmed
         tagger.enumerateTags(
-            in: text.startIndex..<text.endIndex,
+            in: trimmed.startIndex..<trimmed.endIndex,
             unit: .word,
             scheme: .nameType,
             options: [.omitWhitespace, .omitPunctuation, .joinNames]
         ) { tag, range in
             if let tag, let label = entityLabel(for: tag) {
-                let value = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    handler(value, label)
-                }
+                let value = String(trimmed[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let normalizedValue = MemoryExtractionHeuristics.normalizeEntityValue(value)
+                guard !normalizedValue.isEmpty, seen.insert(normalizedValue).inserted else { return true }
+                entities.append(
+                    MemoryEntity(
+                        label: label,
+                        value: value,
+                        normalizedValue: normalizedValue,
+                        confidence: confidence
+                    )
+                )
             }
             return true
         }
+        return entities
     }
 
-    private func entityLabel(for tag: NLTag) -> EntityLabel? {
+    private static func entityLabel(for tag: NLTag) -> EntityLabel? {
         switch tag {
         case .personalName:
             .person
@@ -82,16 +64,6 @@ public struct NLEntityTagger: EntityTagger {
         default:
             nil
         }
-    }
-
-    private func titleCased(_ phrase: String) -> String {
-        phrase
-            .split(separator: " ", omittingEmptySubsequences: false)
-            .map { word -> String in
-                guard let first = word.first, first.isLowercase else { return String(word) }
-                return first.uppercased() + word.dropFirst()
-            }
-            .joined(separator: " ")
     }
 }
 #endif

@@ -235,14 +235,10 @@ public protocol EntityTagger: Sendable {
     var identifier: String { get }
 
     /// Recognizes named entities (people, places, organizations) in prose.
-    /// Implementations should be conservative: returned entities are merged
-    /// additively into heuristic extraction results.
+    /// Results are treated as linguistic annotations and reconciled with
+    /// extractor- and heuristic-supplied entities. They do not independently
+    /// authorize durable memories or semantic facets.
     func recognizeEntities(in text: String) -> [MemoryEntity]
-
-    /// Whether a short phrase plausibly names a real-world place.
-    /// Used to confirm ambiguous self-reported location phrases before they
-    /// become durable profile memories.
-    func isLikelyPlaceName(_ phrase: String) -> Bool
 }
 
 public struct MemoryConfiguration: Sendable {
